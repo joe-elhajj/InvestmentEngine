@@ -1,0 +1,62 @@
+# =====================================================================
+# Investment Engine — configuration
+# Everything that is an ASSUMPTION or a JUDGMENT lives here, in version
+# control, owned by you. The code never invents these at runtime.
+# =====================================================================
+
+sec:
+  # REQUIRED by the SEC. Use your real name + email or you will get 403s.
+  user_agent: "Joe El Hajj - Investment Engine - joeelhajj01@icloud.com"
+  request_delay_seconds: 0.2          # ~5 req/s, well under SEC's limit
+
+report:
+  output_dir: "reports"
+  history_years: 15                   # how far back to pull annual data
+
+valuation:
+  assumed_tax_rate: 0.21              # used for NOPAT in ROIC; your assumption
+  dcf:
+    projection_years: 5
+    # ---- scenarios: you own every number here ----
+    scenarios:
+      bear:
+        fcf_growth: [0.03, 0.03, 0.02, 0.02, 0.02]
+        terminal_growth: 0.015
+        wacc: 0.11
+      base:
+        fcf_growth: [0.08, 0.07, 0.06, 0.05, 0.04]
+        terminal_growth: 0.025
+        wacc: 0.09
+      bull:
+        fcf_growth: [0.14, 0.12, 0.10, 0.08, 0.06]
+        terminal_growth: 0.030
+        wacc: 0.08
+    # ---- sensitivity grid for the BASE scenario ----
+    sensitivity:
+      wacc:            [0.07, 0.08, 0.09, 0.10, 0.11]
+      terminal_growth: [0.015, 0.020, 0.025, 0.030, 0.035]
+
+peers:
+  # The target is compared only against names that pass BOTH filters below.
+  match_sic: "two_digit"              # two_digit | three_digit | exact
+  size_band:
+    metric: "market_cap"              # falls back to revenue if no market cap
+    lower_multiple: 0.25              # peer size must be >= 0.25x target
+    upper_multiple: 4.0               # ... and <= 4x target
+  exclusions: []                      # tickers to always drop from any comp set
+
+  # Analyst-curated candidate universes. You maintain these; the engine just
+  # enforces SIC + size discipline on top. Add your own sectors over time.
+  universes:
+    technology:
+      - AAPL
+      - MSFT
+      - GOOGL
+      - DELL
+      - HPQ
+    semiconductors:
+      - NVDA
+      - AMD
+      - INTC
+      - AVGO
+      - QCOM

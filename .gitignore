@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+reports/*.md
+reports/*.html
+.env
+.DS_Store
+.Rhistory
+reports_sample_TEST.md
