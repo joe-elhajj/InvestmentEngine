@@ -2,9 +2,10 @@
 Synthetic-data tests for the deterministic core.
 
 These do NOT hit the network. They build fake EDGAR-shaped data and verify the
-math, the peer logic, the DCF, and that a full report renders. Run from the
-project root:  python -m tests.test_core
+math, the peer logic, the DCF, and that a full report renders.
 """
+
+import pytest
 
 from engine.edgar import EdgarClient, CONCEPTS, Concept, CompanyData, Fact
 from engine import metrics as M
@@ -13,18 +14,6 @@ from engine import valuation as V
 from engine.market import Quote
 from engine.pipeline import derive
 from engine import report as R
-
-PASS, FAIL = 0, 0
-
-
-def check(name, cond):
-    global PASS, FAIL
-    if cond:
-        PASS += 1
-        print(f"  ok   {name}")
-    else:
-        FAIL += 1
-        print(f"  FAIL {name}")
 
 
 # --- 1. EDGAR annual-point extraction (flows + instants, dedup, restatement) ---
@@ -38,16 +27,15 @@ def test_edgar_parsing():
         {"start": "2020-09-27", "end": "2021-09-25", "val": 365000, "form": "10-K", "filed": "2022-10-28"},
     ]
     pts = EdgarClient._annual_points(units_flow, is_flow=True, cutoff_year=2000)
-    check("flow: only annual 10-K points kept", len(pts) == 2)
-    check("flow: restated value wins (latest filed)",
-          any(p["val"] == 365000 for p in pts))
+    assert len(pts) == 2, "flow: only annual 10-K points kept"
+    assert any(p["val"] == 365000 for p in pts), "flow: restated value wins (latest filed)"
 
     units_instant = [
         {"end": "2022-09-24", "val": 352755, "form": "10-K", "filed": "2022-10-28"},
         {"end": "2021-09-25", "val": 351002, "form": "10-K", "filed": "2021-10-29"},
     ]
     pts_i = EdgarClient._annual_points(units_instant, is_flow=False, cutoff_year=2000)
-    check("instant: both year-ends kept", len(pts_i) == 2)
+    assert len(pts_i) == 2, "instant: both year-ends kept"
 
 
 def test_edgar_tag_stitching():
@@ -72,12 +60,12 @@ def test_edgar_tag_stitching():
     }
     concept = Concept("revenue", True, (("us-gaap", "RevA"), ("us-gaap", "RevB")))
     series = EdgarClient._resolve(facts, concept, cutoff_year=2000)
-    check("stitch: tag transitions preserve full history", len(series) == 14)
-    check("stitch: earlier tag wins when available", series[0].concept == "us-gaap:RevA")
-    check("stitch: later tag used for new years", series[-1].concept == "us-gaap:RevB")
+    assert len(series) == 14, "stitch: tag transitions preserve full history"
+    assert series[0].concept == "us-gaap:RevA", "stitch: earlier tag wins when available"
+    assert series[-1].concept == "us-gaap:RevB", "stitch: later tag used for new years"
     values = [(f.fiscal_year, f.value) for f in series]
     cagr_10 = M.cagr_over(values, 10)
-    check("stitch: 10y CAGR spans full stitched series", abs(cagr_10.value - 0.10) < 1e-6)
+    assert abs(cagr_10.value - 0.10) < 1e-6, "stitch: 10y CAGR spans full stitched series"
 
 
 def test_period_consistency():
@@ -100,11 +88,10 @@ def test_period_consistency():
     cfg = {"valuation": {"assumed_tax_rate": 0.21}}
     res = derive(cd, quote, cfg)
 
-    check("period: liquid_assets uses only same-period components",
-          res.derived["liquid_assets"] == 150.0)  # cash only (STI missing for 2026)
-    check("period: gaps report STI period mismatch",
-          any("short_term_investments" in g and "2026-12-31" in g for g in res.gaps))
-    check("period: total_debt still computes same period", res.derived["total_debt"] == 250.0)
+    assert res.derived["liquid_assets"] == 150.0, "period: liquid_assets uses only same-period components"
+    assert any("short_term_investments" in g and "2026-12-31" in g for g in res.gaps), \
+        "period: gaps report STI period mismatch"
+    assert res.derived["total_debt"] == 250.0, "period: total_debt still computes same period"
 
 
 def test_roic_uses_cash_not_liquid_assets():
@@ -136,8 +123,7 @@ def test_roic_uses_cash_not_liquid_assets():
     # invested_capital should be debt + equity - cash = 90 + 70 - 30 = 130
     # NOPAT = operating_income * (1 - tax_rate) = 100 * 0.79 = 79 -> ROIC = 79 / 130
     expected_roic = 79.0 / 130.0
-    check("roic uses cash not liquid_assets",
-          abs(res.ratios["roic"].value - expected_roic) < 1e-9)
+    assert abs(res.ratios["roic"].value - expected_roic) < 1e-9, "roic uses cash not liquid_assets"
 
 
 def test_quarterly_resolution():
@@ -189,10 +175,9 @@ def test_quarterly_resolution():
         "revenue": [Fact("revenue", 100.0, "2025-12-31", 2025, "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax", "10-K", "2026-02-15")]
     }
     client._populate_quarterly(cd, facts, cutoff_year=2000)
-    check("quarterly: proper quarter point selected", cd.quarterly.get("revenue") is not None)
-    check("quarterly: excludes longer YTD 10-Q point",
-          cd.quarterly["revenue"].value == 10)
-    check("quarterly: uses quarter period end", cd.quarterly["revenue"].period_end == "2026-04-02")
+    assert cd.quarterly.get("revenue") is not None, "quarterly: proper quarter point selected"
+    assert cd.quarterly["revenue"].value == 10, "quarterly: excludes longer YTD 10-Q point"
+    assert cd.quarterly["revenue"].period_end == "2026-04-02", "quarterly: uses quarter period end"
 
     cd2 = CompanyData(ticker="QTR2", cik="0000000004", name="Quarter Co 2",
                       sic="7372", sic_description="Prepackaged Software")
@@ -200,23 +185,23 @@ def test_quarterly_resolution():
         "revenue": [Fact("revenue", 100.0, "2026-12-31", 2026, "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax", "10-K", "2027-02-15")]
     }
     client._populate_quarterly(cd2, facts, cutoff_year=2000)
-    check("quarterly: not populated when 10-Q is older than latest 10-K", cd2.quarterly == {})
+    assert cd2.quarterly == {}, "quarterly: not populated when 10-Q is older than latest 10-K"
 
 
 # --- 2. metrics ---
 def test_metrics():
-    check("cagr basic", abs(M.cagr(100, 200, 1).value - 1.0) < 1e-9)
-    check("cagr 10y ~7.18%", abs(M.cagr(100, 200, 10).value - 0.0717734) < 1e-5)
-    check("cagr negative endpoint -> None", M.cagr(-5, 200, 5).value is None)
+    assert abs(M.cagr(100, 200, 1).value - 1.0) < 1e-9, "cagr basic"
+    assert abs(M.cagr(100, 200, 10).value - 0.0717734) < 1e-5, "cagr 10y ~7.18%"
+    assert M.cagr(-5, 200, 5).value is None, "cagr negative endpoint -> None"
 
     series = [(2017, 100), (2018, 110), (2019, 121), (2020, 133), (2021, 146), (2022, 161)]
     m5 = M.cagr_over(series, 5)
-    check("cagr_over 5y ~10%", abs(m5.value - 0.10) < 0.01)
+    assert abs(m5.value - 0.10) < 0.01, "cagr_over 5y ~10%"
 
-    check("net margin", abs(M.net_margin(20, 100).value - 0.20) < 1e-9)
-    check("P/E on negative EPS -> None", M.pe_ratio(100, -2).value is None)
-    check("ROE on negative equity -> None", M.roe(50, -10).value is None)
-    check("interest coverage handles 0 -> None", M.interest_coverage(100, 0).value is None)
+    assert abs(M.net_margin(20, 100).value - 0.20) < 1e-9, "net margin"
+    assert M.pe_ratio(100, -2).value is None, "P/E on negative EPS -> None"
+    assert M.roe(50, -10).value is None, "ROE on negative equity -> None"
+    assert M.interest_coverage(100, 0).value is None, "interest coverage handles 0 -> None"
 
 
 # --- 3. peer comp-set + scoring ---
@@ -230,13 +215,13 @@ def test_peers():
     band = {"lower_multiple": 0.25, "upper_multiple": 4.0}
     decisions = P.build_peer_set("7373", 3.0e12, candidates, band, "two_digit", [])
     inc = {d.ticker for d in decisions if d.included}
-    check("peers: same SIC-2 + in band included", {"MSFT", "GOOGL"} <= inc)
-    check("peers: different SIC family excluded", "XOM" not in inc)
-    check("peers: out-of-band size excluded", "TINY" not in inc)
+    assert {"MSFT", "GOOGL"} <= inc, "peers: same SIC-2 + in band included"
+    assert "XOM" not in inc, "peers: different SIC family excluded"
+    assert "TINY" not in inc, "peers: out-of-band size excluded"
 
     rs = P.relative_score("net_margin", 0.25, [0.10, 0.15, 0.20, 0.30])
-    check("rel score: percentile computed", rs.percentile == 75.0)
-    check("rel score: median computed", abs(rs.peer_median - 0.175) < 1e-9)
+    assert rs.percentile == 75.0, "rel score: percentile computed"
+    assert abs(rs.peer_median - 0.175) < 1e-9, "rel score: median computed"
 
 
 # --- 4. DCF + sensitivity ---
@@ -245,18 +230,17 @@ def test_dcf():
          "fcf_growth": [0.08, 0.07, 0.06, 0.05, 0.04]}
     res = V.two_stage_dcf(100.0, net_debt=50.0, shares=10.0,
                           current_price=80.0, scenario_name="base", assumptions=a)
-    check("dcf: positive equity value", res.equity_value > 0)
-    check("dcf: per-share computed", res.fair_value_per_share is not None)
-    check("dcf: upside computed", res.upside_vs_price is not None)
+    assert res.equity_value > 0, "dcf: positive equity value"
+    assert res.fair_value_per_share is not None, "dcf: per-share computed"
+    assert res.upside_vs_price is not None, "dcf: upside computed"
 
     bad = dict(a); bad["wacc"] = 0.02; bad["terminal_growth"] = 0.03
     res_bad = V.two_stage_dcf(100.0, 0.0, 10.0, 80.0, "bad", bad)
-    check("dcf: warns when wacc <= term growth", len(res_bad.warnings) > 0)
+    assert len(res_bad.warnings) > 0, "dcf: warns when wacc <= term growth"
 
     grid = V.sensitivity_grid(100.0, 50.0, 10.0, a, [0.08, 0.09], [0.02, 0.03])
-    check("dcf: sensitivity grid shape", len(grid) == 2 and len(grid[0.08]) == 2)
-    check("dcf: lower wacc -> higher value",
-          grid[0.08][0.03] > grid[0.09][0.02])
+    assert len(grid) == 2 and len(grid[0.08]) == 2, "dcf: sensitivity grid shape"
+    assert grid[0.08][0.03] > grid[0.09][0.02], "dcf: lower wacc -> higher value"
 
 
 # --- 5. full pipeline + report render on a synthetic company ---
@@ -290,7 +274,7 @@ def _fake_company():
     return cd
 
 
-def test_pipeline_and_report():
+def test_pipeline_and_report(tmp_path):
     cfg = {
         "valuation": {
             "assumed_tax_rate": 0.21,
@@ -311,32 +295,88 @@ def test_pipeline_and_report():
                   market_cap=5000.0, source="manual override")
     res = derive(cd, quote, cfg)
 
-    check("pipeline: fcf = cfo - capex", abs(res.derived["fcf"] - 240) < 1e-6)
-    check("pipeline: net margin resolved", res.ratios["net_margin"].value is not None)
-    check("pipeline: revenue 5y CAGR ~10%",
-          abs(res.growth["revenue"][5].value - 0.10) < 0.01)
-    check("pipeline: DCF base scenario present", "base" in res.dcf)
-    check("pipeline: sensitivity grid present", len(res.sensitivity) == 3)
+    assert abs(res.derived["fcf"] - 240) < 1e-6, "pipeline: fcf = cfo - capex"
+    assert res.ratios["net_margin"].value is not None, "pipeline: net margin resolved"
+    assert abs(res.growth["revenue"][5].value - 0.10) < 0.01, "pipeline: revenue 5y CAGR ~10%"
+    assert "base" in res.dcf, "pipeline: DCF base scenario present"
+    assert len(res.sensitivity) == 3, "pipeline: sensitivity grid present"
 
     peer_table = [P.relative_score("net_margin", res.ratios["net_margin"].value,
                                    [0.15, 0.18, 0.22])]
     md = R.render(res, peer_table)
-    check("report: renders header", "Fundamental Analysis" in md)
-    check("report: includes lineage source", "us-gaap:" in md)
-    check("report: includes data-gaps section", "Data gaps" in md)
-    # save a sample so the user can eyeball the format
-    with open("reports_sample_TEST.md", "w") as f:
-        f.write(md)
+    assert "Fundamental Analysis" in md, "report: renders header"
+    assert "us-gaap:" in md, "report: includes lineage source"
+    assert "Data gaps" in md, "report: includes data-gaps section"
+    (tmp_path / "reports_sample_TEST.md").write_text(md)
 
 
-if __name__ == "__main__":
-    print("Running deterministic-core tests (no network)...\n")
-    test_edgar_parsing()
-    test_edgar_tag_stitching()
-    test_period_consistency()
-    test_metrics()
-    test_peers()
-    test_dcf()
-    test_pipeline_and_report()
-    print(f"\n{PASS} passed, {FAIL} failed")
-    raise SystemExit(1 if FAIL else 0)
+# --- 6. None-propagation: no total_assets (item 2 + item 3) ---
+def test_derive_no_total_assets():
+    """No exception when total_assets is absent; total_debt is None (not 0.0) with a gap."""
+    def make_flow(year, val):
+        return Fact("revenue", val, f"{year}-12-31", year, "us-gaap:Revenues", "10-K", f"{year+1}-01-15")
+
+    cd = CompanyData(ticker="NOAS", cik="0000000099", name="No Assets Co",
+                     sic="7372", sic_description="Prepackaged Software")
+    cd.series = {
+        "revenue": [make_flow(2022, 500.0), make_flow(2023, 550.0)],
+        "net_income": [make_flow(2022, 50.0)],
+    }
+
+    quote = Quote("NOAS", price=10.0, shares_outstanding=10.0, market_cap=100.0, source="test")
+    cfg = {"valuation": {"assumed_tax_rate": 0.21}}
+    res = derive(cd, quote, cfg)
+
+    assert res.derived.get("total_debt") is None, "total_debt must be None (not 0.0) when anchor absent"
+    assert any("total_debt" in g for g in res.gaps), "gap must be logged for total_debt absence"
+
+
+# --- 7. Stale equity → invested_capital None + gap (item 4) ---
+def test_stale_equity_gap():
+    """total_equity only at a stale period: must not be used; gap logged; roe is None."""
+    def make_instant(period_end, val):
+        return Fact("test", val, period_end, int(period_end[:4]), "us-gaap:Test", "10-K", "2026-02-15")
+
+    cd = CompanyData(ticker="STALE", cik="0000000020", name="Stale Equity Co",
+                     sic="7372", sic_description="Prepackaged Software")
+    cd.series = {
+        "total_assets": [make_instant("2026-12-31", 1000.0)],   # anchor = 2026-12-31
+        "total_equity": [make_instant("2025-12-31", 500.0)],    # only 2025 → stale
+        "long_term_debt": [make_instant("2026-12-31", 200.0)],
+        "short_term_debt": [make_instant("2026-12-31", 50.0)],
+        "cash": [make_instant("2026-12-31", 100.0)],
+    }
+
+    quote = Quote("STALE", price=10.0, shares_outstanding=10.0, market_cap=100.0, source="test")
+    cfg = {"valuation": {"assumed_tax_rate": 0.21}}
+    res = derive(cd, quote, cfg)
+
+    assert res.derived.get("total_equity") is None, "stale equity must not be used"
+    assert any("total_equity" in g and "2026-12-31" in g for g in res.gaps), \
+        "gap must reference the anchor period that had no equity"
+    assert res.ratios["roe"].value is None, "ROE must be None when equity is absent"
+
+
+# --- 8. Gross profit fallback from revenue - cost_of_revenue (item 6) ---
+def test_gross_profit_fallback():
+    """When gross_profit absent, derive it from revenue - cost_of_revenue; lineage recorded."""
+    def make_fact(metric, year, val, concept):
+        return Fact(metric, val, f"{year}-12-31", year, concept, "10-K", f"{year+1}-02-15")
+
+    cd = CompanyData(ticker="GP", cik="0000000030", name="Gross Profit Co",
+                     sic="7372", sic_description="Software")
+    cd.series = {
+        "total_assets": [make_fact("total_assets", 2022, 500.0, "us-gaap:Assets")],
+        "revenue":      [make_fact("revenue", 2022, 1000.0, "us-gaap:Revenues")],
+        "cost_of_revenue": [make_fact("cost_of_revenue", 2022, 400.0, "us-gaap:CostOfRevenue")],
+        # gross_profit deliberately absent
+    }
+
+    quote = Quote("GP", price=10.0, shares_outstanding=10.0, market_cap=100.0, source="test")
+    cfg = {"valuation": {"assumed_tax_rate": 0.21}}
+    res = derive(cd, quote, cfg)
+
+    assert res.derived.get("gross_profit") == 600.0, \
+        "fallback gross_profit must equal revenue - cost_of_revenue"
+    assert "gross_profit" in res.derived_lineage, "lineage must record the derivation"
+    assert "derived" in res.derived_lineage["gross_profit"], "lineage must be labelled 'derived'"

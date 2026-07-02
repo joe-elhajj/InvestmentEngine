@@ -126,8 +126,8 @@ def render(res: AnalysisResult, peer_table: list | None = None) -> str:
 
     quarter_html = ""
     if res.latest_quarter:
-        q = res.latest_quarter
-        facts = q["facts"]
+        lq = res.latest_quarter
+        facts = lq["facts"]
         q_fcf_source = _derived_source("FCF = CFO - capex", [
             ("CFO", facts.get("cfo")), ("capex", facts.get("capex"))
         ])
@@ -141,24 +141,24 @@ def render(res: AnalysisResult, peer_table: list | None = None) -> str:
             ("long_term_investments", facts.get("long_term_investments")),
         ])
         q_items = [
-            ("Revenue", _fmt_number(q.get("revenue")), _src(facts.get("revenue"))),
-            ("Operating income", _fmt_number(q.get("operating_income")), _src(facts.get("operating_income"))),
-            ("Net income", _fmt_number(q.get("net_income")), _src(facts.get("net_income"))),
-            ("Free cash flow", _fmt_number(q.get("fcf")), q_fcf_source),
-            ("Total assets", _fmt_number(q.get("total_assets")), _src(facts.get("total_assets"))),
-            ("Total equity", _fmt_number(q.get("total_equity")), _src(facts.get("total_equity"))),
-            ("Total debt", _fmt_number(q.get("total_debt")), q_debt_source),
-            ("Liquid assets (cash + securities)", _fmt_number(q.get("liquid_assets")), q_liquid_source),
-            ("Cash", _fmt_number(q.get("cash")), _src(facts.get("cash"))),
+            ("Revenue", _fmt_number(lq.get("revenue")), _src(facts.get("revenue"))),
+            ("Operating income", _fmt_number(lq.get("operating_income")), _src(facts.get("operating_income"))),
+            ("Net income", _fmt_number(lq.get("net_income")), _src(facts.get("net_income"))),
+            ("Free cash flow", _fmt_number(lq.get("fcf")), q_fcf_source),
+            ("Total assets", _fmt_number(lq.get("total_assets")), _src(facts.get("total_assets"))),
+            ("Total equity", _fmt_number(lq.get("total_equity")), _src(facts.get("total_equity"))),
+            ("Total debt", _fmt_number(lq.get("total_debt")), q_debt_source),
+            ("Liquid assets (cash + securities)", _fmt_number(lq.get("liquid_assets")), q_liquid_source),
+            ("Cash", _fmt_number(lq.get("cash")), _src(facts.get("cash"))),
         ]
         q_rows = "".join(_row(label, value, source) for label, value, source in q_items)
         q_margin_rows = "".join(
-            f"<tr><td>{escape(label)}</td><td>{_fmt_pct(q['margins'][key].value) if q['margins'][key].value is not None else 'n/a'}</td></tr>"
+            f"<tr><td>{escape(label)}</td><td>{_fmt_pct(lq['margins'][key].value) if lq['margins'][key].value is not None else 'n/a'}</td></tr>"
             for label, key in [("Operating margin", "operating_margin"), ("Net margin", "net_margin"), ("FCF margin", "fcf_margin")]
         )
         quarter_html = _section(
             "Most Recent Quarter (10-Q)",
-            f"<p>Quarter ended {escape(q['period_end'])} · filed {escape(q['filed'])}</p>"
+            f"<p>Quarter ended {escape(lq['period_end'])} · filed {escape(lq['filed'])}</p>"
             f"<table><thead><tr><th>Item</th><th>Value</th><th>Source</th></tr></thead><tbody>{q_rows}</tbody></table>"
             f"<p><strong>Quarter margins</strong></p>"
             f"<table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>{q_margin_rows}</tbody></table>"

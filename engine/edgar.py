@@ -155,7 +155,7 @@ class CompanyData:
     sic_description: str
     # metric -> list[Fact], sorted by period_end ascending (oldest first)
     series: dict = field(default_factory=dict)
-    quarterly: dict = field(default_factory=dict)
+    quarterly: dict[str, "Fact"] = field(default_factory=dict)
     # logical metrics that could not be resolved at all
     unresolved: list = field(default_factory=list)
 
@@ -166,15 +166,6 @@ class CompanyData:
     def latest_value(self, metric: str) -> Optional[float]:
         f = self.latest(metric)
         return f.value if f else None
-
-    def value_for_period(self, metric: str, period_end: str) -> Optional[Fact]:
-        s = self.series.get(metric)
-        if not s:
-            return None
-        for fact in s:
-            if fact.period_end == period_end:
-                return fact
-        return None
 
     def value_for_period(self, metric: str, period_end: str) -> Optional[Fact]:
         """Return the Fact for this metric if it has a value for the given period_end, else None."""

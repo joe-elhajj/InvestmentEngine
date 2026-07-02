@@ -22,4 +22,4 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run deterministic core tests
-        run: python -m tests.test_core
+        run: pytest tests/ -v
