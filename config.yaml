@@ -61,6 +61,15 @@ peers:
       - AVGO
       - QCOM
 
+universe:
+  # Analyst-owned reference population for peer-relative percentile scoring.
+  # Update `file` if the universe file moves. Bump `version` after each S&P
+  # quarterly rebalance (March, June, September, December); the version is
+  # folded into the durability config-hash so scores from different universe
+  # snapshots are NOT silently compared.
+  file: config/sp500_universe.txt
+  version: "2026-Q3"   # bump on next rebalance; treat as an auditable event
+
 durability:
   weights:
     reinvestment_engine: 0.30

@@ -9,6 +9,7 @@ pipeline, never on raw "analyze TICKER" guesswork.
 
 from __future__ import annotations
 
+import statistics
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -79,7 +80,13 @@ class AnalysisResult:
     gaps: list = field(default_factory=list)
     latest_quarter: dict = field(default_factory=dict)
     derived_lineage: dict = field(default_factory=dict)
-    annual_series: dict = field(default_factory=dict) # period_end -> YearlyDerived
+    annual_series: dict = field(default_factory=dict)  # period_end -> YearlyDerived
+    # --- B-series additions: normalized FCF, delivered/implied growth, expectations gap ---
+    normalized_fcf: Optional[float] = None
+    delivered_growth: Optional[float] = None
+    delivered_growth_label: str = ""
+    implied_growth_result: Optional[V.ImpliedGrowthResult] = None
+    expectations_gap: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -224,6 +231,65 @@ def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> Year
 
 
 # ---------------------------------------------------------------------------
+# B-series helpers: normalized FCF, delivered growth
+# ---------------------------------------------------------------------------
+
+def _normalized_fcf(annual: dict[str, YearlyDerived]) -> tuple[Optional[float], str]:
+    """
+    Normalized FCF = median(FCF margin over available years) × latest revenue.
+
+    Stabilizes erratic FCF (e.g. from one-time items).  Returns (value, lineage).
+    Returns (None, reason) when median margin ≤ 0 — absence is not zero.
+    """
+    pairs = [
+        (pe, yd.fcf / yd.revenue)
+        for pe, yd in annual.items()
+        if yd.fcf is not None and yd.revenue is not None and yd.revenue > 0
+    ]
+    if not pairs:
+        return None, "normalized_fcf: no FCF/revenue pairs in annual series"
+
+    margins = [m for _, m in pairs]
+    periods = [pe for pe, _ in pairs]
+    median_margin = statistics.median(margins)
+
+    if median_margin <= 0:
+        return None, (
+            f"normalized_fcf: median FCF margin {median_margin:.2%} ≤ 0 — not meaningful"
+        )
+
+    latest = annual[max(annual)]
+    if latest.revenue is None:
+        return None, "normalized_fcf: latest revenue absent"
+
+    val = median_margin * latest.revenue
+    lineage = (
+        f"normalized_fcf: median FCF margin {median_margin:.3%} × "
+        f"revenue {latest.revenue:.0f} "
+        f"(periods: {', '.join(p[:4] for p in periods)})"
+    )
+    return val, lineage
+
+
+def _delivered_growth(annual: dict[str, YearlyDerived]) -> tuple[Optional[float], str]:
+    """
+    Historical FCF CAGR (≥2 strictly positive FCF years).
+    Falls back to revenue CAGR when FCF history is non-positive or unavailable.
+    Returns (value, label).
+    """
+    fcf_pts = [(yd.year, yd.fcf) for yd in annual.values() if yd.fcf is not None]
+    if len(fcf_pts) >= 2 and all(v > 0 for _, v in fcf_pts):
+        m = M.cagr_over(fcf_pts, 5)
+        if m.value is not None:
+            label = "FCF CAGR" + (f" ({m.note})" if m.note else "")
+            return m.value, label
+
+    rev_pts = [(yd.year, yd.revenue) for yd in annual.values() if yd.revenue is not None]
+    m = M.cagr_over(rev_pts, 5)
+    return m.value, "revenue CAGR (FCF history non-positive or unavailable)"
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -249,6 +315,16 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     tax_rate = config.get("valuation", {}).get("assumed_tax_rate", 0.21)
     annual = derive_annual_series(cd, config)
     res.annual_series = annual
+
+    # Normalized FCF and delivered growth (both depend only on annual series)
+    nfcf_val, nfcf_lineage = _normalized_fcf(annual)
+    res.normalized_fcf = nfcf_val
+    if nfcf_val is None:
+        res.gaps.append(nfcf_lineage)
+    else:
+        res.derived_lineage["normalized_fcf"] = nfcf_lineage
+
+    res.delivered_growth, res.delivered_growth_label = _delivered_growth(annual)
 
     if annual:
         yd = annual[max(annual)]
@@ -400,5 +476,22 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         res.gaps.append("dcf: no assumptions configured")
     else:
         res.gaps.append("dcf: base FCF unavailable or non-positive")
+
+    # Implied growth (reverse DCF) and expectations gap
+    # Uses normalized_fcf (B1) as the base FCF; systematic WACC/terminal_g from config.
+    if (res.normalized_fcf is not None
+            and net_debt is not None
+            and quote.price and quote.price > 0
+            and quote.shares_outstanding and quote.shares_outstanding > 0):
+        res.implied_growth_result = V.implied_growth(
+            price=quote.price,
+            shares=quote.shares_outstanding,
+            net_debt=net_debt,
+            norm_fcf=res.normalized_fcf,
+            config=config,
+        )
+        igr = res.implied_growth_result
+        if igr is not None and not igr.bracket_hit and res.delivered_growth is not None:
+            res.expectations_gap = igr.implied_growth - res.delivered_growth
 
     return res

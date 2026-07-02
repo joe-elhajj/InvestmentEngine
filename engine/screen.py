@@ -2,12 +2,22 @@
 screen.py — batch durability screener.
 
 Routes each ticker:
-  - Equities with EDGAR companyfacts → durability scorecard + valuation
-  - ETFs / funds (no EDGAR fundamentals) → flagged, never scored
-  - Network / data failures → logged, run continues
+  - Equities with EDGAR fundamentals → durability scorecard + growth signals
+  - ETFs / funds (no EDGAR fundamentals or ETF name pattern) → flagged, not scored
+  - Network / data failures → logged, run continues; one bad ticker never kills the run
 
 Outputs a ranked Markdown + HTML table (matching existing report style).
-Sort modes: --sort durability | --sort quality-value
+
+Sort modes
+----------
+--sort durability     : ranked by durability composite (highest first)
+--sort quality-value  : ranked by (composite_percentile − gap_percentile) within the batch.
+                        High durability AND low/negative expectations gap → top rank.
+                        Formula: composite_pct − gap_pct  (both 0–100 within the batch).
+                        Companies without a solvable expectations gap are ranked last.
+
+Per-company DCF upside has been removed from batch output (C1).  DCF belongs in
+the per-ticker deep-dive (analyze.py), where the analyst owns the assumptions.
 """
 
 from __future__ import annotations
@@ -44,9 +54,15 @@ class ScreenRow:
     is_stable: Optional[bool]
     stability_delta: Optional[float]
     config_hash: Optional[str]
-    dcf_upside: Optional[float]          # base-case DCF upside vs price
-    quality_value_score: Optional[float] # composite penalized by downside
-    flag: str                            # "" | "ETF/fund" | "excluded" | "error:<msg>"
+    universe_version: str
+    # Growth signals (B-series)
+    implied_fcf_growth: Optional[float]      # from reverse DCF
+    delivered_fcf_growth: Optional[float]    # historical FCF or revenue CAGR
+    expectations_gap: Optional[float]        # implied − delivered (positive = priced for more)
+    implied_growth_note: str                 # empty when valid; reason when n/a
+    # Batch-relative sort score (computed after all tickers are processed)
+    quality_value_score: Optional[float]     # composite_pct − gap_pct; None if gap unavailable
+    flag: str                                # "" | "ETF/fund" | "excluded" | "error:<msg>"
     excluded: bool = False
 
 
@@ -63,7 +79,7 @@ def _is_etf(ticker: str, name: str) -> bool:
 
 
 def _has_fundamentals(cd_series: dict) -> bool:
-    """A company without revenue and total_assets data is treated as a fund."""
+    """A company with neither revenue nor total_assets is treated as a fund."""
     return bool(cd_series.get("revenue") or cd_series.get("total_assets"))
 
 
@@ -71,77 +87,78 @@ def _has_fundamentals(cd_series: dict) -> bool:
 # Per-ticker processing
 # ---------------------------------------------------------------------------
 
+def _empty_row(ticker: str, flag: str, excluded: bool = False,
+               completeness: Optional[float] = None,
+               config_hash: Optional[str] = None,
+               universe_version: str = "") -> ScreenRow:
+    return ScreenRow(
+        ticker=ticker,
+        composite=None, composite_low=None, composite_high=None,
+        cat_reinvestment=None, cat_quality=None, cat_resilience=None,
+        cat_discipline=None, cat_optionality=None,
+        completeness=completeness, is_stable=None, stability_delta=None,
+        config_hash=config_hash, universe_version=universe_version,
+        implied_fcf_growth=None, delivered_fcf_growth=None,
+        expectations_gap=None, implied_growth_note="",
+        quality_value_score=None, flag=flag, excluded=excluded,
+    )
+
+
 def _process_one(
     ticker: str,
     client: EdgarClient,
     cfg: dict,
     history_years: int,
 ) -> ScreenRow:
+    universe_version = cfg.get("universe", {}).get("version", "")
     try:
         cd = client.get_company(ticker, history_years)
     except Exception as e:
-        return ScreenRow(
-            ticker=ticker,
-            composite=None, composite_low=None, composite_high=None,
-            cat_reinvestment=None, cat_quality=None, cat_resilience=None,
-            cat_discipline=None, cat_optionality=None,
-            completeness=None, is_stable=None, stability_delta=None,
-            config_hash=None, dcf_upside=None, quality_value_score=None,
-            flag=f"error:{type(e).__name__}: {e}",
-        )
+        return _empty_row(ticker, f"error:{type(e).__name__}: {e}",
+                          universe_version=universe_version)
 
     # ETF / fund routing
     if _is_etf(ticker, cd.name) or not _has_fundamentals(cd.series):
-        return ScreenRow(
-            ticker=ticker,
-            composite=None, composite_low=None, composite_high=None,
-            cat_reinvestment=None, cat_quality=None, cat_resilience=None,
-            cat_discipline=None, cat_optionality=None,
-            completeness=None, is_stable=None, stability_delta=None,
-            config_hash=None, dcf_upside=None, quality_value_score=None,
-            flag="ETF/fund — not scored, separate lens pending",
-        )
+        return _empty_row(ticker, "ETF/fund — not scored, separate lens pending",
+                          universe_version=universe_version)
 
     try:
         quote = get_quote(ticker)
         res = derive(cd, quote, cfg)
         ds = D.score(res, cfg)
     except Exception as e:
-        return ScreenRow(
-            ticker=ticker,
-            composite=None, composite_low=None, composite_high=None,
-            cat_reinvestment=None, cat_quality=None, cat_resilience=None,
-            cat_discipline=None, cat_optionality=None,
-            completeness=None, is_stable=None, stability_delta=None,
-            config_hash=None, dcf_upside=None, quality_value_score=None,
-            flag=f"error:{type(e).__name__}: {e}",
-        )
+        return _empty_row(ticker, f"error:{type(e).__name__}: {e}",
+                          universe_version=universe_version)
 
     if ds.excluded:
-        return ScreenRow(
-            ticker=ticker,
-            composite=None, composite_low=None, composite_high=None,
-            cat_reinvestment=None, cat_quality=None, cat_resilience=None,
-            cat_discipline=None, cat_optionality=None,
-            completeness=ds.data_completeness, is_stable=None, stability_delta=None,
-            config_hash=ds.config_hash, dcf_upside=None, quality_value_score=None,
-            flag=ds.exclusion_reason, excluded=True,
+        return _empty_row(
+            ticker, ds.exclusion_reason, excluded=True,
+            completeness=ds.data_completeness, config_hash=ds.config_hash,
+            universe_version=universe_version,
         )
 
     def _cat(name: str) -> Optional[float]:
         c = ds.categories.get(name)
         return c.composite if c else None
 
-    dcf_upside = res.dcf.get("base", None)
-    dcf_up_val = dcf_upside.upside_vs_price if dcf_upside else None
-
-    # quality-value: composite penalized by downside (negative upside → lower rank)
-    qv: Optional[float] = None
-    if dcf_up_val is not None:
-        penalty = max(0.0, -dcf_up_val) * 100.0   # 10% downside → -10 pts
-        qv = ds.composite - penalty
+    # Build growth-signal columns
+    igr = res.implied_growth_result
+    if igr is None:
+        implied_g = None
+        ig_note = "n/a — not meaningful: normalized FCF unavailable or non-positive"
+    elif igr.bracket_hit:
+        implied_g = None
+        bound = igr.bracket_bound or "?"
+        ig_note = (
+            f"n/a — not meaningful: bracket {bound} hit "
+            f"(implied g {'<' if bound == 'lower' else '>'} "
+            f"{igr.implied_growth:.0%})"
+        )
     else:
-        qv = ds.composite
+        implied_g = igr.implied_growth
+        ig_note = ""
+
+    gap = res.expectations_gap if (igr is not None and not igr.bracket_hit) else None
 
     return ScreenRow(
         ticker=ticker,
@@ -157,18 +174,50 @@ def _process_one(
         is_stable=ds.is_stable,
         stability_delta=ds.stability_delta,
         config_hash=ds.config_hash,
-        dcf_upside=dcf_up_val,
-        quality_value_score=qv,
+        universe_version=universe_version,
+        implied_fcf_growth=implied_g,
+        delivered_fcf_growth=res.delivered_growth,
+        expectations_gap=gap,
+        implied_growth_note=ig_note,
+        quality_value_score=None,   # filled in batch step
         flag="",
     )
+
+
+# ---------------------------------------------------------------------------
+# Batch quality-value score (C3)
+# ---------------------------------------------------------------------------
+
+def _assign_quality_value_scores(rows: list[ScreenRow]) -> None:
+    """
+    quality_value_score = composite_percentile − gap_percentile  (within batch).
+
+    High durability AND low/negative expectations gap → high score.
+    Computed after all tickers are scored; companies without a solvable gap
+    receive None and are ranked last in quality-value mode.
+
+    Formula is intentionally simple and transparent: no magic, no weighting.
+    """
+    eligible = [r for r in rows if r.composite is not None and r.expectations_gap is not None]
+    if not eligible:
+        return
+
+    composites = [r.composite for r in eligible]
+    gaps       = [r.expectations_gap for r in eligible]
+    n = len(eligible)
+
+    for r in eligible:
+        comp_pct = 100.0 * sum(1 for c in composites if c < r.composite) / n
+        gap_pct  = 100.0 * sum(1 for g in gaps       if g < r.expectations_gap) / n
+        r.quality_value_score = comp_pct - gap_pct
 
 
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------
 
-def _pct(x: Optional[float]) -> str:
-    return f"{x*100:.1f}%" if x is not None else "n/a"
+def _pct(x: Optional[float], decimals: int = 1) -> str:
+    return f"{x * 100:.{decimals}f}%" if x is not None else "n/a"
 
 
 def _pts(x: Optional[float]) -> str:
@@ -179,19 +228,23 @@ def _render_md(rows: list[ScreenRow]) -> str:
     lines = [
         f"# Durability Screen — {datetime.now():%Y-%m-%d %H:%M}",
         "",
-        "| Ticker | Score | Band | Reinv | Quality | Resilience | Discipline | Optionality | Complete | Stable | DCF upside | Hash | Flag |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Ticker | Score | Band | Reinv | Quality | Resilience | Discipline"
+        " | Optionality | Complete | Stable | Implied g | Delivered g"
+        " | Gap | Univ | Hash | Flag |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
-        band = f"{_pts(r.composite_low)}–{_pts(r.composite_high)}" if r.composite is not None else "n/a"
+        band   = f"{_pts(r.composite_low)}–{_pts(r.composite_high)}" if r.composite is not None else "n/a"
         stable = ("yes" if r.is_stable else "⚠ unstable") if r.is_stable is not None else "n/a"
+        impl_g = _pct(r.implied_fcf_growth) if not r.implied_growth_note else r.implied_growth_note
         lines.append(
-            f"| {r.ticker} | {_pts(r.composite)} | {band} "
-            f"| {_pts(r.cat_reinvestment)} | {_pts(r.cat_quality)} "
-            f"| {_pts(r.cat_resilience)} | {_pts(r.cat_discipline)} "
-            f"| {_pts(r.cat_optionality)} | {_pct(r.completeness)} "
-            f"| {stable} | {_pct(r.dcf_upside)} | {r.config_hash or 'n/a'} "
-            f"| {r.flag} |"
+            f"| {r.ticker} | {_pts(r.composite)} | {band}"
+            f" | {_pts(r.cat_reinvestment)} | {_pts(r.cat_quality)}"
+            f" | {_pts(r.cat_resilience)} | {_pts(r.cat_discipline)}"
+            f" | {_pts(r.cat_optionality)} | {_pct(r.completeness)}"
+            f" | {stable} | {impl_g} | {_pct(r.delivered_fcf_growth)}"
+            f" | {_pct(r.expectations_gap)} | {r.universe_version or 'n/a'}"
+            f" | {r.config_hash or 'n/a'} | {r.flag} |"
         )
     return "\n".join(lines)
 
@@ -204,19 +257,25 @@ def _render_html(rows: list[ScreenRow]) -> str:
         "<tr><th>Ticker</th><th>Score</th><th>Band</th>"
         "<th>Reinv</th><th>Quality</th><th>Resilience</th>"
         "<th>Discipline</th><th>Optionality</th><th>Complete</th>"
-        "<th>Stable</th><th>DCF upside</th><th>Hash</th><th>Flag</th></tr>"
+        "<th>Stable</th><th>Implied&nbsp;g</th><th>Delivered&nbsp;g</th>"
+        "<th>Gap</th><th>Univ</th><th>Hash</th><th>Flag</th></tr>"
     )
     body_rows = []
     for r in rows:
-        band = f"{_pts(r.composite_low)}–{_pts(r.composite_high)}" if r.composite is not None else "n/a"
+        band   = f"{_pts(r.composite_low)}–{_pts(r.composite_high)}" if r.composite is not None else "n/a"
         stable = ("yes" if r.is_stable else "⚠ unstable") if r.is_stable is not None else "n/a"
+        impl_g = _pct(r.implied_fcf_growth) if not r.implied_growth_note else r.implied_growth_note
         body_rows.append(
             f"<tr><td>{e(r.ticker)}</td><td>{e(_pts(r.composite))}</td>"
             f"<td>{e(band)}</td>"
             f"<td>{e(_pts(r.cat_reinvestment))}</td><td>{e(_pts(r.cat_quality))}</td>"
             f"<td>{e(_pts(r.cat_resilience))}</td><td>{e(_pts(r.cat_discipline))}</td>"
             f"<td>{e(_pts(r.cat_optionality))}</td><td>{e(_pct(r.completeness))}</td>"
-            f"<td>{e(stable)}</td><td>{e(_pct(r.dcf_upside))}</td>"
+            f"<td>{e(stable)}</td>"
+            f"<td>{e(impl_g)}</td>"
+            f"<td>{e(_pct(r.delivered_fcf_growth))}</td>"
+            f"<td>{e(_pct(r.expectations_gap))}</td>"
+            f"<td>{e(r.universe_version or 'n/a')}</td>"
             f"<td><code>{e(r.config_hash or 'n/a')}</code></td>"
             f"<td>{e(r.flag)}</td></tr>"
         )
@@ -227,7 +286,7 @@ def _render_html(rows: list[ScreenRow]) -> str:
         "table{border-collapse:collapse;width:100%}th,td{padding:8px 10px;"
         "border:1px solid #334155;text-align:left}th{background:#1e293b}"
         "tbody tr:nth-child(even){background:#111827}</style></head><body>"
-        "<main style='max-width:1400px;margin:0 auto;padding:24px'>"
+        "<main style='max-width:1600px;margin:0 auto;padding:24px'>"
         f"<h1>Durability Screen — {escape(datetime.now().strftime('%Y-%m-%d %H:%M'))}</h1>"
         f"<table><thead>{header}</thead><tbody>{''.join(body_rows)}</tbody></table>"
         "</main></body></html>"
@@ -246,7 +305,7 @@ def run_screen(
     verbose: bool = True,
 ) -> list[ScreenRow]:
     """
-    Screen a list of tickers. Returns sorted ScreenRows.
+    Screen a list of tickers.  Returns sorted ScreenRows.
 
     sort_mode: "durability" | "quality-value"
     One ticker failing never kills the run.
@@ -270,12 +329,17 @@ def run_screen(
         if verbose and row.flag:
             print(f"    ! {tk}: {row.flag}", file=sys.stderr)
 
-    sort_key = (
-        (lambda r: r.quality_value_score or 0.0)
-        if sort_mode == "quality-value"
-        else (lambda r: r.composite or 0.0)
-    )
-    rows.sort(key=sort_key, reverse=True)
+    # Compute batch-level quality-value scores before sorting
+    _assign_quality_value_scores(rows)
+
+    if sort_mode == "quality-value":
+        # Companies without a solvable gap ranked last
+        rows.sort(
+            key=lambda r: r.quality_value_score if r.quality_value_score is not None else -999.0,
+            reverse=True,
+        )
+    else:
+        rows.sort(key=lambda r: r.composite or 0.0, reverse=True)
 
     if out_dir is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -286,32 +350,3 @@ def run_screen(
             print(f"Screen written to {out_dir}/screen_{ts}.{{md,html}}", file=sys.stderr)
 
     return rows
-
-
-if __name__ == "__main__":
-    import argparse
-    import yaml
-
-    ap = argparse.ArgumentParser(description="Durability batch screener")
-    ap.add_argument("tickers", nargs="+")
-    ap.add_argument("--sort", default="durability", choices=["durability", "quality-value"])
-    ap.add_argument("--out", default="reports", help="output directory")
-    ap.add_argument("--config", default="config.yaml")
-    ap.add_argument("--verbose", action="store_true", default=True)
-    args = ap.parse_args()
-
-    with open(args.config) as f:
-        cfg = yaml.safe_load(f)
-
-    rows = run_screen(
-        tickers=args.tickers,
-        cfg=cfg,
-        sort_mode=args.sort,
-        out_dir=Path(args.out),
-        verbose=True,
-    )
-
-    for r in rows:
-        score = f"{r.composite:.1f}" if r.composite is not None else "excl."
-        flag = f" [{r.flag}]" if r.flag else ""
-        print(f"{r.ticker:6s}  {score:6s}{flag}")
