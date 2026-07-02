@@ -16,9 +16,11 @@ Design principles
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -128,6 +130,19 @@ CONCEPTS: dict[str, Concept] = {
         ("us-gaap", "ShortTermBorrowings"),
         ("us-gaap", "LongTermDebtCurrent"),
     )),
+    # --- Compensation & investment (flows) ---
+    "sbc": Concept("sbc", True, (
+        ("us-gaap", "ShareBasedCompensation"),
+        ("us-gaap", "AllocatedShareBasedCompensationExpense"),
+    )),
+    "rnd": Concept("rnd", True, (
+        ("us-gaap", "ResearchAndDevelopmentExpense"),
+        ("us-gaap", "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
+    )),
+    # diluted_shares is a count (unit = "shares"), not a USD flow
+    "diluted_shares": Concept("diluted_shares", True, (
+        ("us-gaap", "WeightedAverageNumberOfDilutedSharesOutstanding"),
+    ), unit="shares"),
 }
 
 
@@ -179,7 +194,14 @@ class CompanyData:
 
 
 class EdgarClient:
-    def __init__(self, user_agent: str, request_delay: float = 0.2):
+    def __init__(
+        self,
+        user_agent: str,
+        request_delay: float = 0.2,
+        cache_dir: str = ".cache/edgar",
+        cache_ttl_seconds: int = 86400,
+        no_cache: bool = False,
+    ):
         if not user_agent or "example.com" in user_agent:
             raise ValueError(
                 "Set a real SEC User-Agent in config.yaml (sec.user_agent). "
@@ -189,12 +211,43 @@ class EdgarClient:
         self.session.headers.update({"User-Agent": user_agent, "Accept-Encoding": "gzip, deflate"})
         self.delay = request_delay
         self._ticker_map: Optional[dict] = None
+        self._cache_dir = Path(cache_dir)
+        self._cache_ttl = cache_ttl_seconds
+        self._no_cache = no_cache
+
+    def _cache_path(self, cik: str, kind: str) -> Path:
+        return self._cache_dir / f"{cik}_{kind}.json"
+
+    def _read_cache(self, cik: str, kind: str) -> Optional[dict]:
+        if self._no_cache:
+            return None
+        p = self._cache_path(cik, kind)
+        if not p.exists():
+            return None
+        age = datetime.now().timestamp() - p.stat().st_mtime
+        if age > self._cache_ttl:
+            return None
+        return json.loads(p.read_text())
+
+    def _write_cache(self, cik: str, kind: str, data: dict) -> None:
+        if self._no_cache:
+            return
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._cache_path(cik, kind).write_text(json.dumps(data))
 
     def _get(self, url: str) -> dict:
         time.sleep(self.delay)  # be polite to SEC
         r = self.session.get(url, timeout=30)
         r.raise_for_status()
         return r.json()
+
+    def _get_cached(self, cik: str, kind: str, url: str) -> dict:
+        cached = self._read_cache(cik, kind)
+        if cached is not None:
+            return cached
+        data = self._get(url)
+        self._write_cache(cik, kind, data)
+        return data
 
     def ticker_to_cik(self, ticker: str) -> str:
         if self._ticker_map is None:
@@ -210,8 +263,8 @@ class EdgarClient:
 
     def get_company(self, ticker: str, history_years: int = 15, include_quarterly: bool = False) -> CompanyData:
         cik = self.ticker_to_cik(ticker)
-        subs = self._get(SEC_SUBMISSIONS_URL.format(cik10=cik))
-        facts = self._get(SEC_COMPANYFACTS_URL.format(cik10=cik))
+        subs = self._get_cached(cik, "submissions", SEC_SUBMISSIONS_URL.format(cik10=cik))
+        facts = self._get_cached(cik, "companyfacts", SEC_COMPANYFACTS_URL.format(cik10=cik))
 
         cd = CompanyData(
             ticker=ticker.upper(),
