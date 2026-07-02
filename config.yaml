@@ -60,3 +60,18 @@ peers:
       - INTC
       - AVGO
       - QCOM
+
+durability:
+  weights:
+    reinvestment_engine: 0.30
+    quality_persistence: 0.25
+    balance_sheet_resilience: 0.20
+    capital_discipline: 0.15
+    optionality_proxies: 0.10
+  thresholds:
+    roic_cost_of_capital: 0.08
+    roic_above_threshold: 0.15
+    stability_flag_delta: 5.0
+  score_band:
+    pessimistic_impute: 25.0
+    optimistic_impute: 75.0

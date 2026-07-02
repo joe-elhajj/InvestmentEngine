@@ -7,3 +7,4 @@ reports/*.html
 .DS_Store
 .Rhistory
 reports_sample_TEST.md
+.cache/
