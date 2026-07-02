@@ -29,6 +29,7 @@ from typing import Optional
 
 from engine.pipeline import AnalysisResult, YearlyDerived
 from engine import peers as P
+from engine.universe import UniverseDistribution
 
 
 # ---------------------------------------------------------------------------
@@ -51,13 +52,18 @@ _DEFAULT_THRESHOLDS: dict[str, float] = {
 
 
 def _resolve_config(cfg: dict) -> dict:
-    """Merge user config with defaults; return fully populated durability config."""
+    """Merge user config with defaults; return fully populated durability config.
+
+    The universe_version is folded in so scores computed against different
+    universe snapshots produce different hashes and are not silently compared.
+    """
     dur = cfg.get("durability", {})
     weights = dict(_DEFAULT_WEIGHTS)
     weights.update(dur.get("weights", {}))
     thresholds = dict(_DEFAULT_THRESHOLDS)
     thresholds.update(dur.get("thresholds", {}))
-    return {"weights": weights, "thresholds": thresholds}
+    universe_version = cfg.get("universe", {}).get("version", "unversioned")
+    return {"weights": weights, "thresholds": thresholds, "universe_version": universe_version}
 
 
 def _config_hash(resolved_cfg: dict) -> str:
@@ -258,7 +264,7 @@ def _score_quality(
     annual: dict[str, YearlyDerived],
     coc: float,
     roic_threshold: float,
-    peer_gross_margins: list[float],
+    universe_gross_margins: list[float],
 ) -> list[SubScore]:
     """Category 2: Quality persistence."""
     sub: list[SubScore] = []
@@ -303,12 +309,12 @@ def _score_quality(
     gm_years = [y for y, _ in gm_vals]
     gm_list  = [g for _, g in gm_vals]
     if gm_list:
-        # Peer-relative level
-        gm_pct = _percentile_score(gm_list[-1], peer_gross_margins)
+        # Universe-relative level (A4: ranks against the full S&P 500 distribution, not ad-hoc set)
+        gm_pct = _percentile_score(gm_list[-1], universe_gross_margins)
         if gm_pct is not None:
             sub.append(SubScore(
                 name="gross_margin_peer_percentile", score=gm_pct,
-                raw=round(gm_list[-1], 4), source=f"gross margin at {periods[-1]} vs {len(peer_gross_margins)} peers",
+                raw=round(gm_list[-1], 4), source=f"gross margin at {periods[-1]} vs {len(universe_gross_margins)} universe peers",
                 years_covered=[gm_years[-1]],
             ))
         # Trend
@@ -440,9 +446,19 @@ def _score_capital_discipline(
     return sub
 
 
-def _score_optionality(annual: dict[str, YearlyDerived]) -> list[SubScore]:
-    """Category 5: Optionality proxies (label must say 'proxy')."""
+def _score_optionality(
+    annual: dict[str, YearlyDerived],
+    universe_capex_revenue: Optional[list[float]] = None,
+    universe_rnd_revenue: Optional[list[float]] = None,
+) -> list[SubScore]:
+    """Category 5: Optionality proxies (label must say 'proxy').
+
+    When universe distributions are provided, universe-relative percentile
+    sub-scores are added alongside the absolute-curve sub-scores.
+    """
     sub: list[SubScore] = []
+    ucr = universe_capex_revenue or []
+    urn = universe_rnd_revenue or []
 
     # R&D / revenue
     rnd_rev = [(yd.year, yd.rnd / yd.revenue)
@@ -452,13 +468,23 @@ def _score_optionality(annual: dict[str, YearlyDerived]) -> list[SubScore]:
         vals = [r for _, r in rnd_rev]
         years = [y for y, _ in rnd_rev]
         mean_ratio = statistics.fmean(vals)
-        # treat 10–20% as ideal
+        # treat 10–20% as ideal (absolute curve)
         score = max(0.0, min(100.0, mean_ratio * 500.0))
         sub.append(SubScore(
             name="rnd_revenue_proxy", score=score,
             raw=round(mean_ratio, 4), source=f"R&D/revenue mean over {len(vals)} years",
             years_covered=years,
         ))
+        # Universe percentile: higher R&D/revenue → more investment in future optionality
+        if urn:
+            pct = _percentile_score(mean_ratio, urn)
+            if pct is not None:
+                sub.append(SubScore(
+                    name="rnd_revenue_universe_pct", score=pct,
+                    raw=round(mean_ratio, 4),
+                    source=f"R&D/revenue vs {len(urn)} universe peers",
+                    years_covered=years,
+                ))
         ts = _trend_score(vals)
         if ts is not None:
             sub.append(SubScore(
@@ -472,14 +498,25 @@ def _score_optionality(annual: dict[str, YearlyDerived]) -> list[SubScore]:
               for yd in annual.values()
               if yd.capex is not None and yd.revenue is not None and yd.revenue > 0]
     if cx_rev:
+        cx_years = [y for y, _ in cx_rev]
         mean_ratio = statistics.fmean([r for _, r in cx_rev])
-        # high capex is a mixed signal; moderate ~5% → good
+        # high capex is a mixed signal; moderate ~5% → good (absolute curve)
         score = max(0.0, min(100.0, 100.0 - abs(mean_ratio - 0.05) * 500.0))
         sub.append(SubScore(
             name="capex_revenue_proxy", score=score,
             raw=round(mean_ratio, 4), source=f"capex/revenue mean over {len(cx_rev)} years",
-            years_covered=[y for y, _ in cx_rev],
+            years_covered=cx_years,
         ))
+        # Universe percentile: higher capex → more physical investment (reinvestment optionality)
+        if ucr:
+            pct = _percentile_score(mean_ratio, ucr)
+            if pct is not None:
+                sub.append(SubScore(
+                    name="capex_revenue_universe_pct", score=pct,
+                    raw=round(mean_ratio, 4),
+                    source=f"capex/revenue vs {len(ucr)} universe peers",
+                    years_covered=cx_years,
+                ))
 
     return sub
 
@@ -578,16 +615,20 @@ _FINANCIAL_SIC_RANGE = (6000, 6799)
 def score(
     res: AnalysisResult,
     config: dict,
-    peer_gross_margins: Optional[list[float]] = None,
+    universe: Optional[UniverseDistribution] = None,
 ) -> DurabilityScore:
     """
     Compute the durability scorecard for a company.
 
     Parameters
     ----------
-    res               : output of pipeline.derive()
-    config            : full config dict (durability section is optional)
-    peer_gross_margins: peer gross margins for percentile scoring (may be empty)
+    res      : output of pipeline.derive()
+    config   : full config dict (durability section is optional)
+    universe : pre-built UniverseDistribution for peer-relative percentile
+               sub-scores.  When None, percentile sub-scores that require a
+               population (gross margin, capex/R&D intensity) are omitted and
+               the remaining weights renormalize.  Tests inject synthetic
+               distributions; the universe build never runs in CI.
     """
     dcfg = _resolve_config(config)
     cfg_hash = _config_hash(dcfg)
@@ -614,10 +655,13 @@ def score(
         pass
 
     annual = res.annual_series
-    peer_gm = peer_gross_margins or []
 
-    # Diluted shares series (from annual series sbc/rnd etc. are per-year, but diluted_shares
-    # comes from cd.series which is populated by edgar)
+    # Pull per-metric distributions from the universe object (empty lists when no universe)
+    uni_gm  = universe.get("gross_margin")        if universe else []
+    uni_cx  = universe.get("capex_revenue_ratio") if universe else []
+    uni_rnd = universe.get("rnd_revenue_ratio")   if universe else []
+
+    # Diluted shares series (from cd.series, populated by edgar)
     diluted_series = [
         (f.fiscal_year, f.value)
         for f in res.company.series.get("diluted_shares", [])
@@ -625,10 +669,10 @@ def score(
 
     cat_scores: dict[str, list[SubScore]] = {
         "reinvestment_engine": _score_reinvestment(annual, coc),
-        "quality_persistence": _score_quality(annual, coc, roic_thresh, peer_gm),
+        "quality_persistence": _score_quality(annual, coc, roic_thresh, uni_gm),
         "balance_sheet_resilience": _score_resilience(annual),
         "capital_discipline": _score_capital_discipline(annual, diluted_series),
-        "optionality_proxies": _score_optionality(annual),
+        "optionality_proxies": _score_optionality(annual, uni_cx, uni_rnd),
     }
 
     composite, cat_map, completeness = _compute_composite(cat_scores, weights)
