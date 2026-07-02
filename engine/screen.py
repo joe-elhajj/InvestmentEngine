@@ -286,3 +286,32 @@ def run_screen(
             print(f"Screen written to {out_dir}/screen_{ts}.{{md,html}}", file=sys.stderr)
 
     return rows
+
+
+if __name__ == "__main__":
+    import argparse
+    import yaml
+
+    ap = argparse.ArgumentParser(description="Durability batch screener")
+    ap.add_argument("tickers", nargs="+")
+    ap.add_argument("--sort", default="durability", choices=["durability", "quality-value"])
+    ap.add_argument("--out", default="reports", help="output directory")
+    ap.add_argument("--config", default="config.yaml")
+    ap.add_argument("--verbose", action="store_true", default=True)
+    args = ap.parse_args()
+
+    with open(args.config) as f:
+        cfg = yaml.safe_load(f)
+
+    rows = run_screen(
+        tickers=args.tickers,
+        cfg=cfg,
+        sort_mode=args.sort,
+        out_dir=Path(args.out),
+        verbose=True,
+    )
+
+    for r in rows:
+        score = f"{r.composite:.1f}" if r.composite is not None else "excl."
+        flag = f" [{r.flag}]" if r.flag else ""
+        print(f"{r.ticker:6s}  {score:6s}{flag}")
