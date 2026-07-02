@@ -1,5 +1,6 @@
 requests>=2.31
 PyYAML>=6.0
+pytest>=7.0
 # Optional: live price/market-cap source. Free but fragile; swap for a paid
 # provider (FMP, EODHD, Polygon) later behind engine/market.py.
 yfinance>=0.2.40

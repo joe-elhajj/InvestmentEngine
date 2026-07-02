@@ -30,6 +30,7 @@ class AnalysisResult:
     sensitivity: dict = field(default_factory=dict)
     gaps: list = field(default_factory=list)
     latest_quarter: dict = field(default_factory=dict)
+    derived_lineage: dict = field(default_factory=dict)  # key -> lineage string for computed values
 
 
 def _series(cd: CompanyData, key: str) -> list[tuple[float, float]]:
@@ -52,7 +53,7 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     capex = _v(cd, "capex")
     da = _v(cd, "dep_amort")
     assets = _v(cd, "total_assets")
-    equity = _v(cd, "total_equity")
+    # equity: resolved below after anchor_period is known (period-matched)
     cur_assets = _v(cd, "current_assets")
     cur_liab = _v(cd, "current_liabilities")
     interest = _v(cd, "interest_expense")
@@ -64,6 +65,7 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     # For balance-sheet multi-component figures, enforce period consistency
     # All components must be from the same period_end to avoid mixing dates.
     liquid_assets = None
+    cash_for_invested = 0.0
     if anchor_period:
         cash_fact = cd.value_for_period("cash", anchor_period)
         sti_fact = cd.value_for_period("short_term_investments", anchor_period)
@@ -86,10 +88,11 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
 
         liquid_assets = cash_val + sti_val + lti_val
 
-        # cash_for_invested is the plain `cash` concept (period-matched when possible)
+        # cash_for_invested is the plain `cash` concept (period-matched)
         cash_for_invested = cash_val
 
-    # For total_debt, enforce same period consistency
+    # For total_debt, enforce same period consistency.
+    # When anchor_period is absent, total_debt is absent — never 0.0.
     total_debt = None
     if anchor_period:
         ltd_fact = cd.value_for_period("long_term_debt", anchor_period)
@@ -108,9 +111,30 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
 
         total_debt = ltd_val + std_val
     else:
-        total_debt = 0.0
+        res.gaps.append("total_debt: no anchor period (total_assets absent); treated as absent, not zero")
 
-    net_debt = (total_debt - (liquid_assets or 0.0)) if liquid_assets is not None else None
+    # Period-match total_equity to anchor_period — same gap-logging pattern as cash/debt.
+    if anchor_period:
+        equity_fact = cd.value_for_period("total_equity", anchor_period)
+        equity = equity_fact.value if equity_fact else None
+        if not equity_fact and cd.latest("total_equity"):
+            eq_latest = cd.latest("total_equity")
+            res.gaps.append(f"total_equity: no value for period {anchor_period} (latest available is {eq_latest.period_end}, not used)")
+    else:
+        equity = None
+
+    # Gross profit fallback: revenue - cost_of_revenue (period-matched) when GrossProfit unresolved.
+    if gp is None and anchor_period:
+        rev_fact_ap = cd.value_for_period("revenue", anchor_period)
+        cor_fact_ap = cd.value_for_period("cost_of_revenue", anchor_period)
+        if rev_fact_ap is not None and cor_fact_ap is not None:
+            gp = rev_fact_ap.value - cor_fact_ap.value
+            res.derived_lineage["gross_profit"] = (
+                f"derived: revenue({rev_fact_ap.concept}) - cost_of_revenue({cor_fact_ap.concept})"
+            )
+
+    # net_debt: only defined when both components are present
+    net_debt = (total_debt - (liquid_assets or 0.0)) if (liquid_assets is not None and total_debt is not None) else None
     ebit = oi
     ebitda = (oi + da) if (oi is not None and da is not None) else None
 
@@ -119,7 +143,6 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     if anchor_period:
         cash_for_invested_val = cash_for_invested
     else:
-        # no anchor period: try latest cash value
         cash_for_invested_val = _v(cd, "cash")
 
     invested_capital = (total_debt + equity - (cash_for_invested_val or 0.0)) if (equity is not None and total_debt is not None and cash_for_invested_val is not None) else None
@@ -212,27 +235,33 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     mc = quote.market_cap
     shares = quote.shares_outstanding
     eps = (ni / shares) if (ni is not None and shares) else None
-    ev = (mc + net_debt) if mc is not None else None
+    # EV requires net_debt; skip and log gap when unavailable
+    ev = (mc + net_debt) if (mc is not None and net_debt is not None) else None
+    if mc is not None and net_debt is None:
+        res.gaps.append("ev: net_debt unavailable; EV/EBITDA excluded")
     res.rel_val = V.RelativeValuation(
         pe=M.pe_ratio(price, eps).value,
         ev_ebitda=M.ev_ebitda(ev, ebitda).value,
         fcf_yield=M.fcf_yield(fcf, mc).value,
     )
 
-    # DCF (only if we have a base FCF)
+    # DCF (only if we have a base FCF and net_debt is known)
     dcf_cfg = config.get("valuation", {}).get("dcf", {})
     if fcf is not None and fcf > 0 and dcf_cfg:
-        common = {"projection_years": dcf_cfg.get("projection_years", 5)}
-        for name, sc in dcf_cfg.get("scenarios", {}).items():
-            a = dict(common)
-            a.update(sc)
-            res.dcf[name] = V.two_stage_dcf(fcf, net_debt, shares, price, name, a)
-        sens = dcf_cfg.get("sensitivity")
-        base = dcf_cfg.get("scenarios", {}).get("base")
-        if sens and base:
-            a = dict(common); a.update(base)
-            res.sensitivity = V.sensitivity_grid(
-                fcf, net_debt, shares, a, sens.get("wacc", []), sens.get("terminal_growth", []))
+        if net_debt is None:
+            res.gaps.append("dcf: net_debt unavailable; DCF skipped")
+        else:
+            common = {"projection_years": dcf_cfg.get("projection_years", 5)}
+            for name, sc in dcf_cfg.get("scenarios", {}).items():
+                a = dict(common)
+                a.update(sc)
+                res.dcf[name] = V.two_stage_dcf(fcf, net_debt, shares, price, name, a)
+            sens = dcf_cfg.get("sensitivity")
+            base = dcf_cfg.get("scenarios", {}).get("base")
+            if sens and base:
+                a = dict(common); a.update(base)
+                res.sensitivity = V.sensitivity_grid(
+                    fcf, net_debt, shares, a, sens.get("wacc", []), sens.get("terminal_growth", []))
     elif not dcf_cfg:
         res.gaps.append("dcf: no assumptions configured")
     else:

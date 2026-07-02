@@ -71,12 +71,9 @@ def build_peer_table(client, cfg, target_cd, target_size, candidate_tickers, his
         print(f"    {mark} {d.ticker}: {d.reason}")
 
     kept = [r for r in peer_results if r.company.ticker in included]
-    target_res = None  # filled by caller; we only score below
 
-    # metrics to compare on
     metric_keys = ["gross_margin", "operating_margin", "net_margin", "fcf_margin",
                    "roe", "roic", "debt_to_equity"]
-    table = []
     return decisions, kept, metric_keys
 
 
