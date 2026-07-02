@@ -224,73 +224,333 @@ def _pts(x: Optional[float]) -> str:
     return f"{x:.1f}" if x is not None else "n/a"
 
 
-def _render_md(rows: list[ScreenRow]) -> str:
-    lines = [
-        f"# Durability Screen — {datetime.now():%Y-%m-%d %H:%M}",
+def _signed_pct(x: Optional[float], decimals: int = 1) -> str:
+    """Percentage with an explicit + sign for positive values (used for the Gap column)."""
+    if x is None:
+        return "n/a"
+    sign = "+" if x >= 0 else ""
+    return f"{sign}{x * 100:.{decimals}f}%"
+
+
+def _gap_style(gap: Optional[float]) -> str:
+    """
+    Inline box-shadow tint for the Gap <td> — muted slate-blue proportional to |gap|.
+
+    Uses box-shadow rather than background so it layers correctly on top of
+    zebra-banding and hover backgrounds without overriding them.
+    Color signals expectation magnitude only, not direction (no red/green moralizing).
+    """
+    if gap is None:
+        return ""
+    magnitude = min(abs(gap), 0.30)              # cap sensitivity at ±30 %
+    alpha     = (magnitude / 0.30) * 0.22        # 0 → invisible, ±30 % → 22 % blue overlay
+    return f"box-shadow:inset 0 0 0 1000px rgba(94,121,180,{alpha:.3f})"
+
+
+def _render_md(rows: list[ScreenRow], sort_mode: str = "durability") -> str:
+    """
+    Two-section markdown output: primary signals first, diagnostics below.
+    Numeric columns are right-aligned via markdown alignment syntax (---:).
+    """
+    ts      = datetime.now().strftime("%Y-%m-%d %H:%M")
+    uni_ver = next((r.universe_version for r in rows if r.universe_version), "—")
+    cfg_h   = next((r.config_hash     for r in rows if r.config_hash),     "—")
+    sort_label = (
+        "durability score" if sort_mode == "durability"
+        else "quality-value (composite percentile − gap percentile)"
+    )
+
+    lines: list[str] = [
+        "# Durability & Expectations Screen",
         "",
-        "| Ticker | Score | Band | Reinv | Quality | Resilience | Discipline"
-        " | Optionality | Complete | Stable | Implied g | Delivered g"
-        " | Gap | Univ | Hash | Flag |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        f"Generated: {ts}  ·  Universe: {uni_ver}  ·  Config: `{cfg_h}`",
+        f"Sorted by: {sort_label}",
+        "",
+        "## Primary signals",
+        "",
+        "| Ticker | Durability | Reinv | Quality | Resilience | Discipline"
+        " | Optionality | Implied g | Delivered g | Gap |",
+        "|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
+
     for r in rows:
-        band   = f"{_pts(r.composite_low)}–{_pts(r.composite_high)}" if r.composite is not None else "n/a"
-        stable = ("yes" if r.is_stable else "⚠ unstable") if r.is_stable is not None else "n/a"
-        impl_g = _pct(r.implied_fcf_growth) if not r.implied_growth_note else r.implied_growth_note
+        impl_g = _pct(r.implied_fcf_growth) if not r.implied_growth_note else "n/a"
+        gap    = _signed_pct(r.expectations_gap) if r.expectations_gap is not None and not r.implied_growth_note else "n/a"
         lines.append(
-            f"| {r.ticker} | {_pts(r.composite)} | {band}"
-            f" | {_pts(r.cat_reinvestment)} | {_pts(r.cat_quality)}"
-            f" | {_pts(r.cat_resilience)} | {_pts(r.cat_discipline)}"
-            f" | {_pts(r.cat_optionality)} | {_pct(r.completeness)}"
-            f" | {stable} | {impl_g} | {_pct(r.delivered_fcf_growth)}"
-            f" | {_pct(r.expectations_gap)} | {r.universe_version or 'n/a'}"
-            f" | {r.config_hash or 'n/a'} | {r.flag} |"
+            f"| {r.ticker}"
+            f" | {_pts(r.composite)}"
+            f" | {_pts(r.cat_reinvestment)}"
+            f" | {_pts(r.cat_quality)}"
+            f" | {_pts(r.cat_resilience)}"
+            f" | {_pts(r.cat_discipline)}"
+            f" | {_pts(r.cat_optionality)}"
+            f" | {impl_g}"
+            f" | {_pct(r.delivered_fcf_growth)}"
+            f" | {gap} |"
         )
+
+    lines += [
+        "",
+        "_Gap = growth the price implies minus growth delivered."
+        "  Larger absolute gap = bigger embedded expectation._",
+        "",
+        "## Data quality & provenance",
+        "",
+        "| Ticker | Band | Completeness | Stable | Universe | Config Hash | Flag |",
+        "|:---|:---|---:|:---|:---|:---|:---|",
+    ]
+
+    for r in rows:
+        band   = (f"{_pts(r.composite_low)}–{_pts(r.composite_high)}"
+                  if r.composite is not None else "—")
+        stable = ("yes" if r.is_stable else "⚠ unstable") if r.is_stable is not None else "—"
+        lines.append(
+            f"| {r.ticker}"
+            f" | {band}"
+            f" | {_pct(r.completeness)}"
+            f" | {stable}"
+            f" | {r.universe_version or '—'}"
+            f" | `{r.config_hash or '—'}`"
+            f" | {r.flag or '—'} |"
+        )
+
     return "\n".join(lines)
 
 
-def _render_html(rows: list[ScreenRow]) -> str:
-    def e(s: str) -> str:
-        return escape(str(s))
+def _render_html(rows: list[ScreenRow], sort_mode: str = "durability") -> str:  # noqa: C901
+    """
+    Institutional-grade terminal view.
 
-    header = (
-        "<tr><th>Ticker</th><th>Score</th><th>Band</th>"
-        "<th>Reinv</th><th>Quality</th><th>Resilience</th>"
-        "<th>Discipline</th><th>Optionality</th><th>Complete</th>"
-        "<th>Stable</th><th>Implied&nbsp;g</th><th>Delivered&nbsp;g</th>"
-        "<th>Gap</th><th>Univ</th><th>Hash</th><th>Flag</th></tr>"
+    Layout — two zones:
+      Primary signals  : decision-relevant columns, full visual weight.
+      Data quality     : Band, Completeness, Stable, Universe, Hash, Flag —
+                         audit/trust guardrails, visually recessed.
+
+    Design tokens
+      #0a0c10  near-black page background
+      #12151b  elevated table surface
+      #0d1016  even-row surface (slightly darker)
+      #1e242e  hairline border (not a heavy box, just a rule)
+      #dde3ef  primary text
+      #7a8499  dim secondary text
+      #454e63  muted / label text
+      rgba(94,121,180,α)  muted slate-blue gap tint (α scales with |gap|)
+
+    Gap column color is the ONLY color in the table — signals expectation
+    magnitude, not buy/sell direction.  Uses box-shadow so it layers on top
+    of zebra-banding and hover without overriding the underlying background.
+
+    All numeric cells use font-variant-numeric:tabular-nums so digits align
+    vertically (non-negotiable for a financial display).
+    """
+    e = escape
+
+    ts          = datetime.now().strftime("%Y-%m-%d %H:%M")
+    uni_ver     = next((r.universe_version for r in rows if r.universe_version), "—")
+    cfg_h       = next((r.config_hash     for r in rows if r.config_hash),     "—")
+    sort_label  = (
+        "durability score" if sort_mode == "durability"
+        else "quality-value (composite percentile − gap percentile)"
     )
-    body_rows = []
+
+    css = """\
+:root{
+  --bg:#0a0c10;--surf:#12151b;--surf2:#0d1016;--bdr:#1e242e;
+  --txt:#dde3ef;--dim:#7a8499;--mute:#454e63;
+  --mono:"SF Mono","Cascadia Code",ui-monospace,Menlo,monospace
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);color:var(--txt);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased
+}
+.wrap{max-width:1700px;margin:0 auto;padding:32px 24px 64px}
+
+/* ── Header ────────────────────────────────────────────────────── */
+.hdr{margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--bdr)}
+.hdr h1{font-size:17px;font-weight:600;letter-spacing:-.01em;margin-bottom:6px}
+.hdr .meta{font-size:11px;color:var(--dim);letter-spacing:.02em;
+           font-variant-numeric:tabular-nums}
+.mono{font-family:var(--mono);font-size:10px;letter-spacing:.04em}
+
+/* ── Section labels ─────────────────────────────────────────────── */
+.sec-lbl{
+  font-size:9.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--mute);margin-bottom:10px
+}
+
+/* ── Shared table base ──────────────────────────────────────────── */
+table{width:100%;border-collapse:collapse}
+thead th{
+  position:sticky;top:0;z-index:2;background:var(--surf);
+  font-size:9.5px;font-weight:700;letter-spacing:.10em;text-transform:uppercase;
+  color:var(--mute);padding:10px 12px 9px;border-bottom:1px solid var(--bdr);
+  text-align:right;white-space:nowrap;user-select:none
+}
+thead th.l{text-align:left}
+td{
+  padding:7px 12px;border-bottom:1px solid var(--bdr);
+  font-variant-numeric:tabular-nums;font-family:var(--mono);
+  font-size:12.5px;color:var(--txt);text-align:right;white-space:nowrap
+}
+td.tk{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  font-size:13px;font-weight:600;color:var(--txt);text-align:left;letter-spacing:.01em
+}
+td.tk.dim{color:var(--dim);font-weight:500}
+tbody tr:nth-child(even) td{background:var(--surf2)}
+tbody tr:hover td{background:#171b28cc!important}
+.na{
+  color:var(--mute);font-style:italic;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  font-size:11px;font-variant-numeric:normal
+}
+
+/* ── Primary signal table ───────────────────────────────────────── */
+.primary-sec{margin-bottom:14px}
+.legend{font-size:11px;color:var(--mute);margin-top:12px;line-height:1.65}
+.sort-note{font-size:10px;color:var(--mute);margin-top:5px;letter-spacing:.03em}
+
+/* ── Diagnostics (recessed) ─────────────────────────────────────── */
+.diag-sec{margin-top:44px}
+.diag-sec table thead th{font-size:9px;padding:6px 12px 5px}
+.diag-sec table td{
+  font-size:11px;padding:4px 12px;color:var(--mute);
+  font-variant-numeric:tabular-nums
+}
+.diag-sec table td.tk{font-size:11px;font-weight:500;color:var(--dim)}
+.flag-cell{
+  font-style:italic;max-width:240px;overflow:hidden;text-overflow:ellipsis;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  font-variant-numeric:normal;font-size:10.5px
+}"""
+
+    def _score_td(val: Optional[float]) -> str:
+        if val is None:
+            return '<td class="na">—</td>'
+        return f'<td>{e(_pts(val))}</td>'
+
+    def _pct_td(val: Optional[float]) -> str:
+        if val is None:
+            return '<td class="na">n/a</td>'
+        return f'<td>{e(_pct(val))}</td>'
+
+    def _gap_td(r: ScreenRow) -> str:
+        if r.expectations_gap is not None and not r.implied_growth_note:
+            style = _gap_style(r.expectations_gap)
+            return f'<td style="{style}">{e(_signed_pct(r.expectations_gap))}</td>'
+        return '<td class="na">n/a</td>'
+
+    def _impl_td(r: ScreenRow) -> str:
+        if r.implied_fcf_growth is not None and not r.implied_growth_note:
+            return f'<td>{e(_pct(r.implied_fcf_growth))}</td>'
+        return '<td class="na">n/a</td>'
+
+    # ── Primary signal rows ──────────────────────────────────────────
+    sig_rows: list[str] = []
     for r in rows:
-        band   = f"{_pts(r.composite_low)}–{_pts(r.composite_high)}" if r.composite is not None else "n/a"
-        stable = ("yes" if r.is_stable else "⚠ unstable") if r.is_stable is not None else "n/a"
-        impl_g = _pct(r.implied_fcf_growth) if not r.implied_growth_note else r.implied_growth_note
-        body_rows.append(
-            f"<tr><td>{e(r.ticker)}</td><td>{e(_pts(r.composite))}</td>"
-            f"<td>{e(band)}</td>"
-            f"<td>{e(_pts(r.cat_reinvestment))}</td><td>{e(_pts(r.cat_quality))}</td>"
-            f"<td>{e(_pts(r.cat_resilience))}</td><td>{e(_pts(r.cat_discipline))}</td>"
-            f"<td>{e(_pts(r.cat_optionality))}</td><td>{e(_pct(r.completeness))}</td>"
-            f"<td>{e(stable)}</td>"
-            f"<td>{e(impl_g)}</td>"
-            f"<td>{e(_pct(r.delivered_fcf_growth))}</td>"
-            f"<td>{e(_pct(r.expectations_gap))}</td>"
-            f"<td>{e(r.universe_version or 'n/a')}</td>"
-            f"<td><code>{e(r.config_hash or 'n/a')}</code></td>"
-            f"<td>{e(r.flag)}</td></tr>"
+        tk_cls = "tk dim" if (r.excluded or (r.flag and r.composite is None)) else "tk"
+        sig_rows.append(
+            f'<tr>'
+            f'<td class="{tk_cls}">{e(r.ticker)}</td>'
+            f'{_score_td(r.composite)}'
+            f'{_score_td(r.cat_reinvestment)}'
+            f'{_score_td(r.cat_quality)}'
+            f'{_score_td(r.cat_resilience)}'
+            f'{_score_td(r.cat_discipline)}'
+            f'{_score_td(r.cat_optionality)}'
+            f'{_impl_td(r)}'
+            f'{_pct_td(r.delivered_fcf_growth)}'
+            f'{_gap_td(r)}'
+            f'</tr>'
         )
-    return (
-        "<!DOCTYPE html><html lang='en'><head><meta charset='utf-8'>"
-        "<title>Durability Screen</title>"
-        "<style>body{background:#0f172a;color:#e2e8f0;font-family:system-ui}"
-        "table{border-collapse:collapse;width:100%}th,td{padding:8px 10px;"
-        "border:1px solid #334155;text-align:left}th{background:#1e293b}"
-        "tbody tr:nth-child(even){background:#111827}</style></head><body>"
-        "<main style='max-width:1600px;margin:0 auto;padding:24px'>"
-        f"<h1>Durability Screen — {escape(datetime.now().strftime('%Y-%m-%d %H:%M'))}</h1>"
-        f"<table><thead>{header}</thead><tbody>{''.join(body_rows)}</tbody></table>"
-        "</main></body></html>"
-    )
+
+    # ── Diagnostics rows ─────────────────────────────────────────────
+    diag_rows: list[str] = []
+    for r in rows:
+        band   = (f"{_pts(r.composite_low)}–{_pts(r.composite_high)}"
+                  if r.composite is not None else "—")
+        stable = ("yes" if r.is_stable else "⚠ unstable") if r.is_stable is not None else "—"
+        diag_rows.append(
+            f'<tr>'
+            f'<td class="tk">{e(r.ticker)}</td>'
+            f'<td>{e(band)}</td>'
+            f'{_pct_td(r.completeness)}'
+            f'<td>{e(stable)}</td>'
+            f'<td>{e(r.universe_version or "—")}</td>'
+            f'<td><span class="mono">{e(r.config_hash or "—")}</span></td>'
+            f'<td class="flag-cell">{e(r.flag or "—")}</td>'
+            f'</tr>'
+        )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Durability &amp; Expectations Screen</title>
+<style>
+{css}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hdr">
+  <h1>Durability &amp; Expectations Screen</h1>
+  <p class="meta">Generated {e(ts)}&nbsp;&nbsp;&middot;&nbsp;&nbsp;Universe: {e(uni_ver)}&nbsp;&nbsp;&middot;&nbsp;&nbsp;Config:&nbsp;<span class="mono">{e(cfg_h)}</span></p>
+</header>
+
+<section class="primary-sec">
+  <div class="sec-lbl">Primary signals</div>
+  <table>
+    <thead>
+      <tr>
+        <th class="l">Ticker</th>
+        <th>Durability</th>
+        <th>Reinv</th>
+        <th>Quality</th>
+        <th>Resilience</th>
+        <th>Discipline</th>
+        <th>Optionality</th>
+        <th>Implied&nbsp;g</th>
+        <th>Delivered&nbsp;g</th>
+        <th>Gap</th>
+      </tr>
+    </thead>
+    <tbody>
+      {''.join(sig_rows)}
+    </tbody>
+  </table>
+  <p class="legend">Gap = growth the price implies minus growth delivered &nbsp;&middot;&nbsp; deeper blue tint = larger embedded expectation, regardless of direction</p>
+  <p class="sort-note">Sorted by: {e(sort_label)}</p>
+</section>
+
+<section class="diag-sec">
+  <div class="sec-lbl">Data quality &amp; provenance</div>
+  <table>
+    <thead>
+      <tr>
+        <th class="l">Ticker</th>
+        <th class="l">Band</th>
+        <th>Completeness</th>
+        <th class="l">Stable</th>
+        <th class="l">Universe</th>
+        <th class="l">Config Hash</th>
+        <th class="l">Flag</th>
+      </tr>
+    </thead>
+    <tbody>
+      {''.join(diag_rows)}
+    </tbody>
+  </table>
+</section>
+
+</div>
+</body>
+</html>"""
 
 
 # ---------------------------------------------------------------------------
