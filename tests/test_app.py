@@ -51,57 +51,237 @@ def _screen_row(ticker: str, composite=None, **overrides) -> ScreenRow:
 # ---------------------------------------------------------------------------
 
 class TestWatchlistEndpoints:
+    """
+    add_to_watchlist() now resolves classification server-side (Task 2) —
+    every test here mocks app.main._resolve_classification so these stay
+    offline; tests that care about the resolved kind override the default.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _mock_classification(self):
+        with patch(
+            "app.main._resolve_classification",
+            return_value={"kind": "equity", "label": "Equity — 10-K filer"},
+        ):
+            yield
+
     def test_get_watchlist_empty(self, client):
         resp = client.get("/api/watchlist")
         assert resp.status_code == 200
         assert resp.json() == {"tickers": [], "etfs": []}
 
     def test_get_watchlist_shape_after_add(self, client):
-        client.post("/api/watchlist/add", json={"ticker": "NVDA", "type": "equity"})
-        client.post("/api/watchlist/add", json={"ticker": "VOO", "type": "etf"})
+        def resolve(ticker):
+            if ticker == "VOO":
+                return {"kind": "etf", "label": "ETF/Fund — fund forms observed"}
+            return {"kind": "equity", "label": "Equity — 10-K filer"}
+
+        with patch("app.main._resolve_classification", side_effect=resolve):
+            client.post("/api/watchlist/add", json={"ticker": "NVDA"})
+            client.post("/api/watchlist/add", json={"ticker": "VOO"})
         resp = client.get("/api/watchlist")
         body = resp.json()
         assert body["tickers"] == ["NVDA"]
         assert body["etfs"] == ["VOO"]
 
     def test_add_valid_ticker_strips_and_uppercases(self, client):
-        resp = client.post("/api/watchlist/add", json={"ticker": "  nvda  ", "type": "equity"})
+        resp = client.post("/api/watchlist/add", json={"ticker": "  nvda  "})
         assert resp.status_code == 200
         assert resp.json()["tickers"] == ["NVDA"]
 
     def test_add_ticker_with_dot_accepted(self, client):
         """'.' must be allowed — real tickers like BRK.B / TSMC34.SA need it."""
-        resp = client.post("/api/watchlist/add", json={"ticker": "TSMC34.SA", "type": "equity"})
+        resp = client.post("/api/watchlist/add", json={"ticker": "TSMC34.SA"})
         assert resp.status_code == 200
         assert "TSMC34.SA" in resp.json()["tickers"]
 
     def test_add_empty_ticker_rejected(self, client):
-        resp = client.post("/api/watchlist/add", json={"ticker": "   ", "type": "equity"})
+        resp = client.post("/api/watchlist/add", json={"ticker": "   "})
         assert resp.status_code == 400
 
     def test_add_too_long_ticker_rejected(self, client):
-        resp = client.post("/api/watchlist/add", json={"ticker": "ABCDEFGHIJK", "type": "equity"})
+        resp = client.post("/api/watchlist/add", json={"ticker": "ABCDEFGHIJK"})
         assert resp.status_code == 400
 
     def test_add_non_alphanumeric_ticker_rejected(self, client):
-        resp = client.post("/api/watchlist/add", json={"ticker": "NVDA; DROP", "type": "equity"})
+        resp = client.post("/api/watchlist/add", json={"ticker": "NVDA; DROP"})
         assert resp.status_code == 400
 
     def test_add_rejects_junk_without_touching_store(self, client):
-        client.post("/api/watchlist/add", json={"ticker": "NVDA!!", "type": "equity"})
+        client.post("/api/watchlist/add", json={"ticker": "NVDA!!"})
         resp = client.get("/api/watchlist")
         assert resp.json() == {"tickers": [], "etfs": []}
 
+    def test_add_routes_to_etf_table_when_classified_as_fund(self, client):
+        with patch(
+            "app.main._resolve_classification",
+            return_value={"kind": "etf", "label": "ETF/Fund — fund forms observed"},
+        ):
+            resp = client.post("/api/watchlist/add", json={"ticker": "VOO"})
+        body = resp.json()
+        assert body["etfs"] == ["VOO"]
+        assert body["tickers"] == []
+        assert body["resolved_kind"] == "etf"
+
+    def test_add_falls_back_to_equities_bucket_when_pending(self, client):
+        """Genuinely unresolvable classification still needs somewhere to
+        live (the schema has only two buckets) — but the response reports
+        kind=None honestly rather than claiming a resolved answer."""
+        with patch(
+            "app.main._resolve_classification",
+            return_value={"kind": None, "label": "pending"},
+        ):
+            resp = client.post("/api/watchlist/add", json={"ticker": "NEWCO"})
+        body = resp.json()
+        assert body["tickers"] == ["NEWCO"]
+        assert body["resolved_kind"] is None
+        assert body["resolved_label"] == "pending"
+
     def test_delete_removes_ticker(self, client):
-        client.post("/api/watchlist/add", json={"ticker": "NVDA", "type": "equity"})
+        client.post("/api/watchlist/add", json={"ticker": "NVDA"})
         resp = client.delete("/api/watchlist/NVDA")
         assert resp.status_code == 200
         assert resp.json()["tickers"] == []
 
     def test_delete_is_case_insensitive(self, client):
-        client.post("/api/watchlist/add", json={"ticker": "NVDA", "type": "equity"})
+        client.post("/api/watchlist/add", json={"ticker": "NVDA"})
         resp = client.delete("/api/watchlist/nvda")
         assert resp.json()["tickers"] == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/classify/{ticker} — evidence-based classification (Task 2)
+# ---------------------------------------------------------------------------
+
+def _cd(recent_forms, sic="7372", reporting_currency="USD") -> CompanyData:
+    return CompanyData(
+        ticker="TEST", cik="0000000001", name="Test Co",
+        sic=sic, sic_description="Software",
+        recent_forms=recent_forms, reporting_currency=reporting_currency,
+    )
+
+
+class TestClassifyEndpoint:
+    def test_domestic_10k_filer_is_equity(self, client):
+        with patch.object(fastapi_app.state.client, "get_company", return_value=_cd(["10-K"])):
+            resp = client.get("/api/classify/AAPL")
+        body = resp.json()
+        assert body["kind"] == "equity"
+        assert "10-K" in body["label"]
+
+    def test_fpi_20f_filer_is_equity(self, client):
+        with patch.object(
+            fastapi_app.state.client, "get_company",
+            return_value=_cd(["20-F"], reporting_currency="TWD"),
+        ):
+            resp = client.get("/api/classify/TSM")
+        body = resp.json()
+        assert body["kind"] == "equity"
+        assert "foreign private issuer" in body["label"].lower()
+
+    def test_fund_forms_is_etf(self, client):
+        with patch.object(
+            fastapi_app.state.client, "get_company",
+            return_value=_cd(["N-CSR", "N-PORT"], sic="6726"),
+        ):
+            resp = client.get("/api/classify/SPY")
+        body = resp.json()
+        assert body["kind"] == "etf"
+
+    def test_no_edgar_registrant_falls_back_to_yfinance_etf(self, client):
+        fake_profile = MagicMock(quote_type="ETF")
+        with (
+            patch.object(
+                fastapi_app.state.client, "get_company",
+                side_effect=ValueError("Ticker 'VOO' not found in SEC ticker map."),
+            ),
+            patch("app.main.fetch_etf_profile", return_value=fake_profile),
+        ):
+            resp = client.get("/api/classify/VOO")
+        body = resp.json()
+        assert body["kind"] == "etf"
+
+    def test_no_edgar_registrant_and_not_a_fund_is_pending(self, client):
+        fake_profile = MagicMock(quote_type="EQUITY")
+        with (
+            patch.object(
+                fastapi_app.state.client, "get_company",
+                side_effect=ValueError("Ticker 'FAKE' not found in SEC ticker map."),
+            ),
+            patch("app.main.fetch_etf_profile", return_value=fake_profile),
+        ):
+            resp = client.get("/api/classify/FAKE")
+        body = resp.json()
+        assert body["kind"] is None
+        assert body["label"] == "pending"
+
+    def test_financial_sic_confirmed_fund_via_yfinance_is_etf(self, client):
+        """Commodity trusts like GLD: financial SIC, no fund forms, but
+        yfinance confirms ETF — same fallback screen.py uses."""
+        fake_profile = MagicMock(quote_type="ETF")
+        with (
+            patch.object(
+                fastapi_app.state.client, "get_company",
+                return_value=_cd(["10-K"], sic="6221"),
+            ),
+            patch("app.main.fetch_etf_profile", return_value=fake_profile),
+        ):
+            resp = client.get("/api/classify/GLD")
+        body = resp.json()
+        assert body["kind"] == "etf"
+
+    def test_financial_sic_no_fund_confirmation_stays_equity(self, client):
+        """A real bank (JPM) genuinely files a 10-K and yfinance reports
+        quoteType=EQUITY, not a fund — it correctly classifies as equity
+        for watchlist bucketing. durability.py separately excludes it from
+        SCORING for financial-SIC reasons, but that's a distinct concern
+        (shown later in the screen's Excluded section) from "is this a
+        stock or a fund," which is all this endpoint answers."""
+        fake_profile = MagicMock(quote_type="EQUITY")
+        with (
+            patch.object(
+                fastapi_app.state.client, "get_company",
+                return_value=_cd(["10-K"], sic="6021"),
+            ),
+            patch("app.main.fetch_etf_profile", return_value=fake_profile),
+        ):
+            resp = client.get("/api/classify/JPM")
+        body = resp.json()
+        assert body["kind"] == "equity"
+        assert "10-K" in body["label"]
+
+    def test_unclassified_is_pending(self, client):
+        with patch.object(
+            fastapi_app.state.client, "get_company",
+            return_value=_cd(["8-K", "DEF 14A"]),
+        ):
+            resp = client.get("/api/classify/WEIRD")
+        body = resp.json()
+        assert body["kind"] is None
+        assert body["label"] == "pending"
+
+    def test_analyst_override_bypasses_financial_sic_exclusion(self, client):
+        """MARA-style override: config.yaml says 'operating' despite a
+        financial SIC — classify endpoint must honor it, same as screen.py."""
+        fastapi_app.state.cfg.setdefault("classification", {}).setdefault("overrides", {})["MARA"] = "operating"
+        try:
+            with patch.object(
+                fastapi_app.state.client, "get_company",
+                return_value=_cd(["10-K"], sic="6199"),
+            ):
+                resp = client.get("/api/classify/MARA")
+        finally:
+            del fastapi_app.state.cfg["classification"]["overrides"]["MARA"]
+        body = resp.json()
+        assert body["kind"] == "equity"
+
+    def test_edgar_network_failure_is_pending_not_500(self, client):
+        with patch.object(
+            fastapi_app.state.client, "get_company", side_effect=RuntimeError("network down"),
+        ):
+            resp = client.get("/api/classify/AAPL")
+        assert resp.status_code == 200
+        assert resp.json() == {"kind": None, "label": "pending"}
 
 
 # ---------------------------------------------------------------------------
@@ -410,8 +590,12 @@ class TestAnalysisCacheTtlAndLocking:
 
 class TestScreenEndpoint:
     def test_triggers_run_screen_with_watchlist_tickers(self, client):
-        client.post("/api/watchlist/add", json={"ticker": "NVDA", "type": "equity"})
-        client.post("/api/watchlist/add", json={"ticker": "VOO", "type": "etf"})
+        with patch(
+            "app.main._resolve_classification",
+            return_value={"kind": "equity", "label": "Equity — 10-K filer"},
+        ):
+            client.post("/api/watchlist/add", json={"ticker": "NVDA"})
+            client.post("/api/watchlist/add", json={"ticker": "VOO"})
 
         with patch("app.main.run_screen", return_value=([], [])) as mock_screen:
             start = client.get("/api/screen")

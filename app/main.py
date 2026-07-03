@@ -35,8 +35,10 @@ from app import watchlist
 from engine.analysis import run_single_ticker
 from engine import durability as D
 from engine.edgar import EdgarClient, SEC_TICKERS_URL
+from engine.etf import fetch_etf_profile, FUND_QUOTE_TYPES
 from engine.pipeline import AnalysisResult
 from engine import report_html as RH
+from engine.screen import _classify as _engine_classify
 from engine.screen import run_screen
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -119,7 +121,9 @@ app.add_middleware(
 
 class AddTickerRequest(BaseModel):
     ticker: str
-    type: str = "equity"  # "equity" | "etf"
+    # No client-supplied type: the backend resolves equity vs. ETF/fund via
+    # the same evidence-based classification engine.screen.py already uses
+    # (form history / yfinance quoteType) — never a client-chosen default.
 
 
 _TICKER_RE = re.compile(r"^[A-Z0-9.]+$")
@@ -139,6 +143,95 @@ def _validate_ticker(raw: str) -> str:
     return tk
 
 
+# ---------------------------------------------------------------------------
+# Classification — evidence-based equity/ETF resolution, reused by both the
+# search card's badge and the watchlist add flow. Never fabricates a default:
+# a ticker that can't be resolved reports kind=None ("pending"), matching
+# screen.py's own "absence is not a classification" discipline.
+# ---------------------------------------------------------------------------
+
+_CLASSIFICATION_LABELS = {
+    "operating_domestic": "Equity — 10-K filer",
+    "operating_fpi": "Equity — foreign private issuer (20-F/40-F)",
+    # _classify()'s analyst-override branch returns the override value
+    # verbatim (config.yaml's overrides use "operating", not
+    # "operating_domestic") — same equity bucket, distinct label so the
+    # badge is honest about why it resolved.
+    "operating": "Equity — analyst override",
+}
+
+
+def _fund_via_yfinance_label(ticker: str) -> Optional[dict]:
+    try:
+        profile = fetch_etf_profile(ticker)
+    except Exception:
+        return None
+    qt = (profile.quote_type or "").upper()
+    if qt in FUND_QUOTE_TYPES:
+        return {"kind": "etf", "label": f"ETF/Fund — yfinance quoteType={profile.quote_type}"}
+    return None
+
+
+def _resolve_classification(ticker: str) -> dict:
+    """Returns {"kind": "equity"|"etf"|None, "label": str}. kind=None ("pending")
+    means the evidence didn't resolve cleanly — never a fabricated default."""
+    overrides = app.state.cfg.get("classification", {}).get("overrides", {})
+    try:
+        # history_years=1: classification only needs recent_forms/sic, not a
+        # deep XBRL history — the EDGAR disk cache means this costs nothing
+        # extra on the network side regardless.
+        cd = app.state.client.get_company(ticker, history_years=1)
+    except ValueError:
+        # No EDGAR registrant — yfinance quoteType is the second evidence
+        # source, same fallback screen.py uses.
+        return _fund_via_yfinance_label(ticker) or {"kind": None, "label": "pending"}
+    except Exception:
+        return {"kind": None, "label": "pending"}
+
+    classification, _evidence = _engine_classify(ticker, cd, overrides)
+
+    if classification == "fund":
+        return {"kind": "etf", "label": "ETF/Fund — fund forms observed"}
+
+    if classification in _CLASSIFICATION_LABELS:
+        # Filing a 10-K/20-F/40-F makes it "operating" by form history, but
+        # a financial-SIC issuer can still be economically a fund (GLD files
+        # 10-Ks as a trust, yet is a commodity ETF) — this is the same
+        # SIC-range check durability.score() applies independently of form
+        # history, and the same yfinance probe screen.py runs before
+        # finalising a financial-SIC exclusion. A real bank (JPM) has no
+        # yfinance fund confirmation and correctly stays "equity" — it's
+        # still a stock, just one durability.py won't score. An analyst
+        # override of "operating" bypasses this probe entirely, same as it
+        # bypasses durability.py's exclusion.
+        try:
+            sic_int = int(cd.sic)
+        except (ValueError, TypeError):
+            sic_int = None
+        overridden = overrides.get(ticker.upper()) == "operating"
+        if sic_int is not None and 6000 <= sic_int <= 6799 and not overridden:
+            fund_label = _fund_via_yfinance_label(ticker)
+            if fund_label is not None:
+                return fund_label
+        return {"kind": "equity", "label": _CLASSIFICATION_LABELS[classification]}
+
+    if classification == "financial":
+        # Financial-SIC with no annual forms at all — probe yfinance before
+        # giving up (catches commodity trusts with no 10-K, same as
+        # screen.py's fallback).
+        return _fund_via_yfinance_label(ticker) or {"kind": None, "label": "pending"}
+
+    return {"kind": None, "label": "pending"}  # "unclassified"
+
+
+@app.get("/api/classify/{ticker}")
+def classify_ticker(ticker: str):
+    tk = ticker.strip().upper()
+    if not tk:
+        return {"kind": None, "label": "pending"}
+    return _resolve_classification(tk)
+
+
 @app.get("/api/watchlist")
 def get_watchlist():
     return watchlist.load()
@@ -147,8 +240,18 @@ def get_watchlist():
 @app.post("/api/watchlist/add")
 def add_to_watchlist(body: AddTickerRequest):
     ticker = _validate_ticker(body.ticker)
-    type_ = "etf" if body.type == "etf" else "equity"
-    return watchlist.add(ticker, type_)
+    resolved = _resolve_classification(ticker)
+    # The watchlist schema only has two buckets; a genuinely unresolved
+    # ticker still needs somewhere to live so the next screen run considers
+    # it — screen.py re-derives its own authoritative classification from
+    # scratch regardless of which bucket it started in (run_screen just
+    # concatenates tickers + etfs into one list). Equities is the practical
+    # default bucket; it is not presented to the user as a resolved answer.
+    type_ = "etf" if resolved["kind"] == "etf" else "equity"
+    result = watchlist.add(ticker, type_)
+    result["resolved_kind"] = resolved["kind"]
+    result["resolved_label"] = resolved["label"]
+    return result
 
 
 @app.delete("/api/watchlist/{ticker}")

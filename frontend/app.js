@@ -87,6 +87,7 @@
     searchStatus: document.getElementById("search-status"),
     searchConfirm: document.getElementById("search-confirm"),
     searchConfirmText: document.getElementById("search-confirm-text"),
+    searchClassificationBadge: document.getElementById("search-classification-badge"),
     searchAddBtn: document.getElementById("search-add-btn"),
     refreshBtn: document.getElementById("refresh-btn"),
     statusBanner: document.getElementById("status-banner"),
@@ -371,9 +372,36 @@
 
   var searchDebounce = null;
 
+  function setClassificationBadge(text, pending) {
+    els.searchClassificationBadge.textContent = text;
+    els.searchClassificationBadge.classList.toggle("pending", !!pending);
+  }
+
   function resetSearchConfirm() {
     currentSearchTicker = null;
     els.searchConfirm.classList.add("hidden");
+    setClassificationBadge("pending", true);
+  }
+
+  // Fetches the resolved equity/ETF classification for the confirm card's
+  // badge. Fired right after a search finds a ticker; the badge starts on
+  // "pending" and updates in place once this resolves — classification
+  // needs an EDGAR (and sometimes yfinance) lookup, so it's slower than
+  // the instant found/not-found search feedback and shown separately.
+  function fetchClassificationBadge(ticker) {
+    apiGet("/api/classify/" + encodeURIComponent(ticker))
+      .then(function (res) {
+        if (currentSearchTicker !== ticker) return; // stale — card moved on
+        if (res.kind) {
+          setClassificationBadge(res.label, false);
+        } else {
+          setClassificationBadge("pending", true);
+        }
+      })
+      .catch(function () {
+        if (currentSearchTicker !== ticker) return;
+        setClassificationBadge("pending", true);
+      });
   }
 
   els.searchInput.addEventListener("input", function () {
@@ -395,7 +423,9 @@
             currentSearchTicker = raw;
             var label = res.name ? raw + " — " + res.name : raw;
             els.searchConfirmText.textContent = label;
+            setClassificationBadge("pending", true);
             els.searchConfirm.classList.remove("hidden");
+            fetchClassificationBadge(raw);
           } else {
             els.searchStatus.textContent = "✗";
             els.searchStatus.className = "search-status not-found";
@@ -418,11 +448,13 @@
 
   function addSearchedTickerToWatchlist() {
     if (!currentSearchTicker) return;
-    var type = document.querySelector('input[name="add-type"]:checked').value;
+    // No client-chosen type: the backend resolves equity vs. ETF/fund the
+    // same way it resolved the badge above (evidence-based classification),
+    // never a client-supplied default.
     fetch("/api/watchlist/add", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ticker: currentSearchTicker, type: type }),
+      body: JSON.stringify({ ticker: currentSearchTicker }),
     })
       .then(function (r) {
         if (!r.ok) return r.json().then(function (b) { throw new Error(b.detail || "add failed"); });
