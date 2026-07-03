@@ -3,13 +3,20 @@ screen.py — batch durability screener.
 
 Routes each ticker:
   - Operating equities (10-K domestic or 20-F/40-F FPI) → durability scorecard + growth signals
-  - Funds (N-CSR/N-PORT/N-1A/485BPOS/485APOS forms, or SIC 6726) → ETF lens section
+  - Funds (N-CSR/N-PORT/N-1A/485BPOS/485APOS forms, SIC 6726, or yfinance quoteType
+    ETF/MUTUALFUND) → ETF lens section
   - Unknown/unclassified → flagged row, not scored
   - Network / data failures → logged, run continues; one bad ticker never kills the run
 
-Classification is evidence-based (B1): determined from the SEC submissions form
-history, not inferred from absent fundamentals.  A company whose XBRL concepts
-all fail to resolve is still classified operating if it filed 10-K or 20-F.
+Classification is evidence-based (B1): determined from the SEC submissions form history,
+not inferred from absent fundamentals.  A company whose XBRL concepts all fail to resolve
+is still classified operating if it filed 10-K or 20-F.
+
+For tickers absent from EDGAR (ETFs, most CEFs), yfinance quoteType is used as a *second*
+evidence source:
+  - quoteType ETF or MUTUALFUND → route to ETF lens
+  - quoteType EQUITY or yfinance failure → route to Excluded ("not classifiable as fund")
+  Never classify as fund from EDGAR absence alone.
 
 Analyst overrides (B2) in config.classification.overrides win over inference
 and over the financial-issuer SIC exclusion.
@@ -26,7 +33,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from html import escape
 from pathlib import Path
@@ -36,7 +43,7 @@ from engine.edgar import CompanyData, EdgarClient
 from engine.market import get_quote
 from engine.pipeline import derive
 from engine import durability as D
-from engine.etf import EtfProfile, fetch_etf_profile
+from engine.etf import EtfProfile, fetch_etf_profile, FUND_QUOTE_TYPES
 
 log = logging.getLogger(__name__)
 
@@ -80,11 +87,14 @@ class EtfRow:
     ticker: str
     name: Optional[str]
     category: Optional[str]
-    expense_ratio: Optional[float]
+    expense_ratio: Optional[float]                       # 0–1 decimal fraction; None ≠ 0.0
     aum: Optional[float]
     top10_concentration: Optional[float]
-    overlap_with_screen: Optional[float]
-    flag: str
+    # Top holdings stored for overlap computation and display (no re-fetch needed)
+    top_holdings: list[tuple[str, float]] = field(default_factory=list)
+    overlap_with_screen: Optional[float] = None          # weight-fraction overlap
+    overlap_count: Optional[int] = None                  # # of matching holdings
+    flag: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +192,47 @@ def _empty_row(ticker: str, flag: str, excluded: bool = False,
     )
 
 
+def _etf_row_from_profile(profile: EtfProfile, evidence: str) -> EtfRow:
+    """Build an EtfRow from a fully-fetched EtfProfile.  Overlap filled in later."""
+    return EtfRow(
+        ticker=profile.ticker,
+        name=profile.name,
+        category=profile.category,
+        expense_ratio=profile.expense_ratio,
+        aum=profile.total_assets,
+        top10_concentration=profile.top10_concentration,
+        top_holdings=list(profile.top_holdings),
+        overlap_with_screen=None,
+        overlap_count=None,
+        flag=evidence,
+    )
+
+
+def _try_fund_via_yfinance(ticker: str) -> Optional[EtfRow]:
+    """
+    Called when EDGAR has no registrant for this ticker.  Uses yfinance quoteType
+    as positive evidence for fund classification.
+
+    Returns an EtfRow (overlap not yet filled) if quoteType is ETF or MUTUALFUND.
+    Returns None if quoteType is EQUITY, unknown, or yfinance itself fails.
+    Never classifies as fund from EDGAR absence alone.
+    """
+    try:
+        profile = fetch_etf_profile(ticker)
+    except Exception as exc:
+        log.debug("yfinance probe for %s raised: %s", ticker, exc)
+        return None
+
+    qt = (profile.quote_type or "").upper()
+    if qt not in FUND_QUOTE_TYPES:
+        if qt:
+            log.debug("%s: yfinance quoteType=%s — not a fund, routing to Excluded", ticker, qt)
+        return None
+
+    evidence = f"fund: yfinance quoteType={profile.quote_type} (no EDGAR registrant)"
+    return _etf_row_from_profile(profile, evidence)
+
+
 def _process_one(
     ticker: str,
     client: EdgarClient,
@@ -192,17 +243,26 @@ def _process_one(
     """
     Process a single ticker.  Returns (ScreenRow, None) for operating securities,
     (None, EtfRow) for funds, and (ScreenRow, None) with a flag for errors.
+
+    EDGAR is the primary classification source.  For tickers absent from EDGAR,
+    yfinance quoteType is used as a second evidence source before routing to Excluded.
     """
     universe_version = cfg.get("universe", {}).get("version", "")
     overrides = cfg.get("classification", {}).get("overrides", {})
 
-    # Fetch EDGAR data; handle "not found" distinctly from other errors
+    # ── EDGAR lookup ────────────────────────────────────────────────────────
     try:
         cd = client.get_company(ticker, history_years)
     except ValueError as e:
         if "not found in SEC ticker map" in str(e):
+            # Second evidence source: yfinance quoteType
+            etf_row = _try_fund_via_yfinance(ticker)
+            if etf_row is not None:
+                return None, etf_row
+            # yfinance confirms non-fund (or also failed) → Excluded with distinct reason
             return _empty_row(
-                ticker, "unknown — no EDGAR registrant found",
+                ticker,
+                "no EDGAR registrant, not classifiable as fund",
                 universe_version=universe_version,
             ), None
         return _empty_row(
@@ -215,25 +275,12 @@ def _process_one(
             universe_version=universe_version,
         ), None
 
+    # ── EDGAR-based classification ───────────────────────────────────────────
     classification, evidence = _classify(ticker, cd, overrides)
 
     if classification == "fund":
         profile = fetch_etf_profile(ticker)
-        overlap = None
-        if profile.top_holdings and operating_tickers:
-            overlap = sum(
-                w for tk, w in profile.top_holdings if tk.upper() in operating_tickers
-            )
-        etf_row = EtfRow(
-            ticker=ticker,
-            name=profile.name,
-            category=profile.category,
-            expense_ratio=profile.expense_ratio,
-            aum=profile.total_assets,
-            top10_concentration=profile.top10_concentration,
-            overlap_with_screen=overlap,
-            flag=evidence,
-        )
+        etf_row = _etf_row_from_profile(profile, evidence)
         return None, etf_row
 
     if classification == "skip":
@@ -397,6 +444,25 @@ def _fmt_aum(aum: Optional[float]) -> str:
     return f"${aum:.0f}"
 
 
+def _fmt_top5(top_holdings: list[tuple[str, float]], n: int = 5) -> str:
+    """Format top-N holdings as a compact string: 'NVDA 15.2%, TSM 9.4%, …'"""
+    if not top_holdings:
+        return "n/a"
+    items = [f"{tk} {w * 100:.1f}%" for tk, w in top_holdings[:n]]
+    return ", ".join(items)
+
+
+def _fmt_overlap(er: EtfRow) -> str:
+    """Format overlap as '27.0% (3 holdings)' or 'n/a'."""
+    if er.overlap_with_screen is None:
+        return "n/a"
+    pct_str = f"{er.overlap_with_screen * 100:.1f}%"
+    if er.overlap_count is not None:
+        suffix = "holding" if er.overlap_count == 1 else "holdings"
+        return f"{pct_str} ({er.overlap_count} {suffix})"
+    return pct_str
+
+
 # ---------------------------------------------------------------------------
 # Markdown renderer
 # ---------------------------------------------------------------------------
@@ -420,7 +486,7 @@ def _render_md(
         f"Generated: {ts}  ·  Universe: {uni_ver}  ·  Config: `{cfg_h}`",
         f"Sorted by: {sort_label}",
         "",
-        "## Primary signals",
+        "## Equities",
         "",
         "| Ticker | Durability | Reinv | Quality | Resilience | Discipline"
         " | Optionality | Implied g | Delivered g | Gap |",
@@ -450,7 +516,7 @@ def _render_md(
         "_Gap = growth the price implies minus growth delivered."
         "  Larger absolute gap = bigger embedded expectation._",
         "",
-        "## Data quality & provenance",
+        "## Excluded",
         "",
         "| Ticker | Band | Completeness | Stable | Universe | Config Hash | Flag |",
         "|:---|:---|---:|:---|:---|:---|:---|",
@@ -470,7 +536,7 @@ def _render_md(
             f" | {r.flag or '—'} |"
         )
 
-    # ETF / Fund section (D3)
+    # ETF / Fund section
     if etf_rows:
         lines += [
             "",
@@ -479,19 +545,19 @@ def _render_md(
             "> Holdings and fee data from market vendor (yfinance), best-effort,"
             " not filing-grade.",
             "",
-            "| Ticker | Name | Exp Ratio | AUM | Top-10 Conc | Overlap w/ Singles | Flag |",
-            "|:---|:---|---:|---:|---:|---:|:---|",
+            "| Ticker | Name | Exp Ratio | AUM | Top 5 Holdings | Overlap w/ Singles | Flag |",
+            "|:---|:---|---:|---:|:---|---:|:---|",
         ]
         for er in etf_rows:
             exp_r = _pct(er.expense_ratio) if er.expense_ratio is not None else "n/a"
-            top10 = _pct(er.top10_concentration) if er.top10_concentration is not None else "n/a"
-            ovlp  = _pct(er.overlap_with_screen) if er.overlap_with_screen is not None else "n/a"
+            top5  = _fmt_top5(er.top_holdings)
+            ovlp  = _fmt_overlap(er)
             lines.append(
                 f"| {er.ticker}"
                 f" | {er.name or '—'}"
                 f" | {exp_r}"
                 f" | {_fmt_aum(er.aum)}"
-                f" | {top10}"
+                f" | {top5}"
                 f" | {ovlp}"
                 f" | {er.flag or '—'} |"
             )
@@ -581,6 +647,12 @@ tbody tr:hover td{background:#171b28cc!important}
 .etf-sec table thead th{font-size:9px;padding:6px 12px 5px}
 .etf-sec table td{font-size:11px;padding:4px 12px;color:var(--mute);font-variant-numeric:tabular-nums}
 .etf-sec table td.tk{font-size:11px;font-weight:500;color:var(--dim)}
+.etf-sec td.holdings{
+  font-size:10.5px;text-align:left;max-width:320px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  font-variant-numeric:normal
+}
 .caveat{font-size:10px;color:var(--mute);margin-top:8px;font-style:italic}"""
 
     def _score_td(val: Optional[float]) -> str:
@@ -593,10 +665,10 @@ tbody tr:hover td{background:#171b28cc!important}
             return '<td class="na">n/a</td>'
         return f'<td>{e(_pct(val))}</td>'
 
-    def _dash_td(val: Optional[str]) -> str:
+    def _dash_td(val: Optional[str], cls: str = "") -> str:
         if not val:
-            return '<td class="na">—</td>'
-        return f'<td>{e(val)}</td>'
+            return f'<td class="na{(" " + cls) if cls else ""}">—</td>'
+        return f'<td{(" class=\"" + cls + "\"") if cls else ""}>{e(val)}</td>'
 
     def _gap_td(r: ScreenRow) -> str:
         if r.expectations_gap is not None and not r.implied_growth_note:
@@ -609,7 +681,7 @@ tbody tr:hover td{background:#171b28cc!important}
             return f'<td>{e(_pct(r.implied_fcf_growth))}</td>'
         return '<td class="na">n/a</td>'
 
-    # Primary signal rows
+    # Primary signal rows (Equities)
     sig_rows: list[str] = []
     for r in rows:
         tk_cls = "tk dim" if (r.excluded or (r.flag and r.composite is None)) else "tk"
@@ -628,7 +700,7 @@ tbody tr:hover td{background:#171b28cc!important}
             f'</tr>'
         )
 
-    # Diagnostics rows (C4: completeness "—" for excluded; flag includes ig_note)
+    # Diagnostics (Excluded) rows
     diag_rows: list[str] = []
     for r in rows:
         band   = (f"{_pts(r.composite_low)}–{_pts(r.composite_high)}"
@@ -646,19 +718,19 @@ tbody tr:hover td{background:#171b28cc!important}
             f'</tr>'
         )
 
-    # ETF rows (D3)
+    # ETF rows
     etf_html_rows: list[str] = []
     for er in (etf_rows or []):
         exp_r = _pct(er.expense_ratio) if er.expense_ratio is not None else None
-        top10 = _pct(er.top10_concentration) if er.top10_concentration is not None else None
-        ovlp  = _pct(er.overlap_with_screen) if er.overlap_with_screen is not None else None
+        top5  = _fmt_top5(er.top_holdings) or None
+        ovlp  = _fmt_overlap(er) if er.overlap_with_screen is not None else None
         etf_html_rows.append(
             f'<tr>'
             f'<td class="tk">{e(er.ticker)}</td>'
             f'{_dash_td(er.name)}'
             f'{_dash_td(exp_r)}'
             f'{_dash_td(_fmt_aum(er.aum))}'
-            f'{_dash_td(top10)}'
+            f'{_dash_td(top5, cls="holdings")}'
             f'{_dash_td(ovlp)}'
             f'<td class="flag-cell">{e(er.flag or "—")}</td>'
             f'</tr>'
@@ -676,7 +748,7 @@ tbody tr:hover td{background:#171b28cc!important}
         <th class="l">Name</th>
         <th>Exp Ratio</th>
         <th>AUM</th>
-        <th>Top-10 Conc</th>
+        <th class="l">Top 5 Holdings</th>
         <th>Overlap w/ Singles</th>
         <th class="l">Flag</th>
       </tr>
@@ -707,7 +779,7 @@ tbody tr:hover td{background:#171b28cc!important}
 </header>
 
 <section class="primary-sec">
-  <div class="sec-lbl">Primary signals</div>
+  <div class="sec-lbl">Equities</div>
   <table>
     <thead>
       <tr>
@@ -732,7 +804,7 @@ tbody tr:hover td{background:#171b28cc!important}
 </section>
 
 <section class="diag-sec">
-  <div class="sec-lbl">Data quality &amp; provenance</div>
+  <div class="sec-lbl">Excluded &amp; diagnostics</div>
   <table>
     <thead>
       <tr>
@@ -786,9 +858,6 @@ def run_screen(
     rows: list[ScreenRow] = []
     etf_rows: list[EtfRow] = []
 
-    # First pass: collect all operating tickers (needed for overlap computation)
-    # We run a quick classification-only pass to find operating tickers before
-    # fetching ETF holdings, so overlap is accurate.
     for tk in tickers:
         if verbose:
             print(f"  screening {tk} ...", file=sys.stderr)
@@ -801,15 +870,14 @@ def run_screen(
             flag = op_row.flag if op_row else etf_row.flag
             print(f"    ! {tk}: {flag}", file=sys.stderr)
 
-    # Compute overlap for ETF rows now that we have the full operating set
+    # Compute overlap from the stored top_holdings — no re-fetch needed.
+    # Overlap is defined over scored operating tickers only.
     operating_tickers = {r.ticker.upper() for r in rows if r.composite is not None}
     for er in etf_rows:
-        from engine.etf import EtfProfile as EP
-        profile = fetch_etf_profile(er.ticker)
-        if profile.top_holdings and operating_tickers:
-            er.overlap_with_screen = sum(
-                w for tk, w in profile.top_holdings if tk.upper() in operating_tickers
-            )
+        if er.top_holdings and operating_tickers:
+            matched = [(tk, w) for tk, w in er.top_holdings if tk.upper() in operating_tickers]
+            er.overlap_with_screen = sum(w for _, w in matched) if matched else None
+            er.overlap_count = len(matched) if matched else None
 
     # Compute batch-level quality-value scores before sorting
     _assign_quality_value_scores(rows)
