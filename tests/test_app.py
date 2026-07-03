@@ -9,13 +9,17 @@ uvicorn — but nothing here makes a real network call.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 import app.watchlist as watchlist_mod
-from app.main import app as fastapi_app
+from app.main import app as fastapi_app, _get_analysis_result
+from engine.edgar import CompanyData, Fact
+from engine.market import Quote
+from engine.pipeline import AnalysisResult
 from engine.screen import EtfRow, ScreenRow
 
 
@@ -173,7 +177,7 @@ class TestAnalyzeEndpoint:
         assert "not found in SEC ticker map" in resp.text
         assert "FAKE" in resp.text
 
-    def test_second_call_same_day_is_served_from_cache(self, client):
+    def test_second_call_within_ttl_is_served_from_cache(self, client):
         with (
             patch("app.main.run_single_ticker", return_value="res") as mock_run,
             patch("app.main.RH.render", return_value="<html>cached</html>"),
@@ -190,6 +194,158 @@ class TestAnalyzeEndpoint:
         ):
             client.get("/api/analyze/aapl")
         mock_run.assert_called_once_with("AAPL", fastapi_app.state.cfg, fastapi_app.state.client)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/analyze/{ticker}/json
+# ---------------------------------------------------------------------------
+
+def _real_analysis_result() -> AnalysisResult:
+    """A real (not mocked) AnalysisResult with several genuinely-None fields,
+    so we can verify the JSON payload keeps them as null rather than
+    coercing to 0 or ''."""
+    cd = CompanyData(
+        ticker="AAPL", cik="0000320193", name="Apple Inc.",
+        sic="3674", sic_description="Semiconductors",
+        recent_forms=["10-K"],
+    )
+    cd.series = {
+        "revenue": [Fact("revenue", 100.0, "2026-09-30", 2026, "us-gaap:Revenues",
+                         "10-K", "2026-11-01", "USD")],
+    }
+    quote = Quote("AAPL", price=None, shares_outstanding=None, market_cap=None, source="test")
+    res = AnalysisResult(company=cd, quote=quote)
+    res.gaps = ["dcf: base FCF unavailable or non-positive"]
+    res.derived = {"revenue": 100.0, "net_income": None}
+    res.derived_lineage = {"gross_profit": "derived: revenue - cost_of_revenue"}
+    res.rel_val = None
+    res.implied_growth_result = None
+    res.expectations_gap = None
+    return res
+
+
+class TestAnalyzeJsonEndpoint:
+    def test_returns_full_serialization_with_config_hash(self, client):
+        with patch("app.main.run_single_ticker", return_value=_real_analysis_result()):
+            resp = client.get("/api/analyze/AAPL/json")
+        assert resp.status_code == 200
+        body = resp.json()
+        for key in (
+            "company", "quote", "derived", "growth", "ratios", "rel_val", "dcf",
+            "sensitivity", "gaps", "latest_quarter", "derived_lineage",
+            "annual_series", "normalized_fcf", "delivered_growth",
+            "implied_growth_result", "expectations_gap", "config_hash",
+        ):
+            assert key in body, f"{key!r} missing from JSON payload"
+
+    def test_none_fields_serialize_as_null_never_zero_or_empty_string(self, client):
+        with patch("app.main.run_single_ticker", return_value=_real_analysis_result()):
+            resp = client.get("/api/analyze/AAPL/json")
+        body = resp.json()
+        assert body["rel_val"] is None
+        assert body["implied_growth_result"] is None
+        assert body["expectations_gap"] is None
+        assert body["derived"]["net_income"] is None
+        assert body["quote"]["price"] is None
+        assert body["quote"]["shares_outstanding"] is None
+
+    def test_present_fields_keep_real_values(self, client):
+        with patch("app.main.run_single_ticker", return_value=_real_analysis_result()):
+            resp = client.get("/api/analyze/AAPL/json")
+        body = resp.json()
+        assert body["derived"]["revenue"] == 100.0
+        assert body["company"]["ticker"] == "AAPL"
+        assert body["gaps"] == ["dcf: base FCF unavailable or non-positive"]
+        assert isinstance(body["config_hash"], str) and len(body["config_hash"]) == 16
+
+    def test_failure_returns_502_with_reason(self, client):
+        with patch(
+            "app.main.run_single_ticker",
+            side_effect=ValueError("Ticker 'FAKE' not found in SEC ticker map."),
+        ):
+            resp = client.get("/api/analyze/FAKE/json")
+        assert resp.status_code == 502
+        assert "not found in SEC ticker map" in resp.json()["detail"]
+
+    def test_json_and_full_page_share_the_same_cache(self, client):
+        """Both endpoints go through _get_analysis_result — one fetch serves both."""
+        with (
+            patch("app.main.run_single_ticker", return_value=_real_analysis_result()) as mock_run,
+            patch("app.main.RH.render", return_value="<html>x</html>"),
+        ):
+            client.get("/api/analyze/AAPL")
+            client.get("/api/analyze/AAPL/json")
+        mock_run.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Shared analysis cache: TTL expiry + per-ticker lock coalescing
+# ---------------------------------------------------------------------------
+
+class TestAnalysisCacheTtlAndLocking:
+    def test_cache_expires_after_ttl(self, client):
+        fastapi_app.state.cfg.setdefault("web", {})["analysis_cache_ttl_seconds"] = 100
+        fake_now = [1_000_000.0]
+        with (
+            patch("app.main.time.time", side_effect=lambda: fake_now[0]),
+            patch("app.main.run_single_ticker", return_value="res") as mock_run,
+            patch("app.main.RH.render", return_value="<html>x</html>"),
+        ):
+            client.get("/api/analyze/AAPL")
+            assert mock_run.call_count == 1
+
+            fake_now[0] += 50  # well within the 100s TTL
+            client.get("/api/analyze/AAPL")
+            assert mock_run.call_count == 1, "still within TTL — must not re-fetch"
+
+            fake_now[0] += 60  # 110s elapsed total — past the 100s TTL
+            client.get("/api/analyze/AAPL")
+            assert mock_run.call_count == 2, "past TTL — must re-fetch"
+
+    def test_concurrent_requests_for_uncached_ticker_fetch_only_once(self, client):
+        """Two concurrent callers for the same never-cached ticker must coalesce
+        into a single run_single_ticker call via the per-ticker asyncio.Lock —
+        the second caller finds the cache warm instead of double-hitting EDGAR."""
+        call_count = {"n": 0}
+
+        def slow_fetch(ticker, cfg, edgar_client):
+            call_count["n"] += 1
+            import time as _time
+            _time.sleep(0.05)
+            return f"result-for-{ticker}"
+
+        async def scenario():
+            with patch("app.main.run_single_ticker", side_effect=slow_fetch):
+                return await asyncio.gather(
+                    _get_analysis_result("NVDA"),
+                    _get_analysis_result("NVDA"),
+                )
+
+        results = asyncio.run(scenario())
+        assert call_count["n"] == 1, "concurrent requests for the same ticker must coalesce"
+        assert results == ["result-for-NVDA", "result-for-NVDA"]
+
+    def test_different_tickers_do_not_block_each_other(self, client):
+        """The lock is per-ticker — concurrent requests for DIFFERENT tickers
+        must both proceed (not serialize behind one shared lock)."""
+        call_count = {"n": 0}
+
+        def slow_fetch(ticker, cfg, edgar_client):
+            call_count["n"] += 1
+            import time as _time
+            _time.sleep(0.05)
+            return f"result-for-{ticker}"
+
+        async def scenario():
+            with patch("app.main.run_single_ticker", side_effect=slow_fetch):
+                return await asyncio.gather(
+                    _get_analysis_result("AAPL"),
+                    _get_analysis_result("MSFT"),
+                )
+
+        results = asyncio.run(scenario())
+        assert call_count["n"] == 2
+        assert set(results) == {"result-for-AAPL", "result-for-MSFT"}
 
 
 # ---------------------------------------------------------------------------

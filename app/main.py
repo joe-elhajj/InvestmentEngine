@@ -1,19 +1,22 @@
 """
 main.py — FastAPI application wrapping the existing engine.
 
-Zero changes to engine/*.py. This module only composes existing, already-
-tested entry points:
-  - engine.analysis.run_single_ticker  (Branch 1's single-ticker wrapper)
+This module composes existing engine entry points:
+  - engine.analysis.run_single_ticker  (single-ticker wrapper)
   - engine.screen.run_screen           (existing batch screener)
-  - engine.report_html.render          (existing per-company HTML renderer)
+  - engine.report_html.render          (per-company HTML renderer)
 
 Run with:  uvicorn app.main:app --host 127.0.0.1 --port 8000
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import html
+import json
 import re
+import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -31,6 +34,7 @@ from pydantic import BaseModel
 from app import watchlist
 from engine.analysis import run_single_ticker
 from engine.edgar import EdgarClient, SEC_TICKERS_URL
+from engine.pipeline import AnalysisResult
 from engine import report_html as RH
 from engine.screen import run_screen
 
@@ -79,12 +83,20 @@ async def lifespan(app: FastAPI):
     # on first search, cached for the process lifetime.
     app.state.ticker_names: Optional[dict[str, str]] = None
 
-    # In-memory job store for /api/screen background runs, and a
-    # same-calendar-day cache for /api/analyze. Both intentionally
-    # process-lifetime only (plain dicts, no persistence) — cleared on
-    # restart, which is fine for single-user local use.
+    # In-memory job store for /api/screen background runs. Process-lifetime
+    # only (plain dict, no persistence) — cleared on restart, fine for
+    # single-user local use.
     app.state.screen_jobs: dict[str, dict] = {}
-    app.state.analyze_cache: dict[tuple[str, str], str] = {}
+
+    # Shared AnalysisResult cache for every analyze-family endpoint (full
+    # page, /json, /fragment) — one EDGAR/yfinance fetch serves all three
+    # renderings. Keyed by ticker -> (fetched_at, AnalysisResult); TTL from
+    # config (default below matches the EDGAR disk cache's own default).
+    # A per-ticker asyncio.Lock means two concurrent requests for a ticker
+    # that isn't cached yet wait on each other instead of both hitting
+    # EDGAR — the second one finds the cache warm once it gets the lock.
+    app.state.analysis_cache = {}   # dict[str, tuple[float, AnalysisResult]]
+    app.state.analysis_locks = {}   # dict[str, asyncio.Lock]
 
     yield
 
@@ -229,26 +241,90 @@ a:hover{{text-decoration:underline}}
 </html>"""
 
 
-@app.get("/api/analyze/{ticker}", response_class=HTMLResponse)
-def analyze(ticker: str):
-    tk = ticker.strip().upper()
-    cache_key = (tk, datetime.now().strftime("%Y-%m-%d"))
-    if cache_key in app.state.analyze_cache:
-        return HTMLResponse(app.state.analyze_cache[cache_key])
+def _config_hash(cfg: dict) -> str:
+    """
+    Fingerprint of the FULL config.yaml (valuation/DCF assumptions included) —
+    distinct from durability.py's _config_hash, which hashes only the
+    durability weights/thresholds/universe_version slice. This single-ticker
+    endpoint runs no durability scoring, so it reports which assumption set
+    produced its valuation numbers using the same canonical-JSON + sha256 +
+    16-hex-char convention (config-hash discipline, CLAUDE.md).
+    """
+    canonical = json.dumps(cfg, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
-    # Synchronous, blocking response rather than the background-task +
-    # polling pattern used for /api/screen: the frontend navigates the
-    # browser straight to this URL (new tab), so the simplest correct
-    # behavior is a normal request/response the tab waits on — polling
-    # would fight "just navigate to the URL," not simplify it.
+
+async def _get_analysis_result(ticker: str) -> AnalysisResult:
+    """
+    Shared cache-or-compute path for every analyze-family endpoint (full
+    page, /json, /fragment) — guarantees at most one concurrent EDGAR/
+    yfinance fetch per ticker, and that all three renderings come from the
+    exact same underlying AnalysisResult.
+    """
+    ttl = app.state.cfg.get("web", {}).get("analysis_cache_ttl_seconds", 3600)
+
+    cached = app.state.analysis_cache.get(ticker)
+    if cached is not None and (time.time() - cached[0]) < ttl:
+        return cached[1]
+
+    lock = app.state.analysis_locks.setdefault(ticker, asyncio.Lock())
+    async with lock:
+        # Re-check after acquiring the lock: another request may have
+        # populated the cache while we were waiting, in which case we
+        # reuse it instead of hitting EDGAR a second time.
+        cached = app.state.analysis_cache.get(ticker)
+        if cached is not None and (time.time() - cached[0]) < ttl:
+            return cached[1]
+
+        # run_single_ticker is a blocking, real-network call — run it in
+        # the default thread executor so it doesn't block the event loop
+        # for requests about OTHER tickers while this one is in flight.
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(
+            None, run_single_ticker, ticker, app.state.cfg, app.state.client
+        )
+        app.state.analysis_cache[ticker] = (time.time(), res)
+        return res
+
+
+@app.get("/api/analyze/{ticker}", response_class=HTMLResponse)
+async def analyze(ticker: str):
+    tk = ticker.strip().upper()
+    # Synchronous-feeling response rather than the background-task + polling
+    # pattern used for /api/screen: the frontend navigates the browser
+    # straight to this URL (new tab), so the simplest correct behavior is a
+    # normal request/response the tab waits on — polling would fight "just
+    # navigate to the URL," not simplify it.
     try:
-        res = run_single_ticker(tk, app.state.cfg, app.state.client)
+        res = await _get_analysis_result(tk)
         rendered = RH.render(res, peer_table=None)
     except Exception as e:
         return HTMLResponse(_error_page(tk, e), status_code=502)
-
-    app.state.analyze_cache[cache_key] = rendered
     return HTMLResponse(rendered)
+
+
+@app.get("/api/analyze/{ticker}/json")
+async def analyze_json(ticker: str):
+    """
+    Canonical machine-readable serialization of AnalysisResult — the single
+    source of truth Tier 2/3 (and this app's own fragment renderer) consume.
+    Every other rendering of a ticker's analysis must be derivable from this
+    payload alone.
+    """
+    tk = ticker.strip().upper()
+    try:
+        res = await _get_analysis_result(tk)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e) or type(e).__name__)
+
+    # dataclasses.asdict() recursively converts AnalysisResult and every
+    # dataclass nested inside it (CompanyData, Quote, Fact, YearlyDerived,
+    # Metric, DCFResult, ImpliedGrowthResult, RelativeValuation) into plain
+    # dicts/lists — None stays None throughout; FastAPI's JSON encoding then
+    # turns that into `null`, never 0 or "". No custom encoder needed.
+    payload = asdict(res)
+    payload["config_hash"] = _config_hash(app.state.cfg)
+    return payload
 
 
 # ---------------------------------------------------------------------------

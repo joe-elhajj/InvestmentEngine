@@ -93,3 +93,9 @@ durability:
   score_band:
     pessimistic_impute: 25.0
     optimistic_impute: 75.0
+
+web:
+  # Local FastAPI web layer (app/) — operational, not an analyst assumption.
+  # How long a fetched AnalysisResult is reused across the full-page/json/
+  # fragment analyze endpoints before the next request re-hits EDGAR/yfinance.
+  analysis_cache_ttl_seconds: 3600
