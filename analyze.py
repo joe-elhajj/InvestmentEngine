@@ -19,6 +19,7 @@ from pathlib import Path
 
 import yaml
 
+from engine.analysis import run_single_ticker
 from engine.edgar import EdgarClient
 from engine.market import get_quote
 from engine.pipeline import derive
@@ -93,9 +94,13 @@ def main():
     client = EdgarClient(sec_cfg.get("user_agent", ""), sec_cfg.get("request_delay_seconds", 0.2))
 
     print(f"Fetching {args.ticker} from EDGAR ...")
-    cd = client.get_company_with_latest_quarter(args.ticker, history_years)
-    quote = get_quote(args.ticker, args.price, args.shares)
-    res = derive(cd, quote, cfg)
+    res = run_single_ticker(
+        args.ticker, cfg, client,
+        manual_price=args.price, manual_shares=args.shares,
+        history_years=history_years,
+    )
+    cd = res.company
+    quote = res.quote
     target_size = quote.market_cap or res.derived.get("revenue")
 
     peer_table = None
