@@ -168,8 +168,11 @@ def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> Year
         lat = cd.latest("long_term_investments")
         if lat is not None:
             gaps.append(f"long_term_investments: no value for period {period_end} (latest available is {lat.period_end}, not used)")
-    liquid_assets = cash_val + sti_val + lti_val
-    cash = cash_val  # plain cash for invested-capital (not liquid_assets)
+    # Absence-is-not-zero: only None when NONE of the three components resolved.
+    # When at least one resolves, sum the resolved ones — the missing ones are
+    # already logged above as gaps, not silently folded into the total as 0.
+    liquid_assets = (cash_val + sti_val + lti_val) if (cash_fact or sti_fact or lti_fact) else None
+    cash = cash_fact.value if cash_fact else None  # plain cash for invested-capital; None, not 0
 
     # Total debt — period-matched with gap logging
     ltd_fact = cd.value_for_period("long_term_debt", period_end)
@@ -184,7 +187,8 @@ def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> Year
         lat = cd.latest("short_term_debt")
         if lat is not None:
             gaps.append(f"short_term_debt: no value for period {period_end} (latest available is {lat.period_end}, not used)")
-    total_debt = ltd_val + std_val
+    # Same rule: None only when BOTH components are absent, never a silent $0.
+    total_debt = (ltd_val + std_val) if (ltd_fact or std_fact) else None
 
     # Total equity — period-matched with gap logging
     equity = _bs("total_equity")
@@ -205,12 +209,21 @@ def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> Year
 
     # Derived composites
     fcf = (cfo_val - capex_val) if (cfo_val is not None and capex_val is not None) else None
-    net_debt = total_debt - liquid_assets   # always a float when anchor exists
+    # net_debt requires both components resolved — None (not a silent 0) when either is absent.
+    net_debt = (total_debt - liquid_assets) if (total_debt is not None and liquid_assets is not None) else None
     ebit = oi
     ebitda = (oi + da) if (oi is not None and da is not None) else None
-    # invested_capital: total_debt + equity - cash  (absent equity → None)
-    invested_capital = (total_debt + equity - cash) if equity is not None else None
-    capital_employed = (total_assets - (cur_liab or 0.0)) if total_assets is not None else None
+    # invested_capital: total_debt + equity - cash  (any absent term → None, never 0-substituted)
+    invested_capital = (
+        (total_debt + equity - cash)
+        if (total_debt is not None and equity is not None and cash is not None)
+        else None
+    )
+    # capital_employed: total_assets - current_liabilities (absent current_liabilities → None,
+    # not silently treated as 0 — that would overstate capital_employed)
+    capital_employed = (
+        (total_assets - cur_liab) if (total_assets is not None and cur_liab is not None) else None
+    )
     nopat = (ebit * (1 - tax_rate)) if ebit is not None else None
 
     return YearlyDerived(
@@ -424,17 +437,32 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         q_cfo              = _qv("cfo")
         q_capex            = _qv("capex")
         q_fcf = (q_cfo - q_capex) if (q_cfo is not None and q_capex is not None) else None
-        q_ltd   = _qv("long_term_debt") or 0.0
-        q_std   = _qv("short_term_debt") or 0.0
-        q_cash  = _qv("cash") or 0.0
-        q_sti   = _qv("short_term_investments") or 0.0
-        q_lti   = _qv("long_term_investments") or 0.0
-        q_total_assets = _qv("total_assets")
-        q_total_equity = _qv("total_equity")
-        q_total_debt   = q_ltd + q_std
-        q_liquid_assets = q_cash + q_sti + q_lti
         q_period_end = max(f.period_end for f in cd.quarterly.values())
         q_filed      = max(f.filed     for f in cd.quarterly.values())
+
+        def _qsum(*keys: str) -> Optional[float]:
+            """
+            Sum whichever of `keys` resolve in the latest quarter. Absence-is-
+            not-zero: None only when NONE of them resolve — a missing component
+            is logged as a gap, never silently substituted with 0 into the total
+            (this is the exact defect that showed total_debt as $0 for CAT's
+            2026-03-31 10-Q when both long_term_debt and short_term_debt were
+            unreported for the quarter).
+            """
+            vals = [_qv(k) for k in keys]
+            missing = [k for k, v in zip(keys, vals) if v is None]
+            if missing:
+                res.gaps.append(
+                    f"{'/'.join(missing)}: no value in latest quarter ({q_period_end})"
+                )
+            present = [v for v in vals if v is not None]
+            return sum(present) if present else None
+
+        q_total_debt    = _qsum("long_term_debt", "short_term_debt")
+        q_liquid_assets = _qsum("cash", "short_term_investments", "long_term_investments")
+        q_cash          = _qv("cash")
+        q_total_assets  = _qv("total_assets")
+        q_total_equity  = _qv("total_equity")
         res.latest_quarter = {
             "period_end": q_period_end, "filed": q_filed,
             "revenue": q_revenue, "net_income": q_net_income,

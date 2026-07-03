@@ -368,8 +368,10 @@ def test_annual_series_period_consistency():
     # 2022: LTD = 200
     assert annual["2022-12-31"].total_debt == 200.0
 
-    # 2023: LTD missing at that period → 0.0, gap logged
-    assert annual["2023-12-31"].total_debt == 0.0
+    # 2023: LTD missing at that period, and this fixture has no short_term_debt
+    # series at all → BOTH components absent → total_debt is None, not a
+    # silent 0.0 (absence-is-not-zero), with a gap logged for the missing LTD.
+    assert annual["2023-12-31"].total_debt is None
     assert any("long_term_debt" in g for g in annual["2023-12-31"].gaps)
 
     # equity matches the correct year
