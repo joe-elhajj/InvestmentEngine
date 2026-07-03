@@ -116,9 +116,63 @@ tbody tr:hover td{background:rgba(0,0,0,0.022)}
 td.l{text-align:left;white-space:normal}
 td.tk{text-align:left;font-weight:500;cursor:pointer}
 td.tk:hover{color:var(--accent)}
-td.tk .goto{opacity:0;font-size:0.75em;margin-left:4px;transition:opacity .15s ease}
-td.tk:hover .goto{opacity:1}
+td.tk .expand-hint{
+  display:inline-block;opacity:0;font-size:0.7em;margin-left:6px;color:var(--text-3);
+  transition:opacity .15s ease,transform .15s ease;
+}
+td.tk:hover .expand-hint{opacity:1}
+tr.row-expanded td.tk .expand-hint{opacity:1;transform:rotate(90deg)}
 td.na{color:var(--text-3);font-style:italic;font-weight:400;font-variant-numeric:normal}
+
+/* ---- inline report accordion (clicking an equity/ETF row) ---- */
+tr.accordion-row > td{padding:0;background:var(--bg);white-space:normal;cursor:default}
+tr.accordion-row:hover > td{background:var(--bg)}
+.accordion-loading{padding:24px;text-align:center;color:var(--text-3);font-size:0.8125rem;font-style:italic}
+
+/* ---- report fragment (engine/report_html.py render_fragment output) ---- */
+.report-fragment{padding:20px 24px 28px}
+.report-summary{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
+.report-summary .stat{
+  flex:1;min-width:120px;background:var(--surface);border:1px solid var(--hairline);
+  border-radius:10px;padding:10px 14px;
+}
+.report-summary .stat-label{
+  display:block;font-size:0.625rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3);margin-bottom:4px;
+}
+.report-summary .stat-value{
+  display:block;font-size:1.0625rem;font-weight:600;letter-spacing:-0.01em;
+  font-variant-numeric:tabular-nums;color:var(--text-1);
+}
+
+.report-section{
+  background:var(--surface);border:1px solid var(--hairline);border-radius:10px;
+  margin-bottom:10px;overflow:hidden;
+}
+.report-section:last-child{margin-bottom:0}
+.report-section summary{
+  cursor:pointer;padding:10px 14px 10px 26px;font-size:0.6875rem;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--text-2);list-style:none;position:relative;
+}
+.report-section summary::-webkit-details-marker{display:none}
+.report-section summary::before{
+  content:"";position:absolute;left:12px;top:50%;width:0;height:0;
+  border-style:solid;border-width:4px 0 4px 6px;
+  border-color:transparent transparent transparent var(--text-3);
+  transform:translateY(-50%);transition:transform .15s ease;
+}
+.report-section[open] summary::before{transform:translateY(-50%) rotate(90deg)}
+.report-section table{margin:0}
+.report-section thead th{font-size:0.625rem;padding:8px 14px}
+.report-section tbody td{font-size:0.75rem;padding:8px 14px;cursor:default}
+.report-section .surface{border:none;box-shadow:none;border-radius:0;border-top:1px solid var(--hairline)}
+.report-caption{
+  font-size:0.6875rem;font-weight:600;letter-spacing:.02em;color:var(--text-3);
+  padding:10px 14px 0;
+}
+
+.report-error{padding:16px 24px;color:var(--bad);font-size:0.8125rem}
+.report-error .report-caption{color:var(--text-3);padding:4px 0 0}
 
 .row-remove{
   position:absolute;right:6px;top:50%;transform:translateY(-50%);
