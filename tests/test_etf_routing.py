@@ -38,11 +38,16 @@ from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
+import requests
+
+from engine.edgar import CompanyData
+from engine.durability import DurabilityScore
 from engine.etf import EtfProfile, fetch_etf_profile, FUND_QUOTE_TYPES
 from engine.screen import (
     EtfRow, ScreenRow,
     _try_fund_via_yfinance, _etf_row_from_profile,
     _fmt_top5, _fmt_overlap, _render_md, _render_html,
+    _process_one,
 )
 
 
@@ -511,3 +516,253 @@ class TestEtfSectionRendering:
     def test_excluded_section_in_html(self):
         html = _render_html([_empty_screen_row()])
         assert "Excluded" in html
+
+
+# ---------------------------------------------------------------------------
+# _try_fund_via_yfinance — evidence_suffix parameter
+# ---------------------------------------------------------------------------
+
+class TestTryFundViaYfinanceEvidenceSuffix:
+    """Verify the evidence_suffix parameter produces distinct flag strings."""
+
+    def test_default_suffix_mentions_no_edgar_registrant(self):
+        profile = _make_profile(quote_type="ETF")
+        with patch("engine.screen.fetch_etf_profile", return_value=profile):
+            result = _try_fund_via_yfinance("VOO")
+        assert result is not None
+        assert "no EDGAR registrant" in result.flag
+
+    def test_custom_suffix_used_in_flag(self):
+        profile = _make_profile(quote_type="ETF")
+        with patch("engine.screen.fetch_etf_profile", return_value=profile):
+            result = _try_fund_via_yfinance(
+                "GLD",
+                evidence_suffix="financial SIC 6221, no EDGAR fund-filing forms",
+            )
+        assert result is not None
+        assert "financial SIC 6221" in result.flag
+        assert "no EDGAR registrant" not in result.flag
+
+    def test_custom_suffix_still_mentions_quotetype(self):
+        profile = _make_profile(ticker="GLD", quote_type="ETF")
+        with patch("engine.screen.fetch_etf_profile", return_value=profile):
+            result = _try_fund_via_yfinance("GLD", evidence_suffix="financial SIC 6221")
+        assert result is not None
+        assert "yfinance" in result.flag.lower()
+        assert "ETF" in result.flag
+
+    def test_equity_quote_type_still_blocked_with_custom_suffix(self):
+        """False-positive guard: even with a custom suffix, EQUITY quoteType must not route."""
+        profile = _make_profile(quote_type="EQUITY")
+        with patch("engine.screen.fetch_etf_profile", return_value=profile):
+            result = _try_fund_via_yfinance("FAKE", evidence_suffix="financial SIC 6221")
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Part A: companyfacts 404 — forms-based routing via _process_one
+# ---------------------------------------------------------------------------
+
+def _make_partial_cd(
+    ticker: str = "SPYFUND",
+    recent_forms: list | None = None,
+    sic: str = "",
+) -> CompanyData:
+    """Simulate get_company() returning a partial CompanyData after a companyfacts 404."""
+    cd = CompanyData(
+        ticker=ticker.upper(),
+        cik="0000000001",
+        name=f"{ticker} Trust",
+        sic=sic,
+        sic_description="",
+    )
+    cd.recent_forms = recent_forms or []
+    # series stays empty — companyfacts 404 means no XBRL data
+    return cd
+
+
+def _cfg() -> dict:
+    return {"universe": {"version": "test"}, "classification": {"overrides": {}}}
+
+
+class TestCompanyfacts404Routing:
+    """Part A: CIK exists but companyfacts 404 — classification from forms alone."""
+
+    def test_fund_forms_in_partial_cd_routes_to_etf_section(self):
+        """
+        N-PORT + 485BPOS in submissions, companyfacts 404 → EtfRow from EDGAR forms alone.
+        yfinance is called for enrichment data but not for the routing decision.
+        """
+        cd = _make_partial_cd(ticker="SPYFUND", recent_forms=["N-PORT", "485BPOS", "N-CEN"])
+        client = MagicMock()
+        client.get_company.return_value = cd
+
+        profile = _make_profile(ticker="SPYFUND", quote_type="ETF", name="Mock S&P 500 ETF")
+        with patch("engine.screen.fetch_etf_profile", return_value=profile):
+            op_row, etf_row = _process_one("SPYFUND", client, _cfg(), history_years=15)
+
+        assert op_row is None, "Should not produce an operating row"
+        assert etf_row is not None, "Should produce an EtfRow"
+        # Evidence must come from EDGAR forms, not from a yfinance routing fallback
+        assert "485BPOS" in etf_row.flag or "N-PORT" in etf_row.flag, (
+            f"Flag should cite EDGAR fund forms; got: {etf_row.flag!r}"
+        )
+        assert "no EDGAR registrant" not in etf_row.flag, (
+            "Flag must NOT say 'no EDGAR registrant' — EDGAR was used for classification"
+        )
+
+    def test_n_csr_only_routes_to_etf_section(self):
+        """N-CSR alone is sufficient fund evidence."""
+        cd = _make_partial_cd(ticker="QQQFUND", recent_forms=["N-CSR", "497", "N-CEN"])
+        client = MagicMock()
+        client.get_company.return_value = cd
+
+        profile = _make_profile(ticker="QQQFUND", quote_type="ETF")
+        with patch("engine.screen.fetch_etf_profile", return_value=profile):
+            op_row, etf_row = _process_one("QQQFUND", client, _cfg(), history_years=15)
+
+        assert op_row is None
+        assert etf_row is not None
+        assert "N-CSR" in etf_row.flag
+
+    def test_no_fund_forms_partial_cd_routes_to_excluded(self):
+        """
+        CIK exists, no fund forms in submissions, companyfacts 404 →
+        classified as 'unclassified', lands in Excluded — NOT in ETFs & Funds.
+        """
+        cd = _make_partial_cd(ticker="NOFUND", recent_forms=["8-K", "SC 13G", "DEF 14A"])
+        client = MagicMock()
+        client.get_company.return_value = cd
+
+        with patch("engine.screen.fetch_etf_profile") as mock_yf:
+            op_row, etf_row = _process_one("NOFUND", client, _cfg(), history_years=15)
+            # yfinance should NOT be called — the unclassified path does not probe yfinance
+            mock_yf.assert_not_called()
+
+        assert etf_row is None, "Should NOT produce an EtfRow for unclassified ticker"
+        assert op_row is not None
+        assert op_row.composite is None
+        assert "no annual report forms found" in op_row.flag
+
+
+# ---------------------------------------------------------------------------
+# Part B: financial-SIC exclusion falls through to yfinance probe
+# ---------------------------------------------------------------------------
+
+def _make_excluded_ds(
+    ticker: str = "GLD",
+    reason: str = "financial issuer SIC 6221 (6000–6799) — not scored",
+) -> DurabilityScore:
+    return DurabilityScore(
+        ticker=ticker,
+        composite=0.0, composite_low=0.0, composite_high=0.0,
+        categories={}, config_hash="aaaa1111bbbb2222",
+        data_completeness=0.0, is_stable=True, stability_delta=0.0,
+        excluded=True,
+        exclusion_reason=reason,
+    )
+
+
+class TestFinancialSicFallthrough:
+    """Part B: financial-SIC exclusion → yfinance probe before Excluded."""
+
+    def _setup_client_for_financial_sic(self, ticker: str = "GLD", sic: str = "6221") -> MagicMock:
+        cd = CompanyData(
+            ticker=ticker.upper(), cik="0001222333",
+            name=f"{ticker} Trust", sic=sic, sic_description="",
+        )
+        cd.recent_forms = ["10-K", "10-K/A"]   # no fund forms
+        client = MagicMock()
+        client.get_company.return_value = cd
+        return client
+
+    def test_financial_sic_yfinance_etf_routes_to_fund_section(self):
+        """
+        financial-SIC ticker where yfinance confirms ETF →
+        result is EtfRow, NOT Excluded row.
+        """
+        client = self._setup_client_for_financial_sic("GLD", "6221")
+        ds = _make_excluded_ds("GLD", "financial issuer SIC 6221 (6000–6799) — not scored")
+        profile = _make_profile(ticker="GLD", quote_type="ETF", name="SPDR Gold Trust")
+
+        with (
+            patch("engine.screen.get_quote", return_value=MagicMock()),
+            patch("engine.screen.derive", return_value=MagicMock()),
+            patch("engine.screen.D.score", return_value=ds),
+            patch("engine.screen.fetch_etf_profile", return_value=profile),
+        ):
+            op_row, etf_row = _process_one("GLD", client, _cfg(), history_years=15)
+
+        assert op_row is None, "Should not produce an operating row"
+        assert etf_row is not None, "yfinance ETF confirmation should produce EtfRow"
+        assert etf_row.ticker == "GLD"
+        # Flag must mention yfinance confirmation AND the SIC reason
+        assert "yfinance" in etf_row.flag.lower()
+        assert "financial SIC" in etf_row.flag or "6221" in etf_row.flag
+
+    def test_financial_sic_yfinance_mutualfund_routes_to_fund_section(self):
+        """MUTUALFUND quoteType also routes to ETFs & Funds.
+        Uses SIC 6282 (not 6726): 6726 is _FUND_SIC and is caught by _classify
+        before D.score runs, so it never reaches this branch."""
+        client = self._setup_client_for_financial_sic("SOMEFUND", "6282")
+        ds = _make_excluded_ds("SOMEFUND", "financial issuer SIC 6282 (6000–6799) — not scored")
+        profile = _make_profile(ticker="SOMEFUND", quote_type="MUTUALFUND", name="Some Fund")
+
+        with (
+            patch("engine.screen.get_quote", return_value=MagicMock()),
+            patch("engine.screen.derive", return_value=MagicMock()),
+            patch("engine.screen.D.score", return_value=ds),
+            patch("engine.screen.fetch_etf_profile", return_value=profile),
+        ):
+            op_row, etf_row = _process_one("SOMEFUND", client, _cfg(), history_years=15)
+
+        assert op_row is None
+        assert etf_row is not None
+        assert "MUTUALFUND" in etf_row.flag
+
+    def test_financial_sic_yfinance_equity_stays_excluded(self):
+        """
+        financial-SIC ticker where yfinance resolves quoteType=EQUITY →
+        remains in Excluded with the ORIGINAL financial-issuer message, unchanged.
+        """
+        client = self._setup_client_for_financial_sic("SOFI", "6199")
+        original_reason = "financial issuer SIC 6199 (6000–6799) — not scored"
+        ds = _make_excluded_ds("SOFI", original_reason)
+        equity_profile = _make_profile(ticker="SOFI", quote_type="EQUITY", name="SoFi Technologies")
+
+        with (
+            patch("engine.screen.get_quote", return_value=MagicMock()),
+            patch("engine.screen.derive", return_value=MagicMock()),
+            patch("engine.screen.D.score", return_value=ds),
+            patch("engine.screen.fetch_etf_profile", return_value=equity_profile),
+        ):
+            op_row, etf_row = _process_one("SOFI", client, _cfg(), history_years=15)
+
+        assert etf_row is None, "EQUITY quoteType must not produce EtfRow"
+        assert op_row is not None
+        assert op_row.excluded is True
+        assert op_row.flag == original_reason, (
+            f"Financial-issuer message must be preserved unchanged; got: {op_row.flag!r}"
+        )
+
+    def test_financial_sic_yfinance_failure_stays_excluded(self):
+        """
+        financial-SIC ticker where yfinance raises an exception →
+        remains in Excluded with the original financial-issuer message.
+        """
+        client = self._setup_client_for_financial_sic("COIN", "6199")
+        original_reason = "financial issuer SIC 6199 (6000–6799) — not scored"
+        ds = _make_excluded_ds("COIN", original_reason)
+
+        with (
+            patch("engine.screen.get_quote", return_value=MagicMock()),
+            patch("engine.screen.derive", return_value=MagicMock()),
+            patch("engine.screen.D.score", return_value=ds),
+            patch("engine.screen.fetch_etf_profile", side_effect=RuntimeError("yfinance down")),
+        ):
+            op_row, etf_row = _process_one("COIN", client, _cfg(), history_years=15)
+
+        assert etf_row is None
+        assert op_row is not None
+        assert op_row.excluded is True
+        assert op_row.flag == original_reason
