@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Security Analysis Dashboard</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="topnav">
+  <div class="wordmark">Security Analysis Dashboard</div>
+
+  <div class="search-wrap">
+    <div class="search-box">
+      <input id="search-input" type="text" placeholder="Search ticker…"
+             autocomplete="off" spellcheck="false" maxlength="10">
+      <span id="search-status" class="search-status" aria-live="polite"></span>
+    </div>
+    <div id="search-confirm" class="search-confirm hidden">
+      <span id="search-confirm-text" class="search-confirm-text"></span>
+      <label class="radio-label"><input type="radio" name="add-type" value="equity" checked> Equity</label>
+      <label class="radio-label"><input type="radio" name="add-type" value="etf"> ETF / Fund</label>
+      <button id="search-add-btn" class="btn btn-primary">Add to watchlist</button>
+      <button id="search-analyze-btn" class="btn">Analyze&nbsp;→</button>
+    </div>
+  </div>
+
+  <button id="refresh-btn" class="btn">Refresh Watchlist</button>
+</header>
+
+<main class="wrap">
+
+  <div id="status-banner" class="status-banner hidden"></div>
+
+  <div id="empty-state" class="empty-state hidden">
+    <p>Your watchlist is empty. Search a ticker above to get started.</p>
+  </div>
+
+  <section id="equities-section" class="table-section hidden">
+    <div class="sec-head"><div class="sec-lbl">Equities</div></div>
+    <div class="surface"><div class="scroll">
+      <table id="equities-table">
+        <thead>
+          <tr>
+            <th class="l">Ticker</th>
+            <th>Durability</th>
+            <th>Reinv</th>
+            <th>Quality</th>
+            <th>Resilience</th>
+            <th>Discipline</th>
+            <th>Optionality</th>
+            <th>Implied g</th>
+            <th>Delivered g</th>
+            <th>Gap</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div></div>
+    <p class="legend">Gap = growth the price implies minus growth delivered · red = priced for more than delivered, green = delivering more than priced in</p>
+  </section>
+
+  <section id="etf-section" class="table-section hidden">
+    <div class="sec-head"><div class="sec-lbl">ETFs / Funds</div></div>
+    <div class="surface"><div class="scroll">
+      <table id="etf-table">
+        <thead>
+          <tr>
+            <th class="l">Ticker</th>
+            <th class="l">Name</th>
+            <th>Exp Ratio</th>
+            <th>AUM</th>
+            <th>Overlap w/ Singles</th>
+            <th class="l">Flag</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div></div>
+  </section>
+
+  <section id="excluded-section" class="table-section hidden">
+    <div class="sec-head"><div class="sec-lbl">Excluded</div></div>
+    <div class="surface"><div class="scroll">
+      <table id="excluded-table">
+        <thead>
+          <tr>
+            <th class="l">Ticker</th>
+            <th class="l">Reason</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div></div>
+  </section>
+
+  <p id="meta-line" class="meta-line hidden"></p>
+
+</main>
+
+<div id="remove-confirm" class="remove-confirm hidden">
+  <p id="remove-confirm-text"></p>
+  <button id="remove-confirm-btn" class="btn btn-danger">Remove</button>
+  <button id="remove-cancel-btn" class="btn">Cancel</button>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -4,3 +4,9 @@ pytest>=7.0
 # Optional: live price/market-cap source. Free but fragile; swap for a paid
 # provider (FMP, EODHD, Polygon) later behind engine/market.py.
 yfinance>=0.2.40
+# Local web layer (app/) — wraps the engine, no engine code depends on these.
+fastapi>=0.111
+uvicorn[standard]>=0.29
+# httpx: not an app runtime dependency, but required by fastapi.testclient
+# (Starlette's TestClient is httpx-based) — needed to run tests/test_app.py.
+httpx>=0.27
