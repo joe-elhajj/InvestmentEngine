@@ -616,20 +616,26 @@ def score(
     res: AnalysisResult,
     config: dict,
     universe: Optional[UniverseDistribution] = None,
+    override_classification: Optional[str] = None,
 ) -> DurabilityScore:
     """
     Compute the durability scorecard for a company.
 
     Parameters
     ----------
-    res      : output of pipeline.derive()
-    config   : full config dict (durability section is optional)
-    universe : pre-built UniverseDistribution for peer-relative percentile
-               sub-scores.  When None, percentile sub-scores that require a
-               population (gross margin, capex/R&D intensity) are omitted and
-               the remaining weights renormalize.  Tests inject synthetic
-               distributions; the universe build never runs in CI.
+    res                     : output of pipeline.derive()
+    config                  : full config dict (durability section is optional)
+    universe                : pre-built UniverseDistribution for peer-relative percentile
+                              sub-scores.  When None, percentile sub-scores that require a
+                              population (gross margin, capex/R&D intensity) are omitted and
+                              the remaining weights renormalize.  Tests inject synthetic
+                              distributions; the universe build never runs in CI.
+    override_classification : analyst-owned override from config.classification.overrides.
+                              When set to "operating", the financial-SIC exclusion is bypassed.
     """
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+
     dcfg = _resolve_config(config)
     cfg_hash = _config_hash(dcfg)
     weights = dcfg["weights"]
@@ -640,17 +646,22 @@ def score(
 
     ticker = res.company.ticker
 
-    # Financial-issuer exclusion
+    # Financial-issuer exclusion — bypassed when analyst override is "operating"
     try:
         sic_int = int(res.company.sic)
         if _FINANCIAL_SIC_RANGE[0] <= sic_int <= _FINANCIAL_SIC_RANGE[1]:
-            return DurabilityScore(
-                ticker=ticker, composite=0.0, composite_low=0.0, composite_high=0.0,
-                categories={}, config_hash=cfg_hash,
-                data_completeness=0.0, is_stable=True, stability_delta=0.0,
-                excluded=True,
-                exclusion_reason=f"financial issuer SIC {sic_int} (6000–6799) — not scored",
-            )
+            if override_classification == "operating":
+                _logger.info(
+                    "%s: financial SIC %d exclusion bypassed by analyst override", ticker, sic_int
+                )
+            else:
+                return DurabilityScore(
+                    ticker=ticker, composite=0.0, composite_low=0.0, composite_high=0.0,
+                    categories={}, config_hash=cfg_hash,
+                    data_completeness=0.0, is_stable=True, stability_delta=0.0,
+                    excluded=True,
+                    exclusion_reason=f"financial issuer SIC {sic_int} (6000–6799) — not scored",
+                )
     except (ValueError, TypeError):
         pass
 

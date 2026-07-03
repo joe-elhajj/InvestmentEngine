@@ -13,8 +13,17 @@ report:
   output_dir: "reports"
   history_years: 15                   # how far back to pull annual data
 
+classification:
+  # Analyst-owned overrides for security classification.
+  # Ticker → class.  Accepted values: "operating" (bypass financial-SIC exclusion)
+  # Overrides win over ALL form-history inference AND over the SIC 6000-6799 exclusion.
+  overrides:
+    MARA: operating        # Bitcoin miner; filed 10-K; SIC 6199 (services-finance)
+
 valuation:
   assumed_tax_rate: 0.21              # used for NOPAT in ROIC; your assumption
+  normalized_fcf_years: 5             # C1: median FCF margin computed over last N fiscal years
+  min_history_years: 4                # C2: min annual points needed for delivered_growth CAGR
   dcf:
     projection_years: 5
     # ---- scenarios: you own every number here ----

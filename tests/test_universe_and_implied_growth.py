@@ -437,23 +437,27 @@ def test_golden_strong_company_durability_unchanged():
 
 
 def test_golden_normalized_fcf_uses_median():
-    """Verify normalized_fcf is median FCF margin × latest revenue, not latest FCF."""
+    """Verify normalized_fcf is median FCF margin × latest revenue over the last 5 years."""
     cd = _strong_cd()
     annual = derive_annual_series(cd, _DCF_CFG)
-    nfcf, lineage = _normalized_fcf(annual)
+    # Default window = 5 years (C1)
+    nfcf, lineage = _normalized_fcf(annual, window=5)
     assert nfcf is not None
 
-    # Compute expected: median FCF margin × latest revenue
-    margins = [
-        yd.fcf / yd.revenue
-        for yd in annual.values()
-        if yd.fcf is not None and yd.revenue is not None and yd.revenue > 0
-    ]
-    expected_margin = statistics.median(margins)
+    # Compute expected using the same 5-year window
+    all_pairs = sorted(
+        [(pe, yd.fcf / yd.revenue)
+         for pe, yd in annual.items()
+         if yd.fcf is not None and yd.revenue is not None and yd.revenue > 0],
+        key=lambda x: x[0],
+    )
+    pairs = all_pairs[-5:]
+    expected_margin = statistics.median([m for _, m in pairs])
     latest_revenue = annual[max(annual)].revenue
     expected_nfcf = expected_margin * latest_revenue
 
     assert abs(nfcf - expected_nfcf) < 1e-6
+    assert "window=5" in lineage, "lineage must record the window used"
 
 
 def test_golden_delivered_growth_is_fcf_cagr():

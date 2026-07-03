@@ -8,9 +8,13 @@ Design principles
    period end, and filing form it came from (see `Fact`).
 2. XBRL tags are inconsistent across companies and over time. We resolve each
    *logical* metric (e.g. "revenue") against an ordered list of candidate GAAP
-   tags and record which one actually resolved. This is what stops the engine
-   from silently failing or guessing.
-3. SEC requires a declared User-Agent and rate-limits ~10 req/s. Both are
+   or IFRS tags and record which one actually resolved. This is what stops the
+   engine from silently failing or guessing.
+3. Both US-GAAP (10-K) and IFRS (20-F / 40-F) filers are supported. IFRS
+   candidates are listed AFTER us-gaap candidates so domestic companies are
+   unaffected.  Currency is resolved per-concept (USD preferred when dominant;
+   otherwise the non-USD currency with the most annual points).
+4. SEC requires a declared User-Agent and rate-limits ~10 req/s. Both are
    handled here. Set your real contact in config.yaml.
 """
 
@@ -18,6 +22,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -29,10 +34,18 @@ SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
 SEC_COMPANYFACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik10}.json"
 
+# Annual-report form prefixes accepted by _annual_points.
+# 10-K  = domestic US annual
+# 20-F  = Foreign Private Issuer annual
+# 40-F  = Canadian FPI annual (MJDS)
+_ANNUAL_FORM_PREFIXES = ("10-K", "20-F", "40-F")
+
 
 # ---------------------------------------------------------------------------
 # Concept map: logical metric -> ordered (taxonomy, tag) fallbacks.
 # First tag that resolves wins; the winner is recorded for lineage.
+# us-gaap candidates come first so domestic companies are unaffected.
+# ifrs-full candidates are appended as fallbacks for FPI 20-F / 40-F filers.
 # `flow` = income/cash-flow item (has a duration); otherwise balance-sheet instant.
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
@@ -50,26 +63,38 @@ CONCEPTS: dict[str, Concept] = {
         ("us-gaap", "Revenues"),
         ("us-gaap", "SalesRevenueNet"),
         ("us-gaap", "RevenueFromContractWithCustomerIncludingAssessedTax"),
+        # IFRS fallbacks (verified against TSM/CCJ companyfacts)
+        ("ifrs-full", "Revenue"),
+        ("ifrs-full", "RevenueFromContractsWithCustomers"),
     )),
     "cost_of_revenue": Concept("cost_of_revenue", True, (
         ("us-gaap", "CostOfRevenue"),
         ("us-gaap", "CostOfGoodsAndServicesSold"),
         ("us-gaap", "CostOfGoodsSold"),
+        ("ifrs-full", "CostOfSales"),
     )),
     "gross_profit": Concept("gross_profit", True, (
         ("us-gaap", "GrossProfit"),
+        ("ifrs-full", "GrossProfit"),
     )),
     "operating_income": Concept("operating_income", True, (
         ("us-gaap", "OperatingIncomeLoss"),
+        ("ifrs-full", "ProfitLossFromOperatingActivities"),
     )),
     "net_income": Concept("net_income", True, (
         ("us-gaap", "NetIncomeLoss"),
         ("us-gaap", "ProfitLoss"),
+        ("ifrs-full", "ProfitLoss"),
+        ("ifrs-full", "ProfitLossAttributableToOwnersOfParent"),
     )),
     "interest_expense": Concept("interest_expense", True, (
         ("us-gaap", "InterestExpense"),
         ("us-gaap", "InterestExpenseNonoperating"),
         ("us-gaap", "InterestIncomeExpenseNet"),
+        # FinanceCosts is the IFRS aggregate for interest and finance charges
+        ("ifrs-full", "FinanceCosts"),
+        ("ifrs-full", "InterestExpenseOnBorrowings"),
+        ("ifrs-full", "InterestExpenseOnBonds"),
     )),
     "dep_amort": Concept("dep_amort", True, (
         ("us-gaap", "DepreciationDepletionAndAmortization"),
@@ -78,36 +103,51 @@ CONCEPTS: dict[str, Concept] = {
         ("us-gaap", "Depreciation"),
         ("us-gaap", "DepreciationNonproduction"),
         ("us-gaap", "AmortizationOfIntangibleAssets"),
+        # IFRS: no combined tag in practice; DepreciationExpense is typically larger
+        ("ifrs-full", "DepreciationAndAmortisationExpense"),
+        ("ifrs-full", "DepreciationExpense"),
+        ("ifrs-full", "AmortisationExpense"),
     )),
     # --- Cash flow (flows) ---
     "cfo": Concept("cfo", True, (
         ("us-gaap", "NetCashProvidedByUsedInOperatingActivities"),
         ("us-gaap", "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
+        ("ifrs-full", "CashFlowsFromUsedInOperatingActivities"),
     )),
     "capex": Concept("capex", True, (
         ("us-gaap", "PaymentsToAcquirePropertyPlantAndEquipment"),
         ("us-gaap", "PaymentsToAcquireProductiveAssets"),
+        # IFRS capex tag verified in TSM companyfacts
+        ("ifrs-full", "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"),
+        ("ifrs-full", "PurchaseOfPropertyPlantAndEquipment"),
     )),
     # --- Balance sheet (instants) ---
     "total_assets": Concept("total_assets", False, (
         ("us-gaap", "Assets"),
+        ("ifrs-full", "Assets"),
     )),
     "current_assets": Concept("current_assets", False, (
         ("us-gaap", "AssetsCurrent"),
+        ("ifrs-full", "CurrentAssets"),
     )),
     "total_liabilities": Concept("total_liabilities", False, (
         ("us-gaap", "Liabilities"),
+        ("ifrs-full", "Liabilities"),
     )),
     "current_liabilities": Concept("current_liabilities", False, (
         ("us-gaap", "LiabilitiesCurrent"),
+        ("ifrs-full", "CurrentLiabilities"),
     )),
     "total_equity": Concept("total_equity", False, (
         ("us-gaap", "StockholdersEquity"),
         ("us-gaap", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"),
+        ("ifrs-full", "Equity"),
+        ("ifrs-full", "EquityAttributableToOwnersOfParent"),
     )),
     "cash": Concept("cash", False, (
         ("us-gaap", "CashAndCashEquivalentsAtCarryingValue"),
         ("us-gaap", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"),
+        ("ifrs-full", "CashAndCashEquivalents"),
     )),
     "short_term_investments": Concept("short_term_investments", False, (
         ("us-gaap", "MarketableSecuritiesCurrent"),
@@ -124,11 +164,14 @@ CONCEPTS: dict[str, Concept] = {
     "long_term_debt": Concept("long_term_debt", False, (
         ("us-gaap", "LongTermDebtNoncurrent"),
         ("us-gaap", "LongTermDebt"),
+        ("ifrs-full", "LongtermBorrowings"),
     )),
     "short_term_debt": Concept("short_term_debt", False, (
         ("us-gaap", "DebtCurrent"),
         ("us-gaap", "ShortTermBorrowings"),
         ("us-gaap", "LongTermDebtCurrent"),
+        ("ifrs-full", "ShorttermBorrowings"),
+        ("ifrs-full", "CurrentPortionOfLongtermBorrowings"),
     )),
     # --- Compensation & investment (flows) ---
     "sbc": Concept("sbc", True, (
@@ -154,8 +197,9 @@ class Fact:
     period_end: str          # ISO date of the period end
     fiscal_year: int         # label derived from period_end year
     concept: str             # taxonomy:tag that actually resolved
-    form: str                # e.g. 10-K
+    form: str                # e.g. 10-K, 20-F
     filed: str               # filing date
+    currency: str = "USD"    # reporting currency for this data point
 
     def source(self) -> str:
         return f"{self.concept} | {self.form} | period {self.period_end} | filed {self.filed}"
@@ -173,6 +217,10 @@ class CompanyData:
     quarterly: dict[str, "Fact"] = field(default_factory=dict)
     # logical metrics that could not be resolved at all
     unresolved: list = field(default_factory=list)
+    # dominant reporting currency across all resolved concepts
+    reporting_currency: str = "USD"
+    # unique form types seen in recent filings (used for B1 classification)
+    recent_forms: list[str] = field(default_factory=list)
 
     def latest(self, metric: str) -> Optional[Fact]:
         s = self.series.get(metric)
@@ -272,6 +320,7 @@ class EdgarClient:
             name=subs.get("name", ""),
             sic=str(subs.get("sic", "")),
             sic_description=subs.get("sicDescription", ""),
+            recent_forms=list(set(subs.get("filings", {}).get("recent", {}).get("form", []))),
         )
 
         cutoff_year = datetime.now().year - history_years
@@ -281,6 +330,10 @@ class EdgarClient:
                 cd.series[key] = facts_for_key
             else:
                 cd.unresolved.append(key)
+
+        # Determine reporting currency and drop off-currency series (A3)
+        self._set_reporting_currency(cd)
+
         if include_quarterly:
             self._populate_quarterly(cd, facts, cutoff_year)
         return cd
@@ -289,19 +342,51 @@ class EdgarClient:
         return self.get_company(ticker, history_years, include_quarterly=True)
 
     @staticmethod
+    def _dominant_currency_for_concept(gaap: dict, concept: Concept, cutoff_year: int) -> str:
+        """
+        Find the currency with the most annual points across all candidates.
+        USD wins ties — domestic companies that also report in USD supplementally
+        always stay on USD.
+        """
+        if concept.unit == "shares":
+            return "shares"
+        counts: dict[str, int] = {}
+        for taxonomy, tag in concept.candidates:
+            node = gaap.get(taxonomy, {}).get(tag)
+            if not node:
+                continue
+            for currency, units_list in node.get("units", {}).items():
+                if currency == "shares":
+                    continue
+                pts = EdgarClient._annual_points(units_list, concept.flow, cutoff_year)
+                counts[currency] = counts.get(currency, 0) + len(pts)
+        if not counts:
+            return "USD"
+        return max(counts, key=lambda c: (counts[c], 1 if c == "USD" else 0))
+
+    @staticmethod
     def _resolve(facts: dict, concept: Concept, cutoff_year: int) -> list:
         """Resolve each fiscal year against the highest-priority candidate that has data.
 
         This stitches across tag changes over time. For a given period end, we prefer
         the earlier-listed candidate, and within the same tag we retain the most recently
-        filed restatement via _annual_points()."""
+        filed restatement via _annual_points().
+
+        For monetary concepts the dominant currency is determined first (A3), then
+        each candidate is queried in that currency only — ensuring a consistent unit
+        across all periods in the resolved series.
+        """
         gaap = facts.get("facts", {})
+
+        # Pick the single reporting currency for this concept
+        unit = EdgarClient._dominant_currency_for_concept(gaap, concept, cutoff_year)
+
         selected: dict[str, tuple[int, dict, str]] = {}
         for priority, (taxonomy, tag) in enumerate(concept.candidates):
             node = gaap.get(taxonomy, {}).get(tag)
             if not node:
                 continue
-            units = node.get("units", {}).get(concept.unit)
+            units = node.get("units", {}).get(unit)
             if not units:
                 continue
             points = EdgarClient._annual_points(units, concept.flow, cutoff_year)
@@ -315,9 +400,38 @@ class EdgarClient:
         if not selected:
             return []
         return [
-            Fact(concept.key, p["val"], end, int(end[:4]), concept_label, p["form"], p["filed"])
+            Fact(concept.key, p["val"], end, int(end[:4]), concept_label, p["form"], p["filed"],
+                 currency=unit)
             for end, (_, p, concept_label) in sorted(selected.items())
         ]
+
+    @staticmethod
+    def _set_reporting_currency(cd: CompanyData) -> None:
+        """
+        Determine dominant reporting currency across all resolved concepts (A3).
+        If concepts resolve in mixed currencies, keep only the dominant currency's
+        facts and log the rest as gaps.
+        """
+        currency_counts: Counter = Counter(
+            series[0].currency
+            for series in cd.series.values()
+            if series and series[0].currency != "shares"
+        )
+        if not currency_counts:
+            return  # shares-only company or no data — leave default "USD"
+
+        dominant = max(currency_counts, key=lambda c: (currency_counts[c], 1 if c == "USD" else 0))
+        cd.reporting_currency = dominant
+
+        if len(currency_counts) > 1:
+            # Drop off-currency series and log the loss as a gap
+            for key in list(cd.series):
+                s = cd.series[key]
+                if s and s[0].currency not in (dominant, "shares"):
+                    cd.unresolved.append(
+                        f"{key}: resolved in {s[0].currency} but dominant is {dominant} — dropped"
+                    )
+                    del cd.series[key]
 
     @staticmethod
     def _annual_points(units: list, is_flow: bool, cutoff_year: int) -> list:
@@ -327,12 +441,15 @@ class EdgarClient:
         Flows (income/cash flow) have start+end ~365 days apart.
         Instants (balance sheet) have only a period end.
         Dedupe by period end, preferring the most recently filed value
-        (restated figures supersede originals). 10-K (annual) forms only.
+        (restated figures supersede originals).
+
+        Accepted annual filing forms: 10-K (domestic), 20-F (FPI), 40-F (Canadian FPI).
+        Quarterly forms (10-Q, 6-K) and registration statements are excluded.
         """
         by_end: dict[str, dict] = {}
         for u in units:
             form = u.get("form", "")
-            if not form.startswith("10-K"):
+            if not any(form.startswith(pfx) for pfx in _ANNUAL_FORM_PREFIXES):
                 continue
             end = u.get("end")
             if not end:

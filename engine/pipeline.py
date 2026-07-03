@@ -234,18 +234,29 @@ def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> Year
 # B-series helpers: normalized FCF, delivered growth
 # ---------------------------------------------------------------------------
 
-def _normalized_fcf(annual: dict[str, YearlyDerived]) -> tuple[Optional[float], str]:
+def _normalized_fcf(
+    annual: dict[str, YearlyDerived],
+    window: int = 5,
+) -> tuple[Optional[float], str]:
     """
-    Normalized FCF = median(FCF margin over available years) × latest revenue.
+    Normalized FCF = median(FCF margin over last `window` fiscal years) × latest revenue.
 
-    Stabilizes erratic FCF (e.g. from one-time items).  Returns (value, lineage).
-    Returns (None, reason) when median margin ≤ 0 — absence is not zero.
+    Restricting to the recent window reflects current structural economics better
+    than a full 15-year history that may include a different business model.
+    Configurable via valuation.normalized_fcf_years (default 5).
+
+    Returns (value, lineage).  Returns (None, reason) when median margin ≤ 0.
     """
-    pairs = [
-        (pe, yd.fcf / yd.revenue)
-        for pe, yd in annual.items()
-        if yd.fcf is not None and yd.revenue is not None and yd.revenue > 0
-    ]
+    all_pairs = sorted(
+        [
+            (pe, yd.fcf / yd.revenue)
+            for pe, yd in annual.items()
+            if yd.fcf is not None and yd.revenue is not None and yd.revenue > 0
+        ],
+        key=lambda x: x[0],
+    )
+    pairs = all_pairs[-window:]  # keep only the last `window` fiscal years
+
     if not pairs:
         return None, "normalized_fcf: no FCF/revenue pairs in annual series"
 
@@ -266,17 +277,29 @@ def _normalized_fcf(annual: dict[str, YearlyDerived]) -> tuple[Optional[float], 
     lineage = (
         f"normalized_fcf: median FCF margin {median_margin:.3%} × "
         f"revenue {latest.revenue:.0f} "
-        f"(periods: {', '.join(p[:4] for p in periods)})"
+        f"(window={window}, periods: {', '.join(p[:4] for p in periods)})"
     )
     return val, lineage
 
 
-def _delivered_growth(annual: dict[str, YearlyDerived]) -> tuple[Optional[float], str]:
+def _delivered_growth(
+    annual: dict[str, YearlyDerived],
+    min_history: int = 4,
+) -> tuple[Optional[float], str]:
     """
     Historical FCF CAGR (≥2 strictly positive FCF years).
     Falls back to revenue CAGR when FCF history is non-positive or unavailable.
     Returns (value, label).
+
+    Requires at least `min_history` annual data points (configurable via
+    valuation.min_history_years, default 4) to avoid CAGR-on-2-points noise.
     """
+    if len(annual) < min_history:
+        return (
+            None,
+            f"insufficient history ({len(annual)} annual points, need {min_history})",
+        )
+
     fcf_pts = [(yd.year, yd.fcf) for yd in annual.values() if yd.fcf is not None]
     if len(fcf_pts) >= 2 and all(v > 0 for _, v in fcf_pts):
         m = M.cagr_over(fcf_pts, 5)
@@ -312,19 +335,27 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     res = AnalysisResult(company=cd, quote=quote)
     res.gaps = list(cd.unresolved)
 
-    tax_rate = config.get("valuation", {}).get("assumed_tax_rate", 0.21)
+    val_cfg = config.get("valuation", {})
+    tax_rate = val_cfg.get("assumed_tax_rate", 0.21)
+    fcf_window    = int(val_cfg.get("normalized_fcf_years", 5))
+    min_history   = int(val_cfg.get("min_history_years", 4))
+
     annual = derive_annual_series(cd, config)
     res.annual_series = annual
 
     # Normalized FCF and delivered growth (both depend only on annual series)
-    nfcf_val, nfcf_lineage = _normalized_fcf(annual)
+    nfcf_val, nfcf_lineage = _normalized_fcf(annual, window=fcf_window)
     res.normalized_fcf = nfcf_val
     if nfcf_val is None:
         res.gaps.append(nfcf_lineage)
     else:
         res.derived_lineage["normalized_fcf"] = nfcf_lineage
 
-    res.delivered_growth, res.delivered_growth_label = _delivered_growth(annual)
+    dg_val, dg_label = _delivered_growth(annual, min_history=min_history)
+    res.delivered_growth = dg_val
+    res.delivered_growth_label = dg_label
+    if dg_val is None:
+        res.gaps.append(f"delivered_growth: {dg_label}")
 
     if annual:
         yd = annual[max(annual)]
@@ -440,6 +471,19 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     r["interest_coverage"]  = M.interest_coverage(ebit, interest)
     r["fcf_conversion"]     = M.fcf_conversion(fcf, ni)
 
+    # Currency gate (A4): market-mixed outputs require USD reporting.
+    # Ratio/growth metrics above are currency-invariant and always computed.
+    # rel_val, DCF, implied_growth, and expectations_gap are gated when non-USD.
+    reporting_ccy = cd.reporting_currency
+    if reporting_ccy != "USD":
+        ccy_gap = (
+            f"valuation n/a — reporting currency {reporting_ccy} vs USD market data; "
+            "no FX conversion performed"
+        )
+        res.gaps.append(ccy_gap)
+        res.rel_val = V.RelativeValuation(pe=None, ev_ebitda=None, fcf_yield=None)
+        return res
+
     # Relative valuation multiples
     price  = quote.price
     mc     = quote.market_cap
@@ -456,7 +500,7 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     )
 
     # DCF (only if we have a base FCF and net_debt is known)
-    dcf_cfg = config.get("valuation", {}).get("dcf", {})
+    dcf_cfg = val_cfg.get("dcf", {})
     if fcf is not None and fcf > 0 and dcf_cfg:
         if net_debt is None:
             res.gaps.append("dcf: net_debt unavailable; DCF skipped")

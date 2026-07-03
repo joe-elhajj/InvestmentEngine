@@ -2,26 +2,29 @@
 screen.py — batch durability screener.
 
 Routes each ticker:
-  - Equities with EDGAR fundamentals → durability scorecard + growth signals
-  - ETFs / funds (no EDGAR fundamentals or ETF name pattern) → flagged, not scored
+  - Operating equities (10-K domestic or 20-F/40-F FPI) → durability scorecard + growth signals
+  - Funds (N-CSR/N-PORT/N-1A/485BPOS/485APOS forms, or SIC 6726) → ETF lens section
+  - Unknown/unclassified → flagged row, not scored
   - Network / data failures → logged, run continues; one bad ticker never kills the run
 
-Outputs a ranked Markdown + HTML table (matching existing report style).
+Classification is evidence-based (B1): determined from the SEC submissions form
+history, not inferred from absent fundamentals.  A company whose XBRL concepts
+all fail to resolve is still classified operating if it filed 10-K or 20-F.
+
+Analyst overrides (B2) in config.classification.overrides win over inference
+and over the financial-issuer SIC exclusion.
 
 Sort modes
 ----------
 --sort durability     : ranked by durability composite (highest first)
 --sort quality-value  : ranked by (composite_percentile − gap_percentile) within the batch.
                         High durability AND low/negative expectations gap → top rank.
-                        Formula: composite_pct − gap_pct  (both 0–100 within the batch).
                         Companies without a solvable expectations gap are ranked last.
-
-Per-company DCF upside has been removed from batch output (C1).  DCF belongs in
-the per-ticker deep-dive (analyze.py), where the analyst owns the assumptions.
 """
 
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -29,14 +32,16 @@ from html import escape
 from pathlib import Path
 from typing import Optional
 
-from engine.edgar import EdgarClient
+from engine.edgar import CompanyData, EdgarClient
 from engine.market import get_quote
 from engine.pipeline import derive
 from engine import durability as D
+from engine.etf import EtfProfile, fetch_etf_profile
 
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Routing outcome per ticker
+# Routing outcome per ticker (operating securities)
 # ---------------------------------------------------------------------------
 
 @dataclass
@@ -62,29 +67,102 @@ class ScreenRow:
     implied_growth_note: str                 # empty when valid; reason when n/a
     # Batch-relative sort score (computed after all tickers are processed)
     quality_value_score: Optional[float]     # composite_pct − gap_pct; None if gap unavailable
-    flag: str                                # "" | "ETF/fund" | "excluded" | "error:<msg>"
+    flag: str                                # "" | classification evidence | "error:<msg>"
     excluded: bool = False
 
 
 # ---------------------------------------------------------------------------
-# ETF / fund detection
+# ETF / fund row (separate display section)
 # ---------------------------------------------------------------------------
+
+@dataclass
+class EtfRow:
+    ticker: str
+    name: Optional[str]
+    category: Optional[str]
+    expense_ratio: Optional[float]
+    aum: Optional[float]
+    top10_concentration: Optional[float]
+    overlap_with_screen: Optional[float]
+    flag: str
+
+
+# ---------------------------------------------------------------------------
+# B1: Evidence-based security classification
+# ---------------------------------------------------------------------------
+
+_FUND_FORMS = {"N-CSR", "N-PORT", "N-1A", "485BPOS", "485APOS"}
+_FUND_SIC   = 6726
 
 _ETF_KEYWORDS = ("ETF", "FUND", "TRUST", "ISHARES", "SPDR", "VANGUARD", "INVESCO")
 
 
 def _is_etf(ticker: str, name: str) -> bool:
+    """Legacy name-based heuristic (kept for backward-compat tests). Not used for routing."""
     combined = (ticker + " " + name).upper()
     return any(kw in combined for kw in _ETF_KEYWORDS)
 
 
 def _has_fundamentals(cd_series: dict) -> bool:
-    """A company with neither revenue nor total_assets is treated as a fund."""
+    """Legacy check (kept for backward-compat tests). Not used for routing."""
     return bool(cd_series.get("revenue") or cd_series.get("total_assets"))
 
 
+def _classify(ticker: str, cd: CompanyData, overrides: dict) -> tuple[str, str]:
+    """
+    Return (classification, evidence_string) for a ticker.
+
+    Classifications:
+      "operating_domestic" — filed 10-K
+      "operating_fpi"      — filed 20-F or 40-F
+      "fund"               — filed N-CSR/N-PORT/N-1A/485BPOS/485APOS, or SIC 6726
+      "financial"          — SIC 6000–6799 (no annual FPI/fund forms overriding it)
+      "unclassified"       — EDGAR registrant exists but no annual forms found
+
+    Analyst overrides in config.classification.overrides win over ALL inference.
+    """
+    override = overrides.get(ticker.upper())
+    if override:
+        log.info("Classification override applied: %s → %s", ticker, override)
+        return override, f"analyst override: {override}"
+
+    forms = set(cd.recent_forms)
+
+    # Fund indicators take priority over annual-report forms
+    fund_evidence = forms & _FUND_FORMS
+    sic_int = None
+    try:
+        sic_int = int(cd.sic)
+    except (ValueError, TypeError):
+        pass
+
+    if fund_evidence or sic_int == _FUND_SIC:
+        evidence_parts = sorted(fund_evidence)
+        if sic_int == _FUND_SIC:
+            evidence_parts.append("SIC 6726")
+        evidence = "fund: " + "/".join(evidence_parts) + " observed"
+        return "fund", evidence
+
+    # FPI annual filers (20-F or 40-F)
+    fpi_forms = [f for f in forms if f.startswith(("20-F", "40-F"))]
+    if fpi_forms:
+        ccy = cd.reporting_currency
+        evidence = f"FPI: {fpi_forms[0][:4]} observed, reporting {ccy}"
+        return "operating_fpi", evidence
+
+    # Domestic annual filers
+    if any(f.startswith("10-K") for f in forms):
+        return "operating_domestic", "10-K observed"
+
+    # Financial SIC (6000-6799) without annual forms
+    if sic_int is not None and 6000 <= sic_int <= 6799:
+        return "financial", f"financial issuer SIC {sic_int} (6000–6799)"
+
+    return "unclassified", "no annual report forms found"
+
+
 # ---------------------------------------------------------------------------
-# Per-ticker processing
+# Per-ticker processing helpers
 # ---------------------------------------------------------------------------
 
 def _empty_row(ticker: str, flag: str, excluded: bool = False,
@@ -109,33 +187,80 @@ def _process_one(
     client: EdgarClient,
     cfg: dict,
     history_years: int,
-) -> ScreenRow:
+    operating_tickers: Optional[set[str]] = None,
+) -> tuple[Optional[ScreenRow], Optional[EtfRow]]:
+    """
+    Process a single ticker.  Returns (ScreenRow, None) for operating securities,
+    (None, EtfRow) for funds, and (ScreenRow, None) with a flag for errors.
+    """
     universe_version = cfg.get("universe", {}).get("version", "")
+    overrides = cfg.get("classification", {}).get("overrides", {})
+
+    # Fetch EDGAR data; handle "not found" distinctly from other errors
     try:
         cd = client.get_company(ticker, history_years)
+    except ValueError as e:
+        if "not found in SEC ticker map" in str(e):
+            return _empty_row(
+                ticker, "unknown — no EDGAR registrant found",
+                universe_version=universe_version,
+            ), None
+        return _empty_row(
+            ticker, f"error:{type(e).__name__}: {e}",
+            universe_version=universe_version,
+        ), None
     except Exception as e:
-        return _empty_row(ticker, f"error:{type(e).__name__}: {e}",
-                          universe_version=universe_version)
+        return _empty_row(
+            ticker, f"error:{type(e).__name__}: {e}",
+            universe_version=universe_version,
+        ), None
 
-    # ETF / fund routing
-    if _is_etf(ticker, cd.name) or not _has_fundamentals(cd.series):
-        return _empty_row(ticker, "ETF/fund — not scored, separate lens pending",
-                          universe_version=universe_version)
+    classification, evidence = _classify(ticker, cd, overrides)
 
+    if classification == "fund":
+        profile = fetch_etf_profile(ticker)
+        overlap = None
+        if profile.top_holdings and operating_tickers:
+            overlap = sum(
+                w for tk, w in profile.top_holdings if tk.upper() in operating_tickers
+            )
+        etf_row = EtfRow(
+            ticker=ticker,
+            name=profile.name,
+            category=profile.category,
+            expense_ratio=profile.expense_ratio,
+            aum=profile.total_assets,
+            top10_concentration=profile.top10_concentration,
+            overlap_with_screen=overlap,
+            flag=evidence,
+        )
+        return None, etf_row
+
+    if classification == "skip":
+        return _empty_row(ticker, f"skipped: {evidence}",
+                          universe_version=universe_version), None
+
+    # For "unclassified" — include in operating rows with flag, don't try to score
+    if classification == "unclassified":
+        return _empty_row(ticker, evidence,
+                          universe_version=universe_version), None
+
+    # "operating_domestic", "operating_fpi", or override → attempt scoring
+    # Pass the override flag so durability.score() can bypass financial-SIC exclusion
     try:
         quote = get_quote(ticker)
         res = derive(cd, quote, cfg)
-        ds = D.score(res, cfg)
+        ds = D.score(res, cfg, override_classification=overrides.get(ticker.upper()))
     except Exception as e:
         return _empty_row(ticker, f"error:{type(e).__name__}: {e}",
-                          universe_version=universe_version)
+                          universe_version=universe_version), None
 
     if ds.excluded:
         return _empty_row(
             ticker, ds.exclusion_reason, excluded=True,
             completeness=ds.data_completeness, config_hash=ds.config_hash,
             universe_version=universe_version,
-        )
+        ), None
 
     def _cat(name: str) -> Optional[float]:
         c = ds.categories.get(name)
@@ -145,12 +270,18 @@ def _process_one(
     igr = res.implied_growth_result
     if igr is None:
         implied_g = None
-        ig_note = "n/a — not meaningful: normalized FCF unavailable or non-positive"
+        if cd.reporting_currency != "USD":
+            ig_note = (
+                f"n/a — valuation gated: reporting currency {cd.reporting_currency} "
+                "vs USD market data"
+            )
+        else:
+            ig_note = "n/a — not meaningful: normalized FCF unavailable or non-positive"
     elif igr.bracket_hit:
         implied_g = None
         bound = igr.bracket_bound or "?"
         ig_note = (
-            f"n/a — not meaningful: bracket {bound} hit "
+            f"n/a — bracket {bound} hit "
             f"(implied g {'<' if bound == 'lower' else '>'} "
             f"{igr.implied_growth:.0%})"
         )
@@ -159,6 +290,14 @@ def _process_one(
         ig_note = ""
 
     gap = res.expectations_gap if (igr is not None and not igr.bracket_hit) else None
+
+    # Compose diagnostics flag: combine evidence + ig_note + currency info
+    flag_parts: list[str] = []
+    if classification == "operating_fpi":
+        flag_parts.append(evidence)
+    if ig_note:
+        flag_parts.append(ig_note)
+    flag = " · ".join(flag_parts)
 
     return ScreenRow(
         ticker=ticker,
@@ -180,12 +319,12 @@ def _process_one(
         expectations_gap=gap,
         implied_growth_note=ig_note,
         quality_value_score=None,   # filled in batch step
-        flag="",
-    )
+        flag=flag,
+    ), None
 
 
 # ---------------------------------------------------------------------------
-# Batch quality-value score (C3)
+# Batch quality-value score
 # ---------------------------------------------------------------------------
 
 def _assign_quality_value_scores(rows: list[ScreenRow]) -> None:
@@ -195,8 +334,6 @@ def _assign_quality_value_scores(rows: list[ScreenRow]) -> None:
     High durability AND low/negative expectations gap → high score.
     Computed after all tickers are scored; companies without a solvable gap
     receive None and are ranked last in quality-value mode.
-
-    Formula is intentionally simple and transparent: no magic, no weighting.
     """
     eligible = [r for r in rows if r.composite is not None and r.expectations_gap is not None]
     if not eligible:
@@ -213,7 +350,7 @@ def _assign_quality_value_scores(rows: list[ScreenRow]) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Rendering
+# Rendering helpers
 # ---------------------------------------------------------------------------
 
 def _pct(x: Optional[float], decimals: int = 1) -> str:
@@ -225,7 +362,6 @@ def _pts(x: Optional[float]) -> str:
 
 
 def _signed_pct(x: Optional[float], decimals: int = 1) -> str:
-    """Percentage with an explicit + sign for positive values (used for the Gap column)."""
     if x is None:
         return "n/a"
     sign = "+" if x >= 0 else ""
@@ -235,23 +371,41 @@ def _signed_pct(x: Optional[float], decimals: int = 1) -> str:
 def _gap_style(gap: Optional[float]) -> str:
     """
     Inline box-shadow tint for the Gap <td> — muted slate-blue proportional to |gap|.
-
-    Uses box-shadow rather than background so it layers correctly on top of
-    zebra-banding and hover backgrounds without overriding them.
-    Color signals expectation magnitude only, not direction (no red/green moralizing).
+    Uses box-shadow rather than background so it layers over zebra-banding and hover.
     """
     if gap is None:
         return ""
-    magnitude = min(abs(gap), 0.30)              # cap sensitivity at ±30 %
-    alpha     = (magnitude / 0.30) * 0.22        # 0 → invisible, ±30 % → 22 % blue overlay
+    magnitude = min(abs(gap), 0.30)
+    alpha     = (magnitude / 0.30) * 0.22
     return f"box-shadow:inset 0 0 0 1000px rgba(94,121,180,{alpha:.3f})"
 
 
-def _render_md(rows: list[ScreenRow], sort_mode: str = "durability") -> str:
-    """
-    Two-section markdown output: primary signals first, diagnostics below.
-    Numeric columns are right-aligned via markdown alignment syntax (---:).
-    """
+def _completeness_display(r: ScreenRow) -> str:
+    """Show completeness '—' for excluded/fund/error rows; percentage for scored rows."""
+    if r.excluded or r.completeness is None:
+        return "—"
+    return _pct(r.completeness)
+
+
+def _fmt_aum(aum: Optional[float]) -> str:
+    if aum is None:
+        return "n/a"
+    if aum >= 1e9:
+        return f"${aum / 1e9:.1f}B"
+    if aum >= 1e6:
+        return f"${aum / 1e6:.0f}M"
+    return f"${aum:.0f}"
+
+
+# ---------------------------------------------------------------------------
+# Markdown renderer
+# ---------------------------------------------------------------------------
+
+def _render_md(
+    rows: list[ScreenRow],
+    etf_rows: Optional[list[EtfRow]] = None,
+    sort_mode: str = "durability",
+) -> str:
     ts      = datetime.now().strftime("%Y-%m-%d %H:%M")
     uni_ver = next((r.universe_version for r in rows if r.universe_version), "—")
     cfg_h   = next((r.config_hash     for r in rows if r.config_hash),     "—")
@@ -275,7 +429,9 @@ def _render_md(rows: list[ScreenRow], sort_mode: str = "durability") -> str:
 
     for r in rows:
         impl_g = _pct(r.implied_fcf_growth) if not r.implied_growth_note else "n/a"
-        gap    = _signed_pct(r.expectations_gap) if r.expectations_gap is not None and not r.implied_growth_note else "n/a"
+        gap    = (_signed_pct(r.expectations_gap)
+                  if r.expectations_gap is not None and not r.implied_growth_note
+                  else "n/a")
         lines.append(
             f"| {r.ticker}"
             f" | {_pts(r.composite)}"
@@ -307,42 +463,51 @@ def _render_md(rows: list[ScreenRow], sort_mode: str = "durability") -> str:
         lines.append(
             f"| {r.ticker}"
             f" | {band}"
-            f" | {_pct(r.completeness)}"
+            f" | {_completeness_display(r)}"
             f" | {stable}"
             f" | {r.universe_version or '—'}"
             f" | `{r.config_hash or '—'}`"
             f" | {r.flag or '—'} |"
         )
 
+    # ETF / Fund section (D3)
+    if etf_rows:
+        lines += [
+            "",
+            "## ETFs / Funds",
+            "",
+            "> Holdings and fee data from market vendor (yfinance), best-effort,"
+            " not filing-grade.",
+            "",
+            "| Ticker | Name | Exp Ratio | AUM | Top-10 Conc | Overlap w/ Singles | Flag |",
+            "|:---|:---|---:|---:|---:|---:|:---|",
+        ]
+        for er in etf_rows:
+            exp_r = _pct(er.expense_ratio) if er.expense_ratio is not None else "n/a"
+            top10 = _pct(er.top10_concentration) if er.top10_concentration is not None else "n/a"
+            ovlp  = _pct(er.overlap_with_screen) if er.overlap_with_screen is not None else "n/a"
+            lines.append(
+                f"| {er.ticker}"
+                f" | {er.name or '—'}"
+                f" | {exp_r}"
+                f" | {_fmt_aum(er.aum)}"
+                f" | {top10}"
+                f" | {ovlp}"
+                f" | {er.flag or '—'} |"
+            )
+
     return "\n".join(lines)
 
 
-def _render_html(rows: list[ScreenRow], sort_mode: str = "durability") -> str:  # noqa: C901
-    """
-    Institutional-grade terminal view.
+# ---------------------------------------------------------------------------
+# HTML renderer
+# ---------------------------------------------------------------------------
 
-    Layout — two zones:
-      Primary signals  : decision-relevant columns, full visual weight.
-      Data quality     : Band, Completeness, Stable, Universe, Hash, Flag —
-                         audit/trust guardrails, visually recessed.
-
-    Design tokens
-      #0a0c10  near-black page background
-      #12151b  elevated table surface
-      #0d1016  even-row surface (slightly darker)
-      #1e242e  hairline border (not a heavy box, just a rule)
-      #dde3ef  primary text
-      #7a8499  dim secondary text
-      #454e63  muted / label text
-      rgba(94,121,180,α)  muted slate-blue gap tint (α scales with |gap|)
-
-    Gap column color is the ONLY color in the table — signals expectation
-    magnitude, not buy/sell direction.  Uses box-shadow so it layers on top
-    of zebra-banding and hover without overriding the underlying background.
-
-    All numeric cells use font-variant-numeric:tabular-nums so digits align
-    vertically (non-negotiable for a financial display).
-    """
+def _render_html(
+    rows: list[ScreenRow],
+    etf_rows: Optional[list[EtfRow]] = None,
+    sort_mode: str = "durability",
+) -> str:  # noqa: C901
     e = escape
 
     ts          = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -367,21 +532,14 @@ body{
   font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased
 }
 .wrap{max-width:1700px;margin:0 auto;padding:32px 24px 64px}
-
-/* ── Header ────────────────────────────────────────────────────── */
 .hdr{margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid var(--bdr)}
 .hdr h1{font-size:17px;font-weight:600;letter-spacing:-.01em;margin-bottom:6px}
-.hdr .meta{font-size:11px;color:var(--dim);letter-spacing:.02em;
-           font-variant-numeric:tabular-nums}
+.hdr .meta{font-size:11px;color:var(--dim);letter-spacing:.02em;font-variant-numeric:tabular-nums}
 .mono{font-family:var(--mono);font-size:10px;letter-spacing:.04em}
-
-/* ── Section labels ─────────────────────────────────────────────── */
 .sec-lbl{
   font-size:9.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
   color:var(--mute);margin-bottom:10px
 }
-
-/* ── Shared table base ──────────────────────────────────────────── */
 table{width:100%;border-collapse:collapse}
 thead th{
   position:sticky;top:0;z-index:2;background:var(--surf);
@@ -407,25 +565,23 @@ tbody tr:hover td{background:#171b28cc!important}
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
   font-size:11px;font-variant-numeric:normal
 }
-
-/* ── Primary signal table ───────────────────────────────────────── */
 .primary-sec{margin-bottom:14px}
 .legend{font-size:11px;color:var(--mute);margin-top:12px;line-height:1.65}
 .sort-note{font-size:10px;color:var(--mute);margin-top:5px;letter-spacing:.03em}
-
-/* ── Diagnostics (recessed) ─────────────────────────────────────── */
 .diag-sec{margin-top:44px}
 .diag-sec table thead th{font-size:9px;padding:6px 12px 5px}
-.diag-sec table td{
-  font-size:11px;padding:4px 12px;color:var(--mute);
-  font-variant-numeric:tabular-nums
-}
+.diag-sec table td{font-size:11px;padding:4px 12px;color:var(--mute);font-variant-numeric:tabular-nums}
 .diag-sec table td.tk{font-size:11px;font-weight:500;color:var(--dim)}
 .flag-cell{
-  font-style:italic;max-width:240px;overflow:hidden;text-overflow:ellipsis;
+  font-style:italic;max-width:280px;overflow:hidden;text-overflow:ellipsis;
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
   font-variant-numeric:normal;font-size:10.5px
-}"""
+}
+.etf-sec{margin-top:44px}
+.etf-sec table thead th{font-size:9px;padding:6px 12px 5px}
+.etf-sec table td{font-size:11px;padding:4px 12px;color:var(--mute);font-variant-numeric:tabular-nums}
+.etf-sec table td.tk{font-size:11px;font-weight:500;color:var(--dim)}
+.caveat{font-size:10px;color:var(--mute);margin-top:8px;font-style:italic}"""
 
     def _score_td(val: Optional[float]) -> str:
         if val is None:
@@ -436,6 +592,11 @@ tbody tr:hover td{background:#171b28cc!important}
         if val is None:
             return '<td class="na">n/a</td>'
         return f'<td>{e(_pct(val))}</td>'
+
+    def _dash_td(val: Optional[str]) -> str:
+        if not val:
+            return '<td class="na">—</td>'
+        return f'<td>{e(val)}</td>'
 
     def _gap_td(r: ScreenRow) -> str:
         if r.expectations_gap is not None and not r.implied_growth_note:
@@ -448,7 +609,7 @@ tbody tr:hover td{background:#171b28cc!important}
             return f'<td>{e(_pct(r.implied_fcf_growth))}</td>'
         return '<td class="na">n/a</td>'
 
-    # ── Primary signal rows ──────────────────────────────────────────
+    # Primary signal rows
     sig_rows: list[str] = []
     for r in rows:
         tk_cls = "tk dim" if (r.excluded or (r.flag and r.composite is None)) else "tk"
@@ -467,7 +628,7 @@ tbody tr:hover td{background:#171b28cc!important}
             f'</tr>'
         )
 
-    # ── Diagnostics rows ─────────────────────────────────────────────
+    # Diagnostics rows (C4: completeness "—" for excluded; flag includes ig_note)
     diag_rows: list[str] = []
     for r in rows:
         band   = (f"{_pts(r.composite_low)}–{_pts(r.composite_high)}"
@@ -477,13 +638,55 @@ tbody tr:hover td{background:#171b28cc!important}
             f'<tr>'
             f'<td class="tk">{e(r.ticker)}</td>'
             f'<td>{e(band)}</td>'
-            f'{_pct_td(r.completeness)}'
+            f'<td>{e(_completeness_display(r))}</td>'
             f'<td>{e(stable)}</td>'
             f'<td>{e(r.universe_version or "—")}</td>'
             f'<td><span class="mono">{e(r.config_hash or "—")}</span></td>'
             f'<td class="flag-cell">{e(r.flag or "—")}</td>'
             f'</tr>'
         )
+
+    # ETF rows (D3)
+    etf_html_rows: list[str] = []
+    for er in (etf_rows or []):
+        exp_r = _pct(er.expense_ratio) if er.expense_ratio is not None else None
+        top10 = _pct(er.top10_concentration) if er.top10_concentration is not None else None
+        ovlp  = _pct(er.overlap_with_screen) if er.overlap_with_screen is not None else None
+        etf_html_rows.append(
+            f'<tr>'
+            f'<td class="tk">{e(er.ticker)}</td>'
+            f'{_dash_td(er.name)}'
+            f'{_dash_td(exp_r)}'
+            f'{_dash_td(_fmt_aum(er.aum))}'
+            f'{_dash_td(top10)}'
+            f'{_dash_td(ovlp)}'
+            f'<td class="flag-cell">{e(er.flag or "—")}</td>'
+            f'</tr>'
+        )
+
+    etf_section = ""
+    if etf_html_rows:
+        etf_section = f"""
+<section class="etf-sec">
+  <div class="sec-lbl">ETFs / Funds</div>
+  <table>
+    <thead>
+      <tr>
+        <th class="l">Ticker</th>
+        <th class="l">Name</th>
+        <th>Exp Ratio</th>
+        <th>AUM</th>
+        <th>Top-10 Conc</th>
+        <th>Overlap w/ Singles</th>
+        <th class="l">Flag</th>
+      </tr>
+    </thead>
+    <tbody>
+      {''.join(etf_html_rows)}
+    </tbody>
+  </table>
+  <p class="caveat">Holdings and fee data from market vendor (yfinance), best-effort, not filing-grade.</p>
+</section>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -547,7 +750,7 @@ tbody tr:hover td{background:#171b28cc!important}
     </tbody>
   </table>
 </section>
-
+{etf_section}
 </div>
 </body>
 </html>"""
@@ -563,9 +766,9 @@ def run_screen(
     sort_mode: str = "durability",
     out_dir: Optional[Path] = None,
     verbose: bool = True,
-) -> list[ScreenRow]:
+) -> tuple[list[ScreenRow], list[EtfRow]]:
     """
-    Screen a list of tickers.  Returns sorted ScreenRows.
+    Screen a list of tickers.  Returns (operating_rows, etf_rows).
 
     sort_mode: "durability" | "quality-value"
     One ticker failing never kills the run.
@@ -581,19 +784,37 @@ def run_screen(
     )
 
     rows: list[ScreenRow] = []
+    etf_rows: list[EtfRow] = []
+
+    # First pass: collect all operating tickers (needed for overlap computation)
+    # We run a quick classification-only pass to find operating tickers before
+    # fetching ETF holdings, so overlap is accurate.
     for tk in tickers:
         if verbose:
             print(f"  screening {tk} ...", file=sys.stderr)
-        row = _process_one(tk, client, cfg, history_years)
-        rows.append(row)
-        if verbose and row.flag:
-            print(f"    ! {tk}: {row.flag}", file=sys.stderr)
+        op_row, etf_row = _process_one(tk, client, cfg, history_years)
+        if op_row is not None:
+            rows.append(op_row)
+        if etf_row is not None:
+            etf_rows.append(etf_row)
+        if verbose and ((op_row and op_row.flag) or etf_row):
+            flag = op_row.flag if op_row else etf_row.flag
+            print(f"    ! {tk}: {flag}", file=sys.stderr)
+
+    # Compute overlap for ETF rows now that we have the full operating set
+    operating_tickers = {r.ticker.upper() for r in rows if r.composite is not None}
+    for er in etf_rows:
+        from engine.etf import EtfProfile as EP
+        profile = fetch_etf_profile(er.ticker)
+        if profile.top_holdings and operating_tickers:
+            er.overlap_with_screen = sum(
+                w for tk, w in profile.top_holdings if tk.upper() in operating_tickers
+            )
 
     # Compute batch-level quality-value scores before sorting
     _assign_quality_value_scores(rows)
 
     if sort_mode == "quality-value":
-        # Companies without a solvable gap ranked last
         rows.sort(
             key=lambda r: r.quality_value_score if r.quality_value_score is not None else -999.0,
             reverse=True,
@@ -604,9 +825,13 @@ def run_screen(
     if out_dir is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d")
-        (out_dir / f"screen_{ts}.md").write_text(_render_md(rows))
-        (out_dir / f"screen_{ts}.html").write_text(_render_html(rows))
+        (out_dir / f"screen_{ts}.md").write_text(
+            _render_md(rows, etf_rows, sort_mode)
+        )
+        (out_dir / f"screen_{ts}.html").write_text(
+            _render_html(rows, etf_rows, sort_mode)
+        )
         if verbose:
             print(f"Screen written to {out_dir}/screen_{ts}.{{md,html}}", file=sys.stderr)
 
-    return rows
+    return rows, etf_rows

@@ -13,6 +13,8 @@ an auditable event.
 | Assumption | Value | External anchor | Review cadence |
 |---|---|---|---|
 | `assumed_tax_rate` | 21 % | U.S. statutory corporate rate (Tax Cuts and Jobs Act 2017) | On any federal tax-rate change |
+| `normalized_fcf_years` | 5 years | Standard analyst convention for a mid-cycle FCF estimate that irons out one-off items; last-N avoids overweighting stale data | When the typical cycle length for the coverage universe changes (e.g., extending to 7 for capital-intensive sectors) |
+| `min_history_years` | 4 years | Minimum annual data points required before a delivered-growth CAGR is considered reliable; below this the CAGR endpoint sensitivity is too high | As needed; consider raising to 5 if coverage skews toward recently-listed companies |
 | DCF `wacc` (base) | 9 % | Risk-free 10Y Treasury (~4.5 %) + equity risk premium (~4.5 %) | Annually, or when the 10Y moves >100 bps for >3 months |
 | DCF `wacc` (bear) | 11 % | Same anchor, stressed by +200 bps | Same as base |
 | DCF `wacc` (bull) | 8 % | Same anchor, relaxed by -100 bps | Same as base |
@@ -53,6 +55,26 @@ about what drives durable compounding changes.
 |---|---|---|
 | `pessimistic_impute` | 25 pts | Below-median fill for missing metrics when computing the low-band |
 | `optimistic_impute` | 75 pts | Above-median fill for missing metrics when computing the high-band |
+
+---
+
+## Classification overrides (`config.yaml → classification.overrides`)
+
+Analyst-owned overrides for security classification.  An override of `"operating"`
+bypasses BOTH the form-history fund detection AND the financial-issuer SIC exclusion
+(SIC 6000–6799) in `durability.score()`.  Overrides win over all automated inference.
+
+| Ticker | Override | Rationale |
+|---|---|---|
+| `MARA` | `operating` | Bitcoin miner; files 10-K; SIC 6199 (Finance Services) would otherwise trigger exclusion despite being an operating company with production metrics |
+
+**When to add an override**:
+- Company files 10-K or 20-F (operating annual forms) but is misclassified due to its SIC code.
+- You have confirmed via the SEC EDGAR filings that this is an operating business, not a financial intermediary.
+
+**When NOT to use an override**:
+- The company is a genuine financial intermediary (bank, insurer, REIT) — those exclusions exist for modeling reasons, not just SIC assignment.
+- The company files fund forms (N-CSR, N-PORT, N-1A, 485BPOS) — those are definitive fund signals that overrides should not circumvent.
 
 ---
 
