@@ -603,7 +603,7 @@ def _render_html(
     css = """\
 :root{
   --bg:#0a0c10;--surf:#12151b;--surf2:#0d1016;--bdr:#1e242e;
-  --txt:#dde3ef;--dim:#7a8499;--mute:#454e63;
+  --txt:#dde3ef;--dim:#8898b5;--mute:#71809b;
   --mono:"SF Mono","Cascadia Code",ui-monospace,Menlo,monospace
 }
 *{box-sizing:border-box;margin:0;padding:0}
