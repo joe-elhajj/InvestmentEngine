@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from app import watchlist
 from engine.analysis import run_single_ticker
+from engine import durability as D
 from engine.edgar import EdgarClient, SEC_TICKERS_URL
 from engine.pipeline import AnalysisResult
 from engine import report_html as RH
@@ -325,6 +326,43 @@ async def analyze_json(ticker: str):
     payload = asdict(res)
     payload["config_hash"] = _config_hash(app.state.cfg)
     return payload
+
+
+def _fragment_error(ticker: str, exc: Exception) -> str:
+    """Small inline error state for the accordion row — not a full-viewport
+    page like _error_page(), since this is embedded under a table row, not
+    navigated to directly."""
+    reason = html.escape(str(exc) or type(exc).__name__)
+    tk = html.escape(ticker)
+    return (
+        '<div class="report-fragment report-error">'
+        f"<p>Couldn't analyze {tk}.</p>"
+        f'<p class="report-caption">{reason}</p>'
+        "</div>"
+    )
+
+
+@app.get("/api/analyze/{ticker}/fragment", response_class=HTMLResponse)
+async def analyze_fragment(ticker: str):
+    """
+    Light HTML fragment (no <html>/<head>) for inline embedding in the
+    dashboard's accordion — same underlying AnalysisResult as the full page
+    and /json (shared cache), rendered by report_html.render_fragment().
+    """
+    tk = ticker.strip().upper()
+    try:
+        res = await _get_analysis_result(tk)
+        # Durability scoring is pure/local (no network) — cheap enough to
+        # run fresh per request rather than adding a second cache. Analyst
+        # overrides apply here too, same as screen.py, so e.g. MARA shows a
+        # real composite instead of "n/a".
+        overrides = app.state.cfg.get("classification", {}).get("overrides", {})
+        ds = D.score(res, app.state.cfg, override_classification=overrides.get(tk))
+        composite = ds.composite if not ds.excluded else None
+        rendered = RH.render_fragment(res, peer_table=None, durability_composite=composite)
+    except Exception as e:
+        return HTMLResponse(_fragment_error(tk, e), status_code=502)
+    return HTMLResponse(rendered)
 
 
 # ---------------------------------------------------------------------------

@@ -10,7 +10,7 @@ uvicorn — but nothing here makes a real network call.
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -275,6 +275,62 @@ class TestAnalyzeJsonEndpoint:
         ):
             client.get("/api/analyze/AAPL")
             client.get("/api/analyze/AAPL/json")
+        mock_run.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# GET /api/analyze/{ticker}/fragment
+# ---------------------------------------------------------------------------
+
+class TestAnalyzeFragmentEndpoint:
+    def test_success_returns_fragment_with_no_html_wrapper(self, client):
+        with patch("app.main.run_single_ticker", return_value=_real_analysis_result()):
+            resp = client.get("/api/analyze/AAPL/fragment")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/html")
+        assert "<html" not in resp.text
+        assert "<head" not in resp.text
+        assert resp.text.strip().startswith('<div class="report-fragment">')
+
+    def test_composite_shown_when_durability_scores_it(self, client):
+        fake_score = MagicMock(composite=71.4, excluded=False)
+        with (
+            patch("app.main.run_single_ticker", return_value=_real_analysis_result()),
+            patch("app.main.D.score", return_value=fake_score) as mock_score,
+        ):
+            resp = client.get("/api/analyze/AAPL/fragment")
+        assert "71.4" in resp.text
+        mock_score.assert_called_once()
+
+    def test_composite_na_when_durability_excludes_it(self, client):
+        """Sparse fixture data (no financial-SIC exclusion, just insufficient
+        series) — durability.score() genuinely can't score it, so the
+        fragment must show n/a, never a fabricated 0."""
+        with patch("app.main.run_single_ticker", return_value=_real_analysis_result()):
+            resp = client.get("/api/analyze/AAPL/fragment")
+        assert resp.status_code == 200
+        assert '<span class="stat-value">n/a</span>' in resp.text
+
+    def test_failure_returns_inline_error_fragment_not_full_page(self, client):
+        with patch(
+            "app.main.run_single_ticker",
+            side_effect=ValueError("Ticker 'FAKE' not found in SEC ticker map."),
+        ):
+            resp = client.get("/api/analyze/FAKE/fragment")
+        assert resp.status_code == 502
+        assert "<html" not in resp.text
+        assert "Traceback" not in resp.text
+        assert "not found in SEC ticker map" in resp.text
+        assert 'class="report-fragment report-error"' in resp.text
+
+    def test_shares_cache_with_full_page_and_json(self, client):
+        with (
+            patch("app.main.run_single_ticker", return_value=_real_analysis_result()) as mock_run,
+            patch("app.main.RH.render", return_value="<html>x</html>"),
+        ):
+            client.get("/api/analyze/AAPL")
+            client.get("/api/analyze/AAPL/json")
+            client.get("/api/analyze/AAPL/fragment")
         mock_run.assert_called_once()
 
 
