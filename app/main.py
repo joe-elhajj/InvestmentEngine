@@ -1,19 +1,22 @@
 """
 main.py — FastAPI application wrapping the existing engine.
 
-Zero changes to engine/*.py. This module only composes existing, already-
-tested entry points:
-  - engine.analysis.run_single_ticker  (Branch 1's single-ticker wrapper)
+This module composes existing engine entry points:
+  - engine.analysis.run_single_ticker  (single-ticker wrapper)
   - engine.screen.run_screen           (existing batch screener)
-  - engine.report_html.render          (existing per-company HTML renderer)
+  - engine.report_html.render          (per-company HTML renderer)
 
 Run with:  uvicorn app.main:app --host 127.0.0.1 --port 8000
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import html
+import json
 import re
+import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -30,8 +33,12 @@ from pydantic import BaseModel
 
 from app import watchlist
 from engine.analysis import run_single_ticker
+from engine import durability as D
 from engine.edgar import EdgarClient, SEC_TICKERS_URL
+from engine.etf import fetch_etf_profile, FUND_QUOTE_TYPES
+from engine.pipeline import AnalysisResult
 from engine import report_html as RH
+from engine.screen import _classify as _engine_classify
 from engine.screen import run_screen
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -79,12 +86,20 @@ async def lifespan(app: FastAPI):
     # on first search, cached for the process lifetime.
     app.state.ticker_names: Optional[dict[str, str]] = None
 
-    # In-memory job store for /api/screen background runs, and a
-    # same-calendar-day cache for /api/analyze. Both intentionally
-    # process-lifetime only (plain dicts, no persistence) — cleared on
-    # restart, which is fine for single-user local use.
+    # In-memory job store for /api/screen background runs. Process-lifetime
+    # only (plain dict, no persistence) — cleared on restart, fine for
+    # single-user local use.
     app.state.screen_jobs: dict[str, dict] = {}
-    app.state.analyze_cache: dict[tuple[str, str], str] = {}
+
+    # Shared AnalysisResult cache for every analyze-family endpoint (full
+    # page, /json, /fragment) — one EDGAR/yfinance fetch serves all three
+    # renderings. Keyed by ticker -> (fetched_at, AnalysisResult); TTL from
+    # config (default below matches the EDGAR disk cache's own default).
+    # A per-ticker asyncio.Lock means two concurrent requests for a ticker
+    # that isn't cached yet wait on each other instead of both hitting
+    # EDGAR — the second one finds the cache warm once it gets the lock.
+    app.state.analysis_cache = {}   # dict[str, tuple[float, AnalysisResult]]
+    app.state.analysis_locks = {}   # dict[str, asyncio.Lock]
 
     yield
 
@@ -106,7 +121,9 @@ app.add_middleware(
 
 class AddTickerRequest(BaseModel):
     ticker: str
-    type: str = "equity"  # "equity" | "etf"
+    # No client-supplied type: the backend resolves equity vs. ETF/fund via
+    # the same evidence-based classification engine.screen.py already uses
+    # (form history / yfinance quoteType) — never a client-chosen default.
 
 
 _TICKER_RE = re.compile(r"^[A-Z0-9.]+$")
@@ -126,6 +143,95 @@ def _validate_ticker(raw: str) -> str:
     return tk
 
 
+# ---------------------------------------------------------------------------
+# Classification — evidence-based equity/ETF resolution, reused by both the
+# search card's badge and the watchlist add flow. Never fabricates a default:
+# a ticker that can't be resolved reports kind=None ("pending"), matching
+# screen.py's own "absence is not a classification" discipline.
+# ---------------------------------------------------------------------------
+
+_CLASSIFICATION_LABELS = {
+    "operating_domestic": "Equity — 10-K filer",
+    "operating_fpi": "Equity — foreign private issuer (20-F/40-F)",
+    # _classify()'s analyst-override branch returns the override value
+    # verbatim (config.yaml's overrides use "operating", not
+    # "operating_domestic") — same equity bucket, distinct label so the
+    # badge is honest about why it resolved.
+    "operating": "Equity — analyst override",
+}
+
+
+def _fund_via_yfinance_label(ticker: str) -> Optional[dict]:
+    try:
+        profile = fetch_etf_profile(ticker)
+    except Exception:
+        return None
+    qt = (profile.quote_type or "").upper()
+    if qt in FUND_QUOTE_TYPES:
+        return {"kind": "etf", "label": f"ETF/Fund — yfinance quoteType={profile.quote_type}"}
+    return None
+
+
+def _resolve_classification(ticker: str) -> dict:
+    """Returns {"kind": "equity"|"etf"|None, "label": str}. kind=None ("pending")
+    means the evidence didn't resolve cleanly — never a fabricated default."""
+    overrides = app.state.cfg.get("classification", {}).get("overrides", {})
+    try:
+        # history_years=1: classification only needs recent_forms/sic, not a
+        # deep XBRL history — the EDGAR disk cache means this costs nothing
+        # extra on the network side regardless.
+        cd = app.state.client.get_company(ticker, history_years=1)
+    except ValueError:
+        # No EDGAR registrant — yfinance quoteType is the second evidence
+        # source, same fallback screen.py uses.
+        return _fund_via_yfinance_label(ticker) or {"kind": None, "label": "pending"}
+    except Exception:
+        return {"kind": None, "label": "pending"}
+
+    classification, _evidence = _engine_classify(ticker, cd, overrides)
+
+    if classification == "fund":
+        return {"kind": "etf", "label": "ETF/Fund — fund forms observed"}
+
+    if classification in _CLASSIFICATION_LABELS:
+        # Filing a 10-K/20-F/40-F makes it "operating" by form history, but
+        # a financial-SIC issuer can still be economically a fund (GLD files
+        # 10-Ks as a trust, yet is a commodity ETF) — this is the same
+        # SIC-range check durability.score() applies independently of form
+        # history, and the same yfinance probe screen.py runs before
+        # finalising a financial-SIC exclusion. A real bank (JPM) has no
+        # yfinance fund confirmation and correctly stays "equity" — it's
+        # still a stock, just one durability.py won't score. An analyst
+        # override of "operating" bypasses this probe entirely, same as it
+        # bypasses durability.py's exclusion.
+        try:
+            sic_int = int(cd.sic)
+        except (ValueError, TypeError):
+            sic_int = None
+        overridden = overrides.get(ticker.upper()) == "operating"
+        if sic_int is not None and 6000 <= sic_int <= 6799 and not overridden:
+            fund_label = _fund_via_yfinance_label(ticker)
+            if fund_label is not None:
+                return fund_label
+        return {"kind": "equity", "label": _CLASSIFICATION_LABELS[classification]}
+
+    if classification == "financial":
+        # Financial-SIC with no annual forms at all — probe yfinance before
+        # giving up (catches commodity trusts with no 10-K, same as
+        # screen.py's fallback).
+        return _fund_via_yfinance_label(ticker) or {"kind": None, "label": "pending"}
+
+    return {"kind": None, "label": "pending"}  # "unclassified"
+
+
+@app.get("/api/classify/{ticker}")
+def classify_ticker(ticker: str):
+    tk = ticker.strip().upper()
+    if not tk:
+        return {"kind": None, "label": "pending"}
+    return _resolve_classification(tk)
+
+
 @app.get("/api/watchlist")
 def get_watchlist():
     return watchlist.load()
@@ -134,8 +240,18 @@ def get_watchlist():
 @app.post("/api/watchlist/add")
 def add_to_watchlist(body: AddTickerRequest):
     ticker = _validate_ticker(body.ticker)
-    type_ = "etf" if body.type == "etf" else "equity"
-    return watchlist.add(ticker, type_)
+    resolved = _resolve_classification(ticker)
+    # The watchlist schema only has two buckets; a genuinely unresolved
+    # ticker still needs somewhere to live so the next screen run considers
+    # it — screen.py re-derives its own authoritative classification from
+    # scratch regardless of which bucket it started in (run_screen just
+    # concatenates tickers + etfs into one list). Equities is the practical
+    # default bucket; it is not presented to the user as a resolved answer.
+    type_ = "etf" if resolved["kind"] == "etf" else "equity"
+    result = watchlist.add(ticker, type_)
+    result["resolved_kind"] = resolved["kind"]
+    result["resolved_label"] = resolved["label"]
+    return result
 
 
 @app.delete("/api/watchlist/{ticker}")
@@ -229,25 +345,126 @@ a:hover{{text-decoration:underline}}
 </html>"""
 
 
-@app.get("/api/analyze/{ticker}", response_class=HTMLResponse)
-def analyze(ticker: str):
-    tk = ticker.strip().upper()
-    cache_key = (tk, datetime.now().strftime("%Y-%m-%d"))
-    if cache_key in app.state.analyze_cache:
-        return HTMLResponse(app.state.analyze_cache[cache_key])
+def _config_hash(cfg: dict) -> str:
+    """
+    Fingerprint of the FULL config.yaml (valuation/DCF assumptions included) —
+    distinct from durability.py's _config_hash, which hashes only the
+    durability weights/thresholds/universe_version slice. This single-ticker
+    endpoint runs no durability scoring, so it reports which assumption set
+    produced its valuation numbers using the same canonical-JSON + sha256 +
+    16-hex-char convention (config-hash discipline, CLAUDE.md).
+    """
+    canonical = json.dumps(cfg, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
-    # Synchronous, blocking response rather than the background-task +
-    # polling pattern used for /api/screen: the frontend navigates the
-    # browser straight to this URL (new tab), so the simplest correct
-    # behavior is a normal request/response the tab waits on — polling
-    # would fight "just navigate to the URL," not simplify it.
+
+async def _get_analysis_result(ticker: str) -> AnalysisResult:
+    """
+    Shared cache-or-compute path for every analyze-family endpoint (full
+    page, /json, /fragment) — guarantees at most one concurrent EDGAR/
+    yfinance fetch per ticker, and that all three renderings come from the
+    exact same underlying AnalysisResult.
+    """
+    ttl = app.state.cfg.get("web", {}).get("analysis_cache_ttl_seconds", 3600)
+
+    cached = app.state.analysis_cache.get(ticker)
+    if cached is not None and (time.time() - cached[0]) < ttl:
+        return cached[1]
+
+    lock = app.state.analysis_locks.setdefault(ticker, asyncio.Lock())
+    async with lock:
+        # Re-check after acquiring the lock: another request may have
+        # populated the cache while we were waiting, in which case we
+        # reuse it instead of hitting EDGAR a second time.
+        cached = app.state.analysis_cache.get(ticker)
+        if cached is not None and (time.time() - cached[0]) < ttl:
+            return cached[1]
+
+        # run_single_ticker is a blocking, real-network call — run it in
+        # the default thread executor so it doesn't block the event loop
+        # for requests about OTHER tickers while this one is in flight.
+        loop = asyncio.get_running_loop()
+        res = await loop.run_in_executor(
+            None, run_single_ticker, ticker, app.state.cfg, app.state.client
+        )
+        app.state.analysis_cache[ticker] = (time.time(), res)
+        return res
+
+
+@app.get("/api/analyze/{ticker}", response_class=HTMLResponse)
+async def analyze(ticker: str):
+    tk = ticker.strip().upper()
+    # Synchronous-feeling response rather than the background-task + polling
+    # pattern used for /api/screen: the frontend navigates the browser
+    # straight to this URL (new tab), so the simplest correct behavior is a
+    # normal request/response the tab waits on — polling would fight "just
+    # navigate to the URL," not simplify it.
     try:
-        res = run_single_ticker(tk, app.state.cfg, app.state.client)
+        res = await _get_analysis_result(tk)
         rendered = RH.render(res, peer_table=None)
     except Exception as e:
         return HTMLResponse(_error_page(tk, e), status_code=502)
+    return HTMLResponse(rendered)
 
-    app.state.analyze_cache[cache_key] = rendered
+
+@app.get("/api/analyze/{ticker}/json")
+async def analyze_json(ticker: str):
+    """
+    Canonical machine-readable serialization of AnalysisResult — the single
+    source of truth Tier 2/3 (and this app's own fragment renderer) consume.
+    Every other rendering of a ticker's analysis must be derivable from this
+    payload alone.
+    """
+    tk = ticker.strip().upper()
+    try:
+        res = await _get_analysis_result(tk)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e) or type(e).__name__)
+
+    # dataclasses.asdict() recursively converts AnalysisResult and every
+    # dataclass nested inside it (CompanyData, Quote, Fact, YearlyDerived,
+    # Metric, DCFResult, ImpliedGrowthResult, RelativeValuation) into plain
+    # dicts/lists — None stays None throughout; FastAPI's JSON encoding then
+    # turns that into `null`, never 0 or "". No custom encoder needed.
+    payload = asdict(res)
+    payload["config_hash"] = _config_hash(app.state.cfg)
+    return payload
+
+
+def _fragment_error(ticker: str, exc: Exception) -> str:
+    """Small inline error state for the accordion row — not a full-viewport
+    page like _error_page(), since this is embedded under a table row, not
+    navigated to directly."""
+    reason = html.escape(str(exc) or type(exc).__name__)
+    tk = html.escape(ticker)
+    return (
+        '<div class="report-fragment report-error">'
+        f"<p>Couldn't analyze {tk}.</p>"
+        f'<p class="report-caption">{reason}</p>'
+        "</div>"
+    )
+
+
+@app.get("/api/analyze/{ticker}/fragment", response_class=HTMLResponse)
+async def analyze_fragment(ticker: str):
+    """
+    Light HTML fragment (no <html>/<head>) for inline embedding in the
+    dashboard's accordion — same underlying AnalysisResult as the full page
+    and /json (shared cache), rendered by report_html.render_fragment().
+    """
+    tk = ticker.strip().upper()
+    try:
+        res = await _get_analysis_result(tk)
+        # Durability scoring is pure/local (no network) — cheap enough to
+        # run fresh per request rather than adding a second cache. Analyst
+        # overrides apply here too, same as screen.py, so e.g. MARA shows a
+        # real composite instead of "n/a".
+        overrides = app.state.cfg.get("classification", {}).get("overrides", {})
+        ds = D.score(res, app.state.cfg, override_classification=overrides.get(tk))
+        composite = ds.composite if not ds.excluded else None
+        rendered = RH.render_fragment(res, peer_table=None, durability_composite=composite)
+    except Exception as e:
+        return HTMLResponse(_fragment_error(tk, e), status_code=502)
     return HTMLResponse(rendered)
 
 

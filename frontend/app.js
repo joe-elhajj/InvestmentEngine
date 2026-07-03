@@ -87,8 +87,8 @@
     searchStatus: document.getElementById("search-status"),
     searchConfirm: document.getElementById("search-confirm"),
     searchConfirmText: document.getElementById("search-confirm-text"),
+    searchClassificationBadge: document.getElementById("search-classification-badge"),
     searchAddBtn: document.getElementById("search-add-btn"),
-    searchAnalyzeBtn: document.getElementById("search-analyze-btn"),
     refreshBtn: document.getElementById("refresh-btn"),
     statusBanner: document.getElementById("status-banner"),
     emptyState: document.getElementById("empty-state"),
@@ -118,21 +118,84 @@
     els.statusBanner.classList.add("hidden");
   }
 
-  function openAnalyze(ticker) {
-    window.open("/api/analyze/" + encodeURIComponent(ticker), "_blank");
-  }
-
-  function tickerCell(ticker) {
+  // expandable=true adds the hover chevron + tooltip that hints the row
+  // opens an accordion; excluded rows pass false since there's nothing to
+  // expand (durability scoring never ran for them).
+  function tickerCell(ticker, expandable) {
     var cell = document.createElement("td");
     cell.className = "tk";
     cell.textContent = ticker;
-    var arrow = document.createElement("span");
-    arrow.className = "goto";
-    arrow.textContent = "→";
-    cell.appendChild(arrow);
-    cell.title = "Open full analysis for " + ticker;
-    cell.addEventListener("click", function () { openAnalyze(ticker); });
+    if (expandable) {
+      var hint = document.createElement("span");
+      hint.className = "expand-hint";
+      hint.textContent = "▸";
+      cell.appendChild(hint);
+      cell.title = "Click to view analysis for " + ticker;
+    }
     return cell;
+  }
+
+  // ---- inline report accordion (equity/ETF rows only) ----
+  //
+  // fragmentCache: ticker -> already-fetched fragment HTML, so re-expanding
+  //   a row the user previously opened is instant, no re-fetch.
+  // fragmentInFlight: ticker -> in-flight fetch Promise, so a double-click
+  //   (or clicking the same row again before the first fetch resolves)
+  //   reuses the one request instead of firing a second.
+  // expandedRows: ticker -> the currently-inserted accordion <tr>, so a
+  //   second click on the same row collapses it, and a late-arriving
+  //   fetch response doesn't overwrite a row the user already collapsed.
+
+  var fragmentCache = {};
+  var fragmentInFlight = {};
+  var expandedRows = {};
+
+  function toggleAccordion(ticker, row) {
+    var existing = expandedRows[ticker];
+    if (existing) {
+      existing.remove();
+      delete expandedRows[ticker];
+      row.classList.remove("row-expanded");
+      return;
+    }
+
+    row.classList.add("row-expanded");
+    var accRow = document.createElement("tr");
+    accRow.className = "accordion-row";
+    var cell = document.createElement("td");
+    cell.colSpan = row.cells.length;
+    accRow.appendChild(cell);
+    row.parentNode.insertBefore(accRow, row.nextSibling);
+    expandedRows[ticker] = accRow;
+
+    if (fragmentCache[ticker]) {
+      cell.innerHTML = fragmentCache[ticker];
+      return;
+    }
+
+    cell.innerHTML = '<div class="accordion-loading">Loading analysis for ' + ticker + '…</div>';
+
+    var promise = fragmentInFlight[ticker];
+    if (!promise) {
+      promise = fetch("/api/analyze/" + encodeURIComponent(ticker) + "/fragment")
+        .then(function (r) { return r.text(); })
+        .finally(function () { delete fragmentInFlight[ticker]; });
+      fragmentInFlight[ticker] = promise;
+    }
+    promise
+      .then(function (html) {
+        fragmentCache[ticker] = html;
+        // Only touch the DOM if this row is still the one currently expanded
+        // for this ticker — the user may have collapsed it while we waited.
+        if (expandedRows[ticker] === accRow) {
+          cell.innerHTML = html;
+        }
+      })
+      .catch(function (e) {
+        if (expandedRows[ticker] === accRow) {
+          cell.innerHTML = '<div class="accordion-loading">Failed to load analysis: ' + e.message + "</div>";
+        }
+      });
   }
 
   function removeButton(ticker) {
@@ -178,9 +241,16 @@
     return lastCell;
   }
 
+  // Wires the whole-row click -> accordion toggle for equity/ETF rows.
+  // The remove "×" already stopPropagation()s, so it doesn't trigger this.
+  function makeExpandable(tr, ticker) {
+    tr.addEventListener("click", function () { toggleAccordion(ticker, tr); });
+    return tr;
+  }
+
   function renderEquitiesRow(row) {
     var tr = document.createElement("tr");
-    tr.appendChild(tickerCell(row.ticker));
+    tr.appendChild(tickerCell(row.ticker, true));
     tr.appendChild(td(fmtScore(row.composite)));
     tr.appendChild(td(fmtScore(row.cat_reinvestment)));
     tr.appendChild(td(fmtScore(row.cat_quality)));
@@ -193,22 +263,24 @@
     var gapVal = gated ? null : row.expectations_gap;
     var gapCell = td(gated ? null : fmtSignedPct(row.expectations_gap), { tint: gapVal });
     tr.appendChild(appendRemoveButton(gapCell, row.ticker));
-    return tr;
+    return makeExpandable(tr, row.ticker);
   }
 
   function renderEtfRow(row) {
     var tr = document.createElement("tr");
-    tr.appendChild(tickerCell(row.ticker));
+    tr.appendChild(tickerCell(row.ticker, true));
     tr.appendChild(td(row.name, { cls: "l" }));
     tr.appendChild(td(fmtPct(row.expense_ratio, 2)));
     tr.appendChild(td(fmtAum(row.aum)));
     tr.appendChild(td(fmtOverlap(row.overlap_with_screen, row.overlap_count)));
     var flagCell = td(row.flag, { cls: "l" });
     tr.appendChild(appendRemoveButton(flagCell, row.ticker));
-    return tr;
+    return makeExpandable(tr, row.ticker);
   }
 
   function renderExcludedRow(row) {
+    // No accordion here — durability scoring didn't run for excluded
+    // tickers, so there's no analysis to expand.
     var tr = document.createElement("tr");
     tr.appendChild(tickerCell(row.ticker));
     var reasonCell = td(humanizeReason(row.flag), { cls: "l" });
@@ -217,6 +289,12 @@
   }
 
   function renderScreen(data) {
+    // A fresh render replaces every row, so any accordion <tr> currently
+    // inserted is gone too — drop the stale DOM references. The fetched
+    // fragment HTML in fragmentCache is still valid and reused if the
+    // ticker is expanded again.
+    expandedRows = {};
+
     els.equitiesBody.innerHTML = "";
     els.etfBody.innerHTML = "";
     els.excludedBody.innerHTML = "";
@@ -294,9 +372,36 @@
 
   var searchDebounce = null;
 
+  function setClassificationBadge(text, pending) {
+    els.searchClassificationBadge.textContent = text;
+    els.searchClassificationBadge.classList.toggle("pending", !!pending);
+  }
+
   function resetSearchConfirm() {
     currentSearchTicker = null;
     els.searchConfirm.classList.add("hidden");
+    setClassificationBadge("pending", true);
+  }
+
+  // Fetches the resolved equity/ETF classification for the confirm card's
+  // badge. Fired right after a search finds a ticker; the badge starts on
+  // "pending" and updates in place once this resolves — classification
+  // needs an EDGAR (and sometimes yfinance) lookup, so it's slower than
+  // the instant found/not-found search feedback and shown separately.
+  function fetchClassificationBadge(ticker) {
+    apiGet("/api/classify/" + encodeURIComponent(ticker))
+      .then(function (res) {
+        if (currentSearchTicker !== ticker) return; // stale — card moved on
+        if (res.kind) {
+          setClassificationBadge(res.label, false);
+        } else {
+          setClassificationBadge("pending", true);
+        }
+      })
+      .catch(function () {
+        if (currentSearchTicker !== ticker) return;
+        setClassificationBadge("pending", true);
+      });
   }
 
   els.searchInput.addEventListener("input", function () {
@@ -318,7 +423,9 @@
             currentSearchTicker = raw;
             var label = res.name ? raw + " — " + res.name : raw;
             els.searchConfirmText.textContent = label;
+            setClassificationBadge("pending", true);
             els.searchConfirm.classList.remove("hidden");
+            fetchClassificationBadge(raw);
           } else {
             els.searchStatus.textContent = "✗";
             els.searchStatus.className = "search-status not-found";
@@ -333,21 +440,21 @@
 
   els.searchInput.addEventListener("keydown", function (ev) {
     if (ev.key === "Enter" && currentSearchTicker) {
-      openAnalyze(currentSearchTicker);
+      addSearchedTickerToWatchlist();
     }
   });
 
-  els.searchAnalyzeBtn.addEventListener("click", function () {
-    if (currentSearchTicker) openAnalyze(currentSearchTicker);
-  });
+  els.searchAddBtn.addEventListener("click", addSearchedTickerToWatchlist);
 
-  els.searchAddBtn.addEventListener("click", function () {
+  function addSearchedTickerToWatchlist() {
     if (!currentSearchTicker) return;
-    var type = document.querySelector('input[name="add-type"]:checked').value;
+    // No client-chosen type: the backend resolves equity vs. ETF/fund the
+    // same way it resolved the badge above (evidence-based classification),
+    // never a client-supplied default.
     fetch("/api/watchlist/add", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ticker: currentSearchTicker, type: type }),
+      body: JSON.stringify({ ticker: currentSearchTicker }),
     })
       .then(function (r) {
         if (!r.ok) return r.json().then(function (b) { throw new Error(b.detail || "add failed"); });
@@ -360,7 +467,7 @@
         runScreen();
       })
       .catch(function (e) { showBanner("Failed to add ticker: " + e.message, true); });
-  });
+  }
 
   // ---- refresh button ----
 
