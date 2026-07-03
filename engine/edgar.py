@@ -21,6 +21,7 @@ Design principles
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections import Counter
 from dataclasses import dataclass, field
@@ -29,6 +30,8 @@ from pathlib import Path
 from typing import Optional
 
 import requests
+
+log = logging.getLogger(__name__)
 
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik10}.json"
@@ -312,8 +315,11 @@ class EdgarClient:
     def get_company(self, ticker: str, history_years: int = 15, include_quarterly: bool = False) -> CompanyData:
         cik = self.ticker_to_cik(ticker)
         subs = self._get_cached(cik, "submissions", SEC_SUBMISSIONS_URL.format(cik10=cik))
-        facts = self._get_cached(cik, "companyfacts", SEC_COMPANYFACTS_URL.format(cik10=cik))
 
+        # Build CompanyData from submissions FIRST so recent_forms is always
+        # populated before the companyfacts fetch, which may 404 for investment
+        # companies (ETFs/UITs) that file prospectus/N-PORT forms but have no
+        # XBRL financial statements.
         cd = CompanyData(
             ticker=ticker.upper(),
             cik=cik,
@@ -322,6 +328,21 @@ class EdgarClient:
             sic_description=subs.get("sicDescription", ""),
             recent_forms=list(set(subs.get("filings", {}).get("recent", {}).get("form", []))),
         )
+
+        # Fetch XBRL company facts.  Investment companies with CIKs often return
+        # 404 here because they don't file XBRL financials.  On 404 return the
+        # partial cd (recent_forms populated, series empty) so callers can
+        # classify from form history alone without needing financial data.
+        try:
+            facts = self._get_cached(cik, "companyfacts", SEC_COMPANYFACTS_URL.format(cik10=cik))
+        except requests.exceptions.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                log.debug(
+                    "%s (CIK %s): companyfacts 404 — returning partial CompanyData (forms only)",
+                    ticker, cik,
+                )
+                return cd
+            raise
 
         cutoff_year = datetime.now().year - history_years
         for key, concept in CONCEPTS.items():

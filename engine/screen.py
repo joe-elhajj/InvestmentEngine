@@ -208,10 +208,17 @@ def _etf_row_from_profile(profile: EtfProfile, evidence: str) -> EtfRow:
     )
 
 
-def _try_fund_via_yfinance(ticker: str) -> Optional[EtfRow]:
+def _try_fund_via_yfinance(
+    ticker: str,
+    evidence_suffix: str = "no EDGAR registrant",
+) -> Optional[EtfRow]:
     """
-    Called when EDGAR has no registrant for this ticker.  Uses yfinance quoteType
-    as positive evidence for fund classification.
+    Uses yfinance quoteType as positive evidence for fund classification.
+
+    Called in two situations:
+      1. EDGAR has no registrant for this ticker (evidence_suffix default).
+      2. EDGAR has a registrant but D.score() excluded it via financial-SIC
+         (caller passes a descriptive suffix).
 
     Returns an EtfRow (overlap not yet filled) if quoteType is ETF or MUTUALFUND.
     Returns None if quoteType is EQUITY, unknown, or yfinance itself fails.
@@ -229,7 +236,7 @@ def _try_fund_via_yfinance(ticker: str) -> Optional[EtfRow]:
             log.debug("%s: yfinance quoteType=%s — not a fund, routing to Excluded", ticker, qt)
         return None
 
-    evidence = f"fund: yfinance quoteType={profile.quote_type} (no EDGAR registrant)"
+    evidence = f"fund: yfinance quoteType={profile.quote_type} ({evidence_suffix})"
     return _etf_row_from_profile(profile, evidence)
 
 
@@ -303,6 +310,15 @@ def _process_one(
                           universe_version=universe_version), None
 
     if ds.excluded:
+        # Probe yfinance before finalising as Excluded.  Catches commodity ETFs
+        # (e.g. GLD, SLV) and other fund-structured vehicles that hold EDGAR
+        # registrations with financial-SIC codes but are legitimately funds.
+        etf_row = _try_fund_via_yfinance(
+            ticker,
+            evidence_suffix=f"financial SIC {cd.sic}, no EDGAR fund-filing forms",
+        )
+        if etf_row is not None:
+            return None, etf_row
         return _empty_row(
             ticker, ds.exclusion_reason, excluded=True,
             completeness=ds.data_completeness, config_hash=ds.config_hash,
