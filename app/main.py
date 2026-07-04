@@ -32,7 +32,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import watchlist
+from app import usage, watchlist
 from engine.analysis import run_single_ticker
 from engine import durability as D
 from engine.edgar import EdgarClient, SEC_TICKERS_URL
@@ -614,6 +614,7 @@ async def get_flags(ticker: str, extract: bool = False, refresh: bool = False):
         filed=filing_sections.filed,
         url=filing_sections.url,
     )
+    call_info: dict = {}
     try:
         result = await loop.run_in_executor(
             None,
@@ -625,12 +626,28 @@ async def get_flags(ticker: str, extract: bool = False, refresh: bool = False):
             app.state.anthropic_client,
             _FLAGS_CACHE_DIR,
             refresh,
+            call_info,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e) or type(e).__name__)
 
+    cache_status = call_info.get("cache_status", "from_cache")
+    cost_usd = 0.0 if cache_status == "from_cache" else FLAGS.compute_cost_usd(
+        app.state.cfg, model, call_info.get("input_tokens"), call_info.get("output_tokens"),
+    )
+    usage.log_call(
+        ticker=tk,
+        model=model,
+        prompt_version=prompt_version,
+        input_tokens=call_info.get("input_tokens") or 0,
+        output_tokens=call_info.get("output_tokens") or 0,
+        cost_usd=cost_usd,
+        cache_status=cache_status,
+    )
+
     payload = asdict(result)
     payload["state"] = "ok"
+    payload["cache_status"] = cache_status
     return payload
 
 

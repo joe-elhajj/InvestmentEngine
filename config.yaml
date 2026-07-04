@@ -112,6 +112,20 @@ flags:
   temperature: 0
   prompt_version: v1
 
+  # Spend control (app/usage.py, app/main.py's /api/flags/{ticker} gate).
+  # Keyed by the exact model string above — the extraction endpoint looks
+  # up pricing by whichever model is pinned, so this table can carry
+  # entries for models you're not currently using without affecting cost.
+  # Prices are looked up AT CALL TIME and stamped onto the usage row, so a
+  # price edit here never retroactively changes a historical row's cost.
+  pricing:
+    claude-sonnet-4-6:
+      input_per_million: 3.00
+      output_per_million: 15.00
+    claude-haiku-4-5-20251001:
+      input_per_million: 0.80
+      output_per_million: 4.00
+
   # Analyst-owned deterministic post-processing of the model's output, by
   # EXACT label match — same "overrides win" pattern as
   # classification.overrides. Applied fresh on every /api/flags/{ticker}
