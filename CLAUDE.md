@@ -106,3 +106,7 @@ are for speed of iteration, not for authorising a merge.
   weights, and Tier 2's `flags:` section (pinned model/temperature/
   prompt_version + analyst `overrides:`). The code never invents values at
   runtime.
+- **`.claude/skills/llm-council/SKILL.md`** — Tier 3 adversarial council
+  skill. Triggered by "run council on TICKER", "council this", "war room".
+  Consumes Tier 1 JSON + Tier 2 flags + thesis journal. Five advisors →
+  peer review → Chairman synthesis. Never computes; only cites engine output.
