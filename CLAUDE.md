@@ -5,12 +5,13 @@
 The engine is a three-tier investment research system. **Tier 1 (built)** is a
 fully deterministic fundamental-analysis pipeline: SEC EDGAR filings are the
 authoritative data source, every number is derived arithmetically with no model
-involvement, and all assumptions live in version-controlled config. **Tier 2**
-(not yet built) will add LLM-driven qualitative extraction — red-flag parsing,
-moat classification, etc. — layered on top of the deterministic output. **Tier
-3** (not yet built) is an LLM council that synthesises Tier 1 signals and Tier
-2 annotations into a final research memo. Tiers 2 and 3 consume Tier 1 output;
-they never alter it.
+involvement, and all assumptions live in version-controlled config. **Tier 2
+(in progress)** adds LLM-driven qualitative extraction layered on top of the
+deterministic output; the first slice — verbatim red/green flag extraction from
+10-K Item 1/1A/7 text (`engine/flags.py`) — is built. Moat classification and
+other Tier 2 annotations are not yet built. **Tier 3** (not yet built) is an
+LLM council that synthesises Tier 1 signals and Tier 2 annotations into a final
+research memo. Tiers 2 and 3 consume Tier 1 output; they never alter it.
 
 ## Module responsibilities
 
@@ -28,6 +29,8 @@ they never alter it.
 | `engine/screen.py` | Batch screener: routes tickers to Equities / ETFs & Funds / Excluded |
 | `engine/report.py` | Render `AnalysisResult` to Markdown with full EDGAR citation per figure |
 | `engine/report_html.py` | Render `AnalysisResult` to self-contained HTML |
+| `engine/filings.py` | Tier 2: fetch/parse 10-K document text into Item 1/1A/7 sections (no model involvement) |
+| `engine/flags.py` | Tier 2: LLM verbatim-selection flag extraction + the verbatim validator (see invariant below) |
 
 ## Non-negotiable invariants
 
@@ -37,7 +40,19 @@ must propagate `None`; renderers must display a meaningful marker (`—`, `n/a`)
 
 **LLMs never touch arithmetic.** All financial calculations live in
 `engine/metrics.py` and `engine/valuation.py` as pure functions. No model call
-may derive, adjust, or override a numeric result.
+may derive, adjust, or override a numeric result. This is unchanged and
+absolute — the exception below does not weaken it.
+
+**LLM verbatim-selection boundary (Tier 2).** The only sanctioned use of a
+model anywhere in this codebase is to SELECT verbatim text spans from a
+filing — never to generate, paraphrase, or compute. Every snippet a model
+returns (`engine/flags.py`) MUST be validated as an exact substring of the
+source filing text it was given; any snippet that is not an exact substring
+is DROPPED as a hallucination and logged to stdout/stderr
+(`! TICKER: dropped non-verbatim snippet`) — never surfaced to a user. A
+flag's `verified_verbatim` field is set ONLY by this validator, never trusted
+from the model's own claim. This validation is non-negotiable and has its own
+dedicated test (`tests/test_flags.py::TestVerifyVerbatim`).
 
 **Evidence-based classification.** A security's type (operating equity, FPI,
 fund) is inferred only from positive evidence: SEC form history for equities
@@ -68,7 +83,8 @@ value unavailable".
 
 **Gap-logging.** `screen.py` prints `! TICKER: reason` to stdout whenever a
 ticker is flagged, excluded, or routed unexpectedly. This is the primary
-diagnostic signal for screening runs.
+diagnostic signal for screening runs. `engine/flags.py` reuses the same
+`! TICKER: reason` convention (to stderr) for dropped non-verbatim snippets.
 
 **Derived-lineage pattern.** `DurabilityScore` stores per-sub-score rationale
 strings alongside numeric values so reports can reproduce exactly how each
@@ -87,4 +103,6 @@ are for speed of iteration, not for authorising a merge.
   valuation or scenario parameters change.
 - **`config.yaml`** — all tunables: SEC credentials, history window,
   classification overrides, valuation assumptions, DCF scenarios, screening
-  weights. The code never invents values at runtime.
+  weights, and Tier 2's `flags:` section (pinned model/temperature/
+  prompt_version + analyst `overrides:`). The code never invents values at
+  runtime.

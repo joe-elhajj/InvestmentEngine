@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,6 +21,7 @@ import app.watchlist as watchlist_mod
 from app.main import app as fastapi_app, _get_analysis_result
 from engine.edgar import CompanyData, Fact
 from engine.etf import EtfProfile
+from engine.filings import FilingSections
 from engine.market import Quote
 from engine.pipeline import AnalysisResult
 from engine.screen import EtfRow, ScreenRow
@@ -767,3 +769,157 @@ class TestScreenEndpoint:
         mock_screen.assert_called_once_with([], fastapi_app.state.cfg, out_dir=None, verbose=False)
         assert status.json()["status"] == "done"
         assert status.json()["result"]["equities"] == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/flags/{ticker} — Tier 2's LLM boundary
+# ---------------------------------------------------------------------------
+
+def _filing_sections(sections=None) -> FilingSections:
+    return FilingSections(
+        ticker="NVDA", cik="0001045810", accession="0000320193-24-000123",
+        form="10-K", filed="2024-02-21", period_ending="2024-01-28",
+        url="https://example.com/nvda10k.htm",
+        sections=sections if sections is not None else {
+            "1A": "Our competitor XYZ Corp filed a lawsuit against us in March 2024.",
+        },
+    )
+
+
+def _model_response(payload: list) -> MagicMock:
+    block = MagicMock()
+    block.type = "text"
+    block.text = json.dumps(payload)
+    response = MagicMock()
+    response.content = [block]
+    return response
+
+
+class TestFlagsEndpoint:
+    """
+    Offline: every test here patches app.state.filings_client's fetch AND
+    engine.flags._call_model — no real EDGAR or Anthropic call. A fresh
+    tmp_path cache dir per test means no test depends on (or pollutes) a
+    prior test's cached extraction.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _mock_anthropic_and_cache_dir(self, client, tmp_path):
+        # Depends on `client` (not just tmp_path) so it runs AFTER the
+        # TestClient context manager's lifespan — that lifespan sets
+        # app.state.anthropic_client itself (None in a real environment
+        # with no ANTHROPIC_API_KEY), and would silently undo this
+        # override if this fixture ran first. A real environment with no
+        # key would otherwise short-circuit on the endpoint's 503 branch
+        # before ever reaching the code these tests are actually about.
+        fastapi_app.state.anthropic_client = MagicMock()
+        with patch("app.main._FLAGS_CACHE_DIR", tmp_path):
+            yield
+
+    def test_schema_full_pinned_fields_stamped(self, client):
+        fs = _filing_sections()
+        canned = _model_response([
+            {"label": "Patent lawsuit", "severity": "red", "item": "1A",
+             "snippet": "Our competitor XYZ Corp filed a lawsuit against us in March 2024."},
+        ])
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", return_value=canned.content[0].text):
+            resp = client.get("/api/flags/NVDA")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["ticker"] == "NVDA"
+        assert body["model"]
+        assert body["prompt_version"]
+        assert body["extracted_at"]
+        assert body["filing"] == {
+            "form": "10-K", "accession": "0000320193-24-000123",
+            "period_ending": "2024-01-28", "filed": "2024-02-21",
+            "url": "https://example.com/nvda10k.htm",
+        }
+        assert len(body["flags"]) == 1
+        assert body["flags"][0]["verified_verbatim"] is True
+        assert body["flags"][0]["severity"] == "red"
+        assert body["flags"][0]["item"] == "1A"
+        assert body["dropped_count"] == 0
+
+    def test_fabricated_snippet_dropped_via_the_real_endpoint(self, client):
+        fs = _filing_sections()
+        canned_text = _model_response([
+            {"label": "Fabricated", "severity": "red", "item": "1A", "snippet": "not in the filing at all"},
+        ]).content[0].text
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", return_value=canned_text):
+            resp = client.get("/api/flags/NVDA")
+        body = resp.json()
+        assert body["flags"] == []
+        assert body["dropped_count"] == 1
+
+    def test_no_filing_found_returns_404(self, client):
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=None):
+            resp = client.get("/api/flags/SPY")
+        assert resp.status_code == 404
+
+    def test_no_api_key_configured_returns_503(self, client):
+        fastapi_app.state.anthropic_client = None
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs):
+            resp = client.get("/api/flags/NVDA")
+        assert resp.status_code == 503
+
+    def test_second_request_is_a_cache_hit_model_not_called_again(self, client):
+        fs = _filing_sections()
+        canned_text = _model_response([
+            {"label": "Patent lawsuit", "severity": "red", "item": "1A",
+             "snippet": "Our competitor XYZ Corp filed a lawsuit against us in March 2024."},
+        ]).content[0].text
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", return_value=canned_text) as mock_call:
+            client.get("/api/flags/NVDA")
+            client.get("/api/flags/NVDA")
+            assert mock_call.call_count == 1
+
+    def test_refresh_true_re_calls_model_and_re_stamps(self, client):
+        fs = _filing_sections()
+        canned_text = _model_response([]).content[0].text
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", return_value=canned_text) as mock_call:
+            r1 = client.get("/api/flags/NVDA").json()
+            r2 = client.get("/api/flags/NVDA?refresh=true").json()
+            assert mock_call.call_count == 2
+        assert r1["extracted_at"] != r2["extracted_at"]
+
+    def test_override_applied_through_the_endpoint(self, client):
+        fs = _filing_sections()
+        canned_text = _model_response([
+            {"label": "Patent lawsuit", "severity": "red", "item": "1A",
+             "snippet": "Our competitor XYZ Corp filed a lawsuit against us in March 2024."},
+        ]).content[0].text
+        overrides = {"NVDA": {"demote": ["Patent lawsuit"]}}
+        original_overrides = fastapi_app.state.cfg.get("flags", {}).get("overrides", {})
+        fastapi_app.state.cfg.setdefault("flags", {})["overrides"] = overrides
+        try:
+            with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+                 patch("engine.flags._call_model", return_value=canned_text):
+                resp = client.get("/api/flags/NVDA")
+        finally:
+            fastapi_app.state.cfg["flags"]["overrides"] = original_overrides
+        assert resp.json()["flags"][0]["severity"] == "yellow"
+
+    def test_analyst_sourced_add_is_tagged_in_response(self, client):
+        fs = _filing_sections()
+        canned_text = _model_response([]).content[0].text
+        overrides = {"NVDA": {"add": [
+            {"label": "Earnings call note", "severity": "yellow", "item": "1A",
+             "snippet": "management lowered guidance on the Q3 call", "source": "analyst"},
+        ]}}
+        original_overrides = fastapi_app.state.cfg.get("flags", {}).get("overrides", {})
+        fastapi_app.state.cfg.setdefault("flags", {})["overrides"] = overrides
+        try:
+            with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+                 patch("engine.flags._call_model", return_value=canned_text):
+                resp = client.get("/api/flags/NVDA")
+        finally:
+            fastapi_app.state.cfg["flags"]["overrides"] = original_overrides
+        flags = resp.json()["flags"]
+        assert len(flags) == 1
+        assert flags[0]["source"] == "analyst"
