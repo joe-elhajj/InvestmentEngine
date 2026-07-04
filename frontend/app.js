@@ -90,6 +90,8 @@
     searchClassificationBadge: document.getElementById("search-classification-badge"),
     searchAddBtn: document.getElementById("search-add-btn"),
     refreshBtn: document.getElementById("refresh-btn"),
+    exportCsvBtn: document.getElementById("export-csv-btn"),
+    exportPdfBtn: document.getElementById("export-pdf-btn"),
     statusBanner: document.getElementById("status-banner"),
     emptyState: document.getElementById("empty-state"),
     equitiesSection: document.getElementById("equities-section"),
@@ -628,6 +630,84 @@
       })
       .catch(function (e) { showBanner("Failed to add ticker: " + e.message, true); });
   }
+
+  // ---- export: CSV + PDF ----
+
+  function csvEscape(v) {
+    v = String(v);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+
+  // Absence-is-not-zero for exports too, but CSV's blank convention is an
+  // empty field, not the "n/a" label the UI shows — a spreadsheet reading
+  // "n/a" into a numeric column would coerce it to NaN/text, while a
+  // genuinely empty cell stays absent.
+  function csvVal(v) {
+    return v === null || v === undefined ? "" : v;
+  }
+
+  function downloadCsv(filename, lines) {
+    var blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // Exports rows in whatever order is currently on screen (same sortRows()
+  // call renderEquitiesBody()/renderEtfBody() use), not the default order.
+  function exportEquitiesCsv() {
+    if (equitiesData.length === 0) return;
+    var rows = sortRows(equitiesData, sortState.equities.key, sortState.equities.dir, equitiesSortValue);
+    var lines = [[
+      "Ticker", "Durability", "Reinv", "Quality", "Resilience", "Discipline",
+      "Optionality", "Implied g", "Delivered g", "Gap",
+    ].map(csvEscape).join(",")];
+    rows.forEach(function (r) {
+      var gated = !!r.implied_growth_note;
+      lines.push([
+        r.ticker,
+        csvVal(fmtScore(r.composite)),
+        csvVal(fmtScore(r.cat_reinvestment)),
+        csvVal(fmtScore(r.cat_quality)),
+        csvVal(fmtScore(r.cat_resilience)),
+        csvVal(fmtScore(r.cat_discipline)),
+        csvVal(fmtScore(r.cat_optionality)),
+        csvVal(gated ? null : fmtPct(r.implied_fcf_growth)),
+        csvVal(fmtPct(r.delivered_fcf_growth)),
+        csvVal(gated ? null : fmtSignedPct(r.expectations_gap)),
+      ].map(csvEscape).join(","));
+    });
+    downloadCsv("equities.csv", lines);
+  }
+
+  function exportEtfCsv() {
+    if (etfData.length === 0) return;
+    var rows = sortRows(etfData, sortState.etf.key, sortState.etf.dir, etfSortValue);
+    var lines = [["Ticker", "Name", "Exp Ratio", "AUM", "Overlap w/ Singles", "Evidence"].map(csvEscape).join(",")];
+    rows.forEach(function (r) {
+      lines.push([
+        r.ticker,
+        csvVal(r.name),
+        csvVal(fmtPct(r.expense_ratio, 2)),
+        csvVal(fmtAum(r.aum)),
+        csvVal(fmtOverlap(r.overlap_with_screen, r.overlap_count)),
+        csvVal(r.flag),
+      ].map(csvEscape).join(","));
+    });
+    downloadCsv("etfs_funds.csv", lines);
+  }
+
+  els.exportCsvBtn.addEventListener("click", function () {
+    exportEquitiesCsv();
+    exportEtfCsv();
+  });
+
+  els.exportPdfBtn.addEventListener("click", function () { window.print(); });
 
   // ---- refresh button ----
 

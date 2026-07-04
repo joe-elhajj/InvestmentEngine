@@ -58,8 +58,9 @@ body{
 .search-status.found{color:var(--good)}
 .search-status.not-found{color:var(--bad)}
 
-#refresh-btn{color:var(--chrome-text-dim);border-color:var(--chrome-border)}
-#refresh-btn:hover{color:var(--accent);border-color:var(--accent)}
+.topnav-actions{display:flex;align-items:center;gap:8px}
+.topnav-actions .btn{color:var(--chrome-text-dim);border-color:var(--chrome-border)}
+.topnav-actions .btn:hover{color:var(--accent);border-color:var(--accent)}
 
 .search-confirm{
   position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);
@@ -319,3 +320,19 @@ tbody tr:hover .row-remove{opacity:1}
 .remove-confirm .btn:hover{border-color:#fff}
 
 .hidden{display:none !important}
+
+/* ---- print (Save as PDF -> window.print()) ---- */
+@media print{
+  @page{size:A4 landscape;margin:12mm}
+  body{background:#fff;color:#000}
+  .topnav,.status-banner,.empty-state,.remove-confirm,.row-remove,
+  .sort-caption,.sort-arrow,.accordion-row,.expand-hint,.th-tooltip{display:none !important}
+  .wrap{max-width:100%;padding:0}
+  .surface{box-shadow:none !important;border-color:#000}
+  .scroll{overflow-x:visible}
+  #equities-table > thead th,
+  #etf-table > thead th,
+  #excluded-table > thead th{background:#fff !important;color:#000 !important}
+  tr{page-break-inside:avoid}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
