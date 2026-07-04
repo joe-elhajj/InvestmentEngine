@@ -458,6 +458,19 @@
     }
   }
 
+  // A failed extraction's `detail` is either a plain string (404/503 —
+  // "No 10-K filing found", "Anthropic API key not configured") or the
+  // richer structured envelope app/main.py's _describe_exception() builds
+  // for an actual SDK/extraction failure: {state, error_type, message,
+  // sdk_status_code, sdk_body}. Extract the human-readable message from
+  // either shape — never render "[object Object]".
+  function extractErrorMessage(detail, fallback) {
+    if (!detail) return fallback;
+    if (typeof detail === "string") return detail;
+    if (typeof detail === "object" && detail.message) return detail.message;
+    return fallback;
+  }
+
   function loadFlags(details, query) {
     var ticker = details.dataset.ticker;
     var body = details.querySelector(".flags-body");
@@ -469,7 +482,7 @@
           // the .then() below, or a real "detail" message from the server
           // gets replaced by the generic "HTTP <status>" every time.
           return r.json().catch(function () { return {}; }).then(function (b) {
-            throw new Error(b.detail || ("HTTP " + r.status));
+            throw new Error(extractErrorMessage(b.detail, "HTTP " + r.status));
           });
         }
         return r.json();
