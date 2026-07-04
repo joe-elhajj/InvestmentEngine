@@ -469,22 +469,51 @@ class TestCostHelpers:
         assert C.estimate_council_cost_usd(_CFG, "") is None
 
     def test_larger_bundle_estimates_more_expensive_than_a_smaller_one(self):
-        """The whole point of the fix: a fixed baseline couldn't distinguish
-        a small evidence bundle from a large one, and was wrong-low by more
-        than 2x on a real CAT convene as a result."""
+        """The whole point of the input side of the fix: a fixed baseline
+        couldn't distinguish a small evidence bundle from a large one, and
+        was wrong-low by more than 2x on a real CAT convene as a result."""
         small = C.estimate_council_cost_usd(_CFG, "x" * 4_000)
         large = C.estimate_council_cost_usd(_CFG, "x" * 200_000)
         assert small < large
 
-    def test_cat_sized_bundle_lands_near_the_observed_real_cost(self):
-        """A real live convene on CAT (~50k-token bundle, ~200k chars at the
-        chars-per-token heuristic) cost $0.83 for all 7 calls. This asserts
-        a band, not an exact value — it's an estimate, and output size in
-        particular varies run to run."""
-        cat_sized_bundle = "x" * 200_000
-        est = C.estimate_council_cost_usd(_CFG, cat_sized_bundle)
-        assert 0.60 <= est <= 1.10
 
+# ---------------------------------------------------------------------------
+# THE DURABLE TEST — the estimate is a CEILING, not a prediction. Every real
+# convene on record must land AT OR UNDER its estimate; nearness is no longer
+# the contract (a first bundle-aware pass got CAT close — $0.82 vs $0.83 — but
+# still missed META by ~51%, $0.57 estimated vs. $0.86 actual, because output
+# verbosity is fundamentally unpredictable pre-call and a flat allowance just
+# isn't safe to assume).
+#
+# MAINTENANCE RULE: if a future live run ever exceeds its estimate, add that
+# run's (name, bundle_char_len, actual_cost_usd) below and recalibrate the
+# output allowances in engine/council.py until every row here clears again —
+# this test's STRUCTURE never changes, only the fixture data and the
+# allowances it's checking.
+#
+# bundle_char_len is reconstructed from each run's real Round 1 input_tokens
+# (flag_extraction_usage, call_type='council_opinions') x 4 chars/token —
+# Round 1's input is exactly the rendered bundle (plus the fixed system
+# prompt), so this is the closest real signal available for "how big was the
+# actual bundle," not a guess.
+# ---------------------------------------------------------------------------
+
+REAL_RUNS = [
+    # (name, bundle_char_len, actual_cost_usd)
+    ("CAT_2026-07-04", 50_267 * 4, 0.825878),
+    ("META_2026-07-04", 53_288 * 4, 0.864460),
+]
+
+
+class TestEstimateIsACeiling:
+    @pytest.mark.parametrize("name,bundle_char_len,actual_cost_usd", REAL_RUNS)
+    def test_estimate_clears_the_real_observed_cost(self, name, bundle_char_len, actual_cost_usd):
+        bundle_text = "x" * bundle_char_len
+        est = C.estimate_council_cost_usd(_CFG, bundle_text)
+        assert est >= actual_cost_usd, f"{name}: estimate {est} did not clear actual {actual_cost_usd}"
+
+
+class TestCostHelpersCompute:
     def test_compute_none_when_pricing_missing(self):
         cfg = {"flags": {"model": "claude-sonnet-5", "pricing": {}}}
         assert C.compute_council_cost_usd(cfg, "claude-sonnet-5", 1000, 100) is None
