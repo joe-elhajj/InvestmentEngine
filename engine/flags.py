@@ -13,6 +13,12 @@ returns is checked as an EXACT substring of the filing section text it was
 given. Anything that fails is dropped and logged (never surfaced), counted
 in `dropped_count`. `verified_verbatim` on a Flag is set ONLY by this
 validator — it is never trusted from the model's own claim.
+
+This endpoint is non-deterministic (same filing, same prompt, same model
+can still return different flags between calls) — get_flags() caches the
+result on disk keyed by (accession, prompt_version, model) so a filing is
+extracted once, not on every request; see get_flags() for the cache
+contract.
 """
 
 from __future__ import annotations
@@ -21,8 +27,9 @@ import json
 import logging
 import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger(__name__)
@@ -173,6 +180,76 @@ def extract_flags_raw(ticker: str, sections: dict, filing: FilingRef, cfg: dict,
         flags=verified,
         dropped_count=dropped,
     )
+
+
+# ---------------------------------------------------------------------------
+# On-disk cache — keyed by (accession, prompt_version, model). A filing +
+# prompt + model triple is treated as one immutable extraction; the cache
+# entry IS the pinned snapshot Tier 3 will consume.
+# ---------------------------------------------------------------------------
+
+_UNSAFE_CHARS_RE = re.compile(r"[^A-Za-z0-9_.\-]")
+
+
+def _cache_key(accession: str, prompt_version: str, model: str) -> str:
+    raw_key = f"{accession}_{prompt_version}_{model}"
+    return _UNSAFE_CHARS_RE.sub("_", raw_key)
+
+
+def _cache_path(cache_dir: Path, accession: str, prompt_version: str, model: str) -> Path:
+    return cache_dir / f"{_cache_key(accession, prompt_version, model)}.json"
+
+
+def _flag_from_dict(d: dict) -> Flag:
+    return Flag(
+        label=d["label"], snippet=d["snippet"], severity=d["severity"], item=d["item"],
+        verified_verbatim=d["verified_verbatim"], source=d.get("source", "model"),
+    )
+
+
+def _load_cached_raw(cache_dir: Path, accession: str, prompt_version: str, model: str) -> Optional[FlagsResult]:
+    p = _cache_path(cache_dir, accession, prompt_version, model)
+    if not p.exists():
+        return None
+    data = json.loads(p.read_text())
+    return FlagsResult(
+        ticker=data["ticker"], model=data["model"], prompt_version=data["prompt_version"],
+        extracted_at=data["extracted_at"], filing=FilingRef(**data["filing"]),
+        flags=[_flag_from_dict(f) for f in data["flags"]], dropped_count=data["dropped_count"],
+    )
+
+
+def _save_cached_raw(cache_dir: Path, accession: str, prompt_version: str, model: str, result: FlagsResult) -> None:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    _cache_path(cache_dir, accession, prompt_version, model).write_text(json.dumps(asdict(result)))
+
+
+def get_flags(
+    ticker: str,
+    sections: dict,
+    filing: FilingRef,
+    cfg: dict,
+    client,
+    cache_dir: Path,
+    force_refresh: bool = False,
+) -> FlagsResult:
+    """
+    Public entry point: cache-or-extract the raw model result.
+    force_refresh=True (the endpoint's ?refresh=true) skips the cache READ
+    (always re-calls the model) but still WRITES the new result,
+    overwriting the old cache entry and re-stamping extracted_at.
+    """
+    flags_cfg = cfg.get("flags", {})
+    model = flags_cfg.get("model", "claude-sonnet-5")
+    prompt_version = flags_cfg.get("prompt_version", "v1")
+
+    cached = None if force_refresh else _load_cached_raw(cache_dir, filing.accession, prompt_version, model)
+    if cached is not None:
+        return cached
+
+    result = extract_flags_raw(ticker, sections, filing, cfg, client)
+    _save_cached_raw(cache_dir, filing.accession, prompt_version, model, result)
+    return result
 
 
 # ---------------------------------------------------------------------------

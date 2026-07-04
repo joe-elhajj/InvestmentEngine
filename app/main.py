@@ -535,18 +535,22 @@ async def analyze_fragment(ticker: str):
 # Flags — Tier 2 qualitative red/green flag extraction (the LLM boundary)
 # ---------------------------------------------------------------------------
 
-@app.get("/api/flags/{ticker}")
-async def get_flags(ticker: str):
-    """
-    Fetches the latest 10-K's sections, then extracts verbatim-validated
-    flags. This endpoint is equity-only in practice: a fund's filing
-    history has no 10-K, so engine.filings.FilingsClient.
-    latest_10k_sections() returns None for it and this reports 404 — the
-    same "no filing found" 404 an equity with no 10-K yet would get, no
-    special ETF-detection branch needed.
+_FLAGS_CACHE_DIR = REPO_ROOT / ".cache" / "flags"
 
-    Re-extracts on every request for now — caching (accession +
-    prompt_version + model) lands in the next commit.
+
+@app.get("/api/flags/{ticker}")
+async def get_flags(ticker: str, refresh: bool = False):
+    """
+    Fetches the latest 10-K's sections, then extracts (or reuses the
+    cached) verbatim-validated flags. This endpoint is equity-only in
+    practice: a fund's filing history has no 10-K, so engine.filings.
+    FilingsClient.latest_10k_sections() returns None for it and this
+    reports 404 — the same "no filing found" 404 an equity with no 10-K
+    yet would get, no special ETF-detection branch needed.
+
+    ?refresh=true forces a fresh model call (skips the cache read, still
+    overwrites the cache and re-stamps extracted_at) — see
+    engine.flags.get_flags().
     """
     tk = ticker.strip().upper()
     loop = asyncio.get_running_loop()
@@ -576,12 +580,14 @@ async def get_flags(ticker: str):
     try:
         result = await loop.run_in_executor(
             None,
-            FLAGS.extract_flags_raw,
+            FLAGS.get_flags,
             tk,
             filing_sections.sections,
             filing_ref,
             app.state.cfg,
             app.state.anthropic_client,
+            _FLAGS_CACHE_DIR,
+            refresh,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e) or type(e).__name__)
