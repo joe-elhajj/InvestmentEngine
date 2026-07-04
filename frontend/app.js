@@ -213,6 +213,18 @@
     btn.classList.toggle("active");
   });
 
+  // A mouse click on a tabindex="0" element assigns it focus by default,
+  // which used to pin its tooltip open (:focus) until the user clicked
+  // elsewhere. The CSS now keys tooltip visibility off :focus-visible
+  // instead, but this preventDefault() is belt-and-suspenders: it stops
+  // the browser from assigning focus on mousedown at all, so no
+  // :focus-visible heuristic quirk can reintroduce the stuck-open bug.
+  // preventDefault() here does not cancel the subsequent click event, so
+  // header click-to-sort still fires normally.
+  document.addEventListener("mousedown", function (ev) {
+    if (ev.target.closest(".has-tooltip")) ev.preventDefault();
+  });
+
   function removeButton(ticker) {
     var btn = document.createElement("span");
     btn.className = "row-remove";

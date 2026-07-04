@@ -116,6 +116,7 @@ thead th.l{text-align:left}
    positioning below; .stat gets its own further down near .report-summary) ---- */
 .has-tooltip{position:relative;cursor:default}
 .has-tooltip:focus{outline:none}
+.has-tooltip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 .th-tooltip{
   position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
@@ -128,8 +129,7 @@ thead th.l{text-align:left}
   transition:opacity .15s ease;z-index:30;
 }
 .has-tooltip:hover .th-tooltip,
-.has-tooltip:focus .th-tooltip,
-.has-tooltip:focus-within .th-tooltip{opacity:1;visibility:visible}
+.has-tooltip:focus-visible .th-tooltip{opacity:1;visibility:visible}
 
 /* No hover trap on touch devices / narrow viewports — tap just does nothing
    rather than leaving a tooltip stuck open with no way to dismiss it. */
@@ -146,8 +146,7 @@ thead th.has-tooltip::before{
 }
 thead th.l.has-tooltip::before{right:auto;width:calc(100% - 32px)}
 thead th.has-tooltip:hover::before,
-thead th.has-tooltip:focus::before,
-thead th.has-tooltip:focus-within::before{opacity:1}
+thead th.has-tooltip:focus-visible::before{opacity:1}
 thead th:first-child .th-tooltip{left:0;transform:none}
 thead th:last-child .th-tooltip{left:auto;right:0;transform:none}
 
@@ -207,8 +206,7 @@ tr.accordion-row:hover > td{background:var(--bg)}
   width:fit-content;
 }
 .report-summary .stat.has-tooltip:hover .stat-label,
-.report-summary .stat.has-tooltip:focus .stat-label,
-.report-summary .stat.has-tooltip:focus-within .stat-label{border-color:var(--text-3)}
+.report-summary .stat.has-tooltip:focus-visible .stat-label{border-color:var(--text-3)}
 .report-summary .stat .th-tooltip{top:calc(100% + 8px);left:0;transform:none}
 
 .report-section{
