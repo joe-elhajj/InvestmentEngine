@@ -104,12 +104,50 @@ body{
 
 table{width:100%;border-collapse:collapse}
 thead th{
-  font-size:0.6875rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  font-size:0.75rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
   color:var(--text-3);background:var(--bg);
   padding:13px 16px;border-bottom:1px solid var(--hairline-strong);
   text-align:right;white-space:nowrap;
 }
 thead th.l{text-align:left}
+
+/* ---- column-header tooltips (Equities / ETF tables) ---- */
+thead th.has-tooltip{
+  position:relative;cursor:default;
+}
+thead th.has-tooltip::before{
+  /* dotted-underline affordance so discoverability doesn't depend on luck */
+  content:"";position:absolute;left:16px;right:16px;bottom:4px;
+  border-bottom:1px dotted var(--text-3);opacity:0;transition:opacity .15s ease;
+}
+thead th.l.has-tooltip::before{right:auto;width:calc(100% - 32px)}
+thead th.has-tooltip:hover::before,
+thead th.has-tooltip:focus::before,
+thead th.has-tooltip:focus-within::before{opacity:1}
+thead th.has-tooltip:focus{outline:none}
+
+.th-tooltip{
+  position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
+  background:var(--surface);color:var(--text-1);border:1px solid var(--hairline);
+  border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);
+  padding:10px 12px;max-width:280px;width:max-content;
+  font-size:0.75rem;font-weight:400;font-style:normal;letter-spacing:normal;
+  text-transform:none;text-align:left;white-space:normal;line-height:1.5;
+  opacity:0;visibility:hidden;pointer-events:none;
+  transition:opacity .15s ease;z-index:30;
+}
+thead th:first-child .th-tooltip{left:0;transform:none}
+thead th:last-child .th-tooltip{left:auto;right:0;transform:none}
+thead th.has-tooltip:hover .th-tooltip,
+thead th.has-tooltip:focus .th-tooltip,
+thead th.has-tooltip:focus-within .th-tooltip{opacity:1;visibility:visible}
+
+/* No hover trap on touch devices / narrow viewports — tap just does nothing
+   rather than leaving a tooltip stuck open with no way to dismiss it. */
+@media (hover:none), (max-width:700px){
+  .th-tooltip{display:none !important}
+  thead th.has-tooltip::before{display:none}
+}
 
 tbody td{
   padding:13px 16px;border-bottom:1px solid var(--hairline);
@@ -189,7 +227,6 @@ tr.accordion-row:hover > td{background:var(--bg)}
 tbody tr:hover .row-remove{opacity:1}
 .row-remove:hover{color:var(--bad);border-color:var(--bad)}
 
-.legend{font-size:0.75rem;color:var(--text-3);margin-top:12px;line-height:1.6}
 .meta-line{font-size:0.6875rem;color:var(--text-3);margin-top:32px;letter-spacing:.02em}
 
 /* ---- remove confirmation (no browser alert()) ---- */
