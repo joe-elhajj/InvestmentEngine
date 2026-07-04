@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import textwrap
 from dataclasses import asdict, dataclass, field
@@ -606,26 +607,29 @@ def get_council(
 # (compute_council_cost_usd below always prices real SDK token counts).
 _CHARS_PER_TOKEN_ESTIMATE = 4
 
-# Extra context Round 2/3 calls carry ON TOP of the bundle they also re-send —
-# found live on CAT: a reviewer sees the other four ~250-word opinions
-# (~250 words * 4 opinions ≈ 1,000 words ≈ 6,400 characters ≈ 1,600 tokens at
-# the same chars-per-token heuristic above); the Chairman sees all five
-# opinions AND all five reviews, roughly double that. The bundle itself
-# dominates total input by an order of magnitude (a real evidence bundle runs
-# tens of thousands of tokens; five ~250-word opinions do not), so approximating
-# every one of the 7 calls as "~1 bundle" plus this flat allowance for Round
-# 2/3 is a deliberate simplification, not an attempt at per-call precision.
-_REVIEW_EXTRA_CONTEXT_TOKENS = 1_600
-_CHAIRMAN_EXTRA_CONTEXT_TOKENS = 3_200
+# Per-call-type OUTPUT allowances — the OBSERVED MAX across two live-verified
+# convenes (CAT, META), each rounded up to the nearest 100, NOT the mean or a
+# guess. This is a ceiling, not a prediction: output size is fundamentally
+# unpredictable pre-call (a verbose advisor can blow past any "typical"
+# assumption), so the allowance has to clear the worst case seen so far, not
+# describe the average one. Real observed output tokens on record:
+#   opinions (1 combined Round 1 call): CAT 3,989 / META 3,856 -> max 3,989
+#   review (5 calls/run):               CAT 287-357 / META 335-397 -> max 397
+#   chairman (1 call):                  CAT 3,757 / META 3,387 -> max 3,757
+# If a future live run's real output for any call type exceeds its allowance
+# here, raise the allowance to match — this is the number that must move,
+# never the ceiling margin below (that's a fixed safety factor, not a patch
+# for an under-measured call type).
+_OPINIONS_OUTPUT_ALLOWANCE = 4_000
+_REVIEW_OUTPUT_ALLOWANCE = 400
+_CHAIRMAN_OUTPUT_ALLOWANCE = 3_800
 
-# Flat per-call OUTPUT allowances — these don't scale with the bundle at all.
-# Round 1 is one combined generation (five ~250-word opinions + an evidence-
-# integrity note); the Chairman's structured synthesis is comparably long.
-# Each Round 2 reviewer is capped at ~120 words by _REVIEWER_PROMPT, so its
-# output is small regardless of how big the evidence bundle is.
-_ROUND1_OUTPUT_ESTIMATE = 4_000
-_CHAIRMAN_OUTPUT_ESTIMATE = 4_000
-_REVIEW_OUTPUT_ESTIMATE = 400
+# CEILING MARGIN — the estimate is a not-to-exceed figure, not a point
+# prediction: 20% headroom over worst-observed, applied to the whole figure
+# after input+output are summed, then rounded UP to the cent (never down —
+# rounding down could shave the estimate back under a real cost it had just
+# cleared).
+_CEILING_MARGIN = 1.20
 
 
 def _pricing_for(cfg: dict, model: str) -> Optional[dict]:
@@ -633,18 +637,31 @@ def _pricing_for(cfg: dict, model: str) -> Optional[dict]:
 
 
 def estimate_council_cost_usd(cfg: dict, bundle_text: Optional[str]) -> Optional[float]:
-    """Bundle-aware estimate for the "not yet convened" GET response.
+    """Bundle-aware CEILING estimate for the "not yet convened" GET response —
+    a not-to-exceed figure, not a point prediction.
 
-    A fixed per-ticker baseline was tried first and was wrong-low by more
-    than 2x on a real CAT convene ($0.38 estimated vs. $0.83 actual): the
-    real cost driver isn't a roughly-constant per-call payload, it's that
-    the FULL evidence bundle (tens of thousands of tokens for a name like
-    CAT) gets re-sent on all 7 calls — Round 1 once, Round 2's five
-    reviewers, Round 3's Chairman — so real input scales with bundle size,
-    not with a flat assumption. `bundle_text` should be the same
-    render_bundle_text() output the real convene() sends as every call's
-    user message, so the estimate is sized to the actual ticker rather
-    than a ticker-independent guess.
+    History: a fixed per-ticker baseline was wrong-low by more than 2x on a
+    real CAT convene ($0.38 estimated vs. $0.83 actual) because it ignored
+    that the evidence bundle is re-sent on all 7 calls. Fixing INPUT to scale
+    with the real bundle got CAT close ($0.82 vs $0.83) but a second live
+    convene on META missed by ~51% ($0.57 estimated vs. $0.86 actual) — the
+    remaining gap was a FLAT output allowance that META's more verbose
+    advisors exceeded. Output is priced at 5x input per token
+    (config.yaml flags.pricing), so under-modeling it is expensive. Output
+    verbosity is fundamentally unpredictable pre-call, which is why this
+    function no longer targets "close" — it targets "for every real run on
+    record, this estimate is >= that run's actual cost" (see
+    tests/test_council.py's REAL_RUNS regression fixture, which is the
+    invariant this function must keep satisfying as new runs are observed).
+
+    `bundle_text` should be the same render_bundle_text() output the real
+    convene() sends as every call's user message, so INPUT is sized to the
+    actual ticker rather than a ticker-independent guess. The extra input
+    Round 2/3 calls carry on top of the bundle (peer opinions, then
+    opinions+reviews) is modeled from the OUTPUT allowances below, since an
+    opinion or review the model generates becomes input to a later call in
+    the same run — not a separate flat fudge disconnected from the output
+    side.
 
     Returns None (never a fabricated number) if the pinned model has no
     pricing entry in config.yaml flags.pricing, OR if no bundle_text is
@@ -659,20 +676,25 @@ def estimate_council_cost_usd(cfg: dict, bundle_text: Optional[str]) -> Optional
 
     bundle_tokens = len(bundle_text) / _CHARS_PER_TOKEN_ESTIMATE
 
-    # Every one of the 7 calls re-sends ~1 bundle; Round 2/3 calls also carry
-    # the flat extra-context allowance above on top of it.
+    # A reviewer's input is the bundle plus the OTHER four (of five) opinions
+    # — four-fifths of the single combined Round 1 output. The Chairman's
+    # input is the bundle plus ALL five opinions plus ALL five reviews.
+    review_extra_context_tokens = 4 / 5 * _OPINIONS_OUTPUT_ALLOWANCE
+    chairman_extra_context_tokens = _OPINIONS_OUTPUT_ALLOWANCE + 5 * _REVIEW_OUTPUT_ALLOWANCE
+
     total_input = (
-        bundle_tokens                                              # Round 1 (1 call)
-        + 5 * (bundle_tokens + _REVIEW_EXTRA_CONTEXT_TOKENS)         # Round 2 (5 calls)
-        + (bundle_tokens + _CHAIRMAN_EXTRA_CONTEXT_TOKENS)           # Round 3 (1 call)
+        bundle_tokens                                                    # Round 1 (1 call)
+        + 5 * (bundle_tokens + review_extra_context_tokens)                # Round 2 (5 calls)
+        + (bundle_tokens + chairman_extra_context_tokens)                  # Round 3 (1 call)
     )
-    total_output = _ROUND1_OUTPUT_ESTIMATE + 5 * _REVIEW_OUTPUT_ESTIMATE + _CHAIRMAN_OUTPUT_ESTIMATE
+    total_output = _OPINIONS_OUTPUT_ALLOWANCE + 5 * _REVIEW_OUTPUT_ALLOWANCE + _CHAIRMAN_OUTPUT_ALLOWANCE
 
     cost = (
         total_input / 1_000_000 * pricing.get("input_per_million", 0)
         + total_output / 1_000_000 * pricing.get("output_per_million", 0)
     )
-    return round(cost, 2)
+    cost_with_margin = cost * _CEILING_MARGIN
+    return math.ceil(cost_with_margin * 100) / 100
 
 
 def compute_council_cost_usd(cfg: dict, model: str, input_tokens: Optional[int], output_tokens: Optional[int]) -> Optional[float]:
