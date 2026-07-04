@@ -111,3 +111,31 @@ flags:
   model: "claude-sonnet-5"
   temperature: 0
   prompt_version: v1
+
+  # Analyst-owned deterministic post-processing of the model's output, by
+  # EXACT label match — same "overrides win" pattern as
+  # classification.overrides. Applied fresh on every /api/flags/{ticker}
+  # request (never cached), so editing this section takes effect
+  # immediately without a re-extraction.
+  overrides: {}
+  # Example shape (see engine/flags.py's validate_flags_config for the
+  # exact rules this is checked against at startup):
+  #   overrides:
+  #     NVDA:
+  #       add:
+  #         - label: "Customer concentration"
+  #           snippet: "our largest customer accounted for approximately 19% of revenue"
+  #           severity: red
+  #           item: "1A"
+  #           # snippet above must be an EXACT substring of the fetched
+  #           # Item 1A text — verbatim-validated exactly like a model
+  #           # selection. Omit `source` for a filing-sourced add.
+  #         - label: "Guidance cut on Q3 call"
+  #           snippet: "management lowered full-year guidance by 200bps"
+  #           severity: yellow
+  #           item: "1A"
+  #           source: analyst   # NOT from the filing (e.g. an earnings
+  #                             # call) — trusted as given, NOT verbatim-
+  #                             # checked, tagged distinctly in the UI.
+  #       demote: ["Some flag label the model over-weighted"]
+  #       remove: ["Some flag label that's boilerplate, not company-specific"]

@@ -16,9 +16,10 @@ validator — it is never trusted from the model's own claim.
 
 This endpoint is non-deterministic (same filing, same prompt, same model
 can still return different flags between calls) — get_flags() caches the
-result on disk keyed by (accession, prompt_version, model) so a filing is
-extracted once, not on every request; see get_flags() for the cache
-contract.
+raw result on disk keyed by (accession, prompt_version, model) so a
+filing is extracted once, not on every request. Analyst overrides
+(config.yaml `flags.overrides`) are layered on top of that cached raw
+result fresh on every call — see get_flags() / apply_overrides().
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ import json
 import logging
 import re
 import sys
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -59,8 +60,12 @@ class Flag:
     severity: str            # "red" | "yellow" | "green"
     item: str                # "1" | "1A" | "7"
     verified_verbatim: bool
-    # "model" for everything in this commit — the "override"/"analyst"
-    # provenance values arrive with config.yaml overrides (a later commit).
+    # "model" (LLM-selected, always verbatim-validated), "override" (analyst
+    # config.yaml `add` entry whose snippet IS filing text, still verbatim-
+    # validated), or "analyst" (config.yaml `add` entry explicitly marked
+    # source: analyst — e.g. from an earnings call, not the filing itself,
+    # so it is NOT verbatim-checked against the filing and must be visually
+    # distinguishable in the dashboard).
     source: str = "model"
 
 
@@ -183,6 +188,62 @@ def extract_flags_raw(ticker: str, sections: dict, filing: FilingRef, cfg: dict,
 
 
 # ---------------------------------------------------------------------------
+# Analyst overrides (config.yaml `flags.overrides`) — applied fresh on
+# every call, never baked into the cache (see get_flags()): editing
+# config.yaml takes effect immediately, without needing ?refresh=true or
+# a re-extraction, exactly like classification.overrides is applied fresh
+# on every read rather than cached alongside EDGAR data.
+# ---------------------------------------------------------------------------
+
+def apply_overrides(raw: FlagsResult, overrides_cfg: dict, sections: dict) -> FlagsResult:
+    """Deterministic post-processing by exact label match — same pattern as
+    classification.overrides. Never mutates `raw` or its Flag objects in
+    place (both may be shared cache instances); always returns a copy."""
+    override = overrides_cfg.get(raw.ticker.upper())
+    if not override:
+        return raw
+
+    flags = list(raw.flags)
+    dropped = raw.dropped_count
+
+    remove_labels = set(override.get("remove", []))
+    if remove_labels:
+        flags = [f for f in flags if f.label not in remove_labels]
+
+    demote_labels = set(override.get("demote", []))
+    if demote_labels:
+        flags = [replace(f, severity="yellow") if f.label in demote_labels else f for f in flags]
+
+    for add_spec in override.get("add", []):
+        label = add_spec["label"]
+        snippet = add_spec["snippet"]
+        severity = add_spec["severity"]
+        item = str(add_spec.get("item", "")).strip().upper()
+        is_analyst_sourced = add_spec.get("source") == "analyst"
+
+        if is_analyst_sourced:
+            # Not filing text (e.g. an earnings call) — trusted as given,
+            # tagged distinctly so the dashboard never presents it as a
+            # model-selected filing quote.
+            flags.append(Flag(label=label, snippet=snippet, severity=severity, item=item,
+                               verified_verbatim=True, source="analyst"))
+            continue
+
+        # Claimed to be filing text — held to exactly the same verbatim
+        # bar as a model-selected span, not a lesser one just because an
+        # analyst typed it into config.yaml.
+        section_text = sections.get(item, "")
+        if verify_verbatim(snippet, section_text):
+            flags.append(Flag(label=label, snippet=snippet, severity=severity, item=item,
+                               verified_verbatim=True, source="override"))
+        else:
+            dropped += 1
+            print(f"! {raw.ticker}: dropped non-verbatim snippet", file=sys.stderr)
+
+    return replace(raw, flags=flags, dropped_count=dropped)
+
+
+# ---------------------------------------------------------------------------
 # On-disk cache — keyed by (accession, prompt_version, model). A filing +
 # prompt + model triple is treated as one immutable extraction; the cache
 # entry IS the pinned snapshot Tier 3 will consume.
@@ -234,22 +295,22 @@ def get_flags(
     force_refresh: bool = False,
 ) -> FlagsResult:
     """
-    Public entry point: cache-or-extract the raw model result.
-    force_refresh=True (the endpoint's ?refresh=true) skips the cache READ
-    (always re-calls the model) but still WRITES the new result,
-    overwriting the old cache entry and re-stamping extracted_at.
+    Public entry point: cache-or-extract the raw model result, then apply
+    config.yaml's flags.overrides fresh on every call. force_refresh=True
+    (the endpoint's ?refresh=true) skips the cache READ (always re-calls
+    the model) but still WRITES the new result, overwriting the old cache
+    entry and re-stamping extracted_at.
     """
     flags_cfg = cfg.get("flags", {})
     model = flags_cfg.get("model", "claude-sonnet-5")
     prompt_version = flags_cfg.get("prompt_version", "v1")
 
-    cached = None if force_refresh else _load_cached_raw(cache_dir, filing.accession, prompt_version, model)
-    if cached is not None:
-        return cached
+    raw = None if force_refresh else _load_cached_raw(cache_dir, filing.accession, prompt_version, model)
+    if raw is None:
+        raw = extract_flags_raw(ticker, sections, filing, cfg, client)
+        _save_cached_raw(cache_dir, filing.accession, prompt_version, model, raw)
 
-    result = extract_flags_raw(ticker, sections, filing, cfg, client)
-    _save_cached_raw(cache_dir, filing.accession, prompt_version, model, result)
-    return result
+    return apply_overrides(raw, flags_cfg.get("overrides", {}), sections)
 
 
 # ---------------------------------------------------------------------------
@@ -267,3 +328,30 @@ def validate_flags_config(cfg: dict) -> None:
     temperature = flags_cfg.get("temperature", 0)
     if not isinstance(temperature, (int, float)) or isinstance(temperature, bool):
         raise ValueError("config.yaml flags.temperature must be a number.")
+
+    overrides = flags_cfg.get("overrides", {})
+    if not isinstance(overrides, dict):
+        raise ValueError("config.yaml flags.overrides must be a mapping of ticker -> override.")
+
+    for ticker, override in overrides.items():
+        if not isinstance(override, dict):
+            raise ValueError(f"config.yaml flags.overrides.{ticker} must be a mapping.")
+
+        for add_spec in override.get("add", []):
+            for key in ("label", "snippet", "severity", "item"):
+                if key not in add_spec:
+                    raise ValueError(f"config.yaml flags.overrides.{ticker}.add entry missing {key!r}.")
+            if add_spec["severity"] not in _VALID_SEVERITIES:
+                raise ValueError(
+                    f"config.yaml flags.overrides.{ticker}.add severity must be one of {sorted(_VALID_SEVERITIES)}."
+                )
+            source = add_spec.get("source")
+            if source is not None and source != "analyst":
+                raise ValueError(
+                    f"config.yaml flags.overrides.{ticker}.add source, if set, must be 'analyst'."
+                )
+
+        for key in ("demote", "remove"):
+            val = override.get(key, [])
+            if not isinstance(val, list) or not all(isinstance(x, str) for x in val):
+                raise ValueError(f"config.yaml flags.overrides.{ticker}.{key} must be a list of strings.")
