@@ -818,9 +818,20 @@ async def get_council(ticker: str):
         payload["cache_status"] = "cached"
         return payload
 
+    # Assembling the bundle here (not just checking quant status) is what lets
+    # the cost estimate below be sized to THIS ticker's real evidence volume
+    # rather than a ticker-independent guess — a fixed baseline was tried
+    # first and was wrong-low by more than 2x on a real convene (see
+    # engine.council.estimate_council_cost_usd's docstring). This is still a
+    # free operation: get_flags() only reads the on-disk cache (flags_cached
+    # was already confirmed True above) and _get_analysis_result() is Tier
+    # 1's deterministic EDGAR/yfinance path — neither ever calls the
+    # Anthropic API, so GET still never spends.
+    bundle_text = None
     try:
-        await _get_analysis_result(tk)
+        bundle = await _assemble_council_bundle(tk, filing_sections, flags_model, flags_prompt_version)
         quant_status = "ok"
+        bundle_text = COUNCIL.render_bundle_text(bundle)
     except Exception:
         quant_status = "error"
 
@@ -828,7 +839,7 @@ async def get_council(ticker: str):
         "state": "not_cached",
         "model": flags_model,
         "calls": 7,
-        "estimated_cost_usd": COUNCIL.estimate_council_cost_usd(app.state.cfg),
+        "estimated_cost_usd": COUNCIL.estimate_council_cost_usd(app.state.cfg, bundle_text),
         "evidence_status": {"quant": quant_status, "flags": "cached", "thesis": "pre_thesis"},
     }
 

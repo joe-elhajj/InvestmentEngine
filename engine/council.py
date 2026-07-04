@@ -601,32 +601,73 @@ def get_council(
 # exactly as much as to any other number in this codebase.
 # ---------------------------------------------------------------------------
 
-# Rough per-call token baselines for the 7-call structure, used only for
-# the ticker-independent "not yet convened" cost estimate. The real,
-# stamped cost of an actual run always comes from real SDK token counts
-# (compute_council_cost_usd), never this baseline.
-_BASELINE_ROUND1_INPUT = 20_000
-_BASELINE_ROUND1_OUTPUT = 2_500
-_BASELINE_ROUND2_INPUT = 22_000
-_BASELINE_ROUND2_OUTPUT = 400
-_BASELINE_ROUND3_INPUT = 26_000
-_BASELINE_ROUND3_OUTPUT = 1_800
+# Chars-per-token heuristic for sizing the ESTIMATE only — never a tokenizer
+# dependency, and never used anywhere near the real cost stamping path
+# (compute_council_cost_usd below always prices real SDK token counts).
+_CHARS_PER_TOKEN_ESTIMATE = 4
+
+# Extra context Round 2/3 calls carry ON TOP of the bundle they also re-send —
+# found live on CAT: a reviewer sees the other four ~250-word opinions
+# (~250 words * 4 opinions ≈ 1,000 words ≈ 6,400 characters ≈ 1,600 tokens at
+# the same chars-per-token heuristic above); the Chairman sees all five
+# opinions AND all five reviews, roughly double that. The bundle itself
+# dominates total input by an order of magnitude (a real evidence bundle runs
+# tens of thousands of tokens; five ~250-word opinions do not), so approximating
+# every one of the 7 calls as "~1 bundle" plus this flat allowance for Round
+# 2/3 is a deliberate simplification, not an attempt at per-call precision.
+_REVIEW_EXTRA_CONTEXT_TOKENS = 1_600
+_CHAIRMAN_EXTRA_CONTEXT_TOKENS = 3_200
+
+# Flat per-call OUTPUT allowances — these don't scale with the bundle at all.
+# Round 1 is one combined generation (five ~250-word opinions + an evidence-
+# integrity note); the Chairman's structured synthesis is comparably long.
+# Each Round 2 reviewer is capped at ~120 words by _REVIEWER_PROMPT, so its
+# output is small regardless of how big the evidence bundle is.
+_ROUND1_OUTPUT_ESTIMATE = 4_000
+_CHAIRMAN_OUTPUT_ESTIMATE = 4_000
+_REVIEW_OUTPUT_ESTIMATE = 400
 
 
 def _pricing_for(cfg: dict, model: str) -> Optional[dict]:
     return cfg.get("flags", {}).get("pricing", {}).get(model)
 
 
-def estimate_council_cost_usd(cfg: dict) -> Optional[float]:
-    """Ticker-independent estimate for the "not yet convened" GET response.
+def estimate_council_cost_usd(cfg: dict, bundle_text: Optional[str]) -> Optional[float]:
+    """Bundle-aware estimate for the "not yet convened" GET response.
+
+    A fixed per-ticker baseline was tried first and was wrong-low by more
+    than 2x on a real CAT convene ($0.38 estimated vs. $0.83 actual): the
+    real cost driver isn't a roughly-constant per-call payload, it's that
+    the FULL evidence bundle (tens of thousands of tokens for a name like
+    CAT) gets re-sent on all 7 calls — Round 1 once, Round 2's five
+    reviewers, Round 3's Chairman — so real input scales with bundle size,
+    not with a flat assumption. `bundle_text` should be the same
+    render_bundle_text() output the real convene() sends as every call's
+    user message, so the estimate is sized to the actual ticker rather
+    than a ticker-independent guess.
+
     Returns None (never a fabricated number) if the pinned model has no
-    pricing entry in config.yaml flags.pricing."""
+    pricing entry in config.yaml flags.pricing, OR if no bundle_text is
+    available yet (e.g. the quant fetch needed to assemble one failed) —
+    an estimate that can't see the evidence it would be sizing is not a
+    number worth reporting.
+    """
     model = cfg.get("flags", {}).get("model", "")
     pricing = _pricing_for(cfg, model)
-    if not pricing:
+    if not pricing or not bundle_text:
         return None
-    total_input = _BASELINE_ROUND1_INPUT + 5 * _BASELINE_ROUND2_INPUT + _BASELINE_ROUND3_INPUT
-    total_output = _BASELINE_ROUND1_OUTPUT + 5 * _BASELINE_ROUND2_OUTPUT + _BASELINE_ROUND3_OUTPUT
+
+    bundle_tokens = len(bundle_text) / _CHARS_PER_TOKEN_ESTIMATE
+
+    # Every one of the 7 calls re-sends ~1 bundle; Round 2/3 calls also carry
+    # the flat extra-context allowance above on top of it.
+    total_input = (
+        bundle_tokens                                              # Round 1 (1 call)
+        + 5 * (bundle_tokens + _REVIEW_EXTRA_CONTEXT_TOKENS)         # Round 2 (5 calls)
+        + (bundle_tokens + _CHAIRMAN_EXTRA_CONTEXT_TOKENS)           # Round 3 (1 call)
+    )
+    total_output = _ROUND1_OUTPUT_ESTIMATE + 5 * _REVIEW_OUTPUT_ESTIMATE + _CHAIRMAN_OUTPUT_ESTIMATE
+
     cost = (
         total_input / 1_000_000 * pricing.get("input_per_million", 0)
         + total_output / 1_000_000 * pricing.get("output_per_million", 0)

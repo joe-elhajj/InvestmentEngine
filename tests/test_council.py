@@ -454,12 +454,36 @@ class TestCaching:
 
 class TestCostHelpers:
     def test_estimate_positive_when_pricing_present(self):
-        est = C.estimate_council_cost_usd(_CFG)
+        est = C.estimate_council_cost_usd(_CFG, "some bundle text")
         assert est is not None and est > 0
 
     def test_estimate_none_when_pricing_missing(self):
         cfg = {"flags": {"model": "claude-sonnet-5", "pricing": {}}}
-        assert C.estimate_council_cost_usd(cfg) is None
+        assert C.estimate_council_cost_usd(cfg, "some bundle text") is None
+
+    def test_estimate_none_when_bundle_text_missing(self):
+        """An estimate that can't see the evidence it would be sizing is
+        not a number worth reporting — same absence-is-not-zero discipline
+        as the missing-pricing case."""
+        assert C.estimate_council_cost_usd(_CFG, None) is None
+        assert C.estimate_council_cost_usd(_CFG, "") is None
+
+    def test_larger_bundle_estimates_more_expensive_than_a_smaller_one(self):
+        """The whole point of the fix: a fixed baseline couldn't distinguish
+        a small evidence bundle from a large one, and was wrong-low by more
+        than 2x on a real CAT convene as a result."""
+        small = C.estimate_council_cost_usd(_CFG, "x" * 4_000)
+        large = C.estimate_council_cost_usd(_CFG, "x" * 200_000)
+        assert small < large
+
+    def test_cat_sized_bundle_lands_near_the_observed_real_cost(self):
+        """A real live convene on CAT (~50k-token bundle, ~200k chars at the
+        chars-per-token heuristic) cost $0.83 for all 7 calls. This asserts
+        a band, not an exact value — it's an estimate, and output size in
+        particular varies run to run."""
+        cat_sized_bundle = "x" * 200_000
+        est = C.estimate_council_cost_usd(_CFG, cat_sized_bundle)
+        assert 0.60 <= est <= 1.10
 
     def test_compute_none_when_pricing_missing(self):
         cfg = {"flags": {"model": "claude-sonnet-5", "pricing": {}}}
