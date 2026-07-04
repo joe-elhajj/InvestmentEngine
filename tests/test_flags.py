@@ -20,8 +20,11 @@ from engine.flags import (
     FilingRef,
     FlagsResult,
     apply_overrides,
+    compute_cost_usd,
+    estimate_extraction_cost_usd,
     extract_flags_raw,
     get_flags,
+    is_cached,
     validate_flags_config,
     verify_verbatim,
 )
@@ -324,6 +327,109 @@ class TestGetFlagsCaching:
         r2 = get_flags("NVDA", sections, _filing_ref(), cfg_with_override, client, tmp_path)
         assert r2.flags[0].severity == "yellow"
         assert client.messages.create.call_count == 1  # still just the one extraction
+
+
+# ---------------------------------------------------------------------------
+# is_cached() — the free existence check the spend gate uses
+# ---------------------------------------------------------------------------
+
+class TestIsCached:
+    def test_false_before_any_extraction(self, tmp_path):
+        assert is_cached(tmp_path, "acc-1", "v1", "claude-sonnet-5") is False
+
+    def test_true_after_get_flags_extracts_and_caches(self, tmp_path):
+        sections = {"1A": "Risk text."}
+        client = MagicMock()
+        client.messages.create.return_value = _mock_model_response([])
+        get_flags("NVDA", sections, _filing_ref(), _CFG, client, tmp_path)
+        assert is_cached(tmp_path, _filing_ref().accession, "v1", "claude-sonnet-5") is True
+
+    def test_does_not_call_the_model(self, tmp_path):
+        assert is_cached(tmp_path, "acc-1", "v1", "claude-sonnet-5") is False  # no client needed at all
+
+
+# ---------------------------------------------------------------------------
+# get_flags() call_info — reports what actually happened, for usage logging
+# ---------------------------------------------------------------------------
+
+class TestGetFlagsCallInfo:
+    def test_live_extraction_reports_cache_status_live(self, tmp_path):
+        sections = {"1A": "Risk text."}
+        client = MagicMock()
+        response = _mock_model_response([])
+        response.usage = MagicMock(input_tokens=500, output_tokens=42)
+        client.messages.create.return_value = response
+        call_info = {}
+        get_flags("NVDA", sections, _filing_ref(), _CFG, client, tmp_path, call_info=call_info)
+        assert call_info == {"cache_status": "live", "input_tokens": 500, "output_tokens": 42}
+
+    def test_cache_hit_reports_cache_status_from_cache_with_no_tokens(self, tmp_path):
+        sections = {"1A": "Risk text."}
+        client = MagicMock()
+        client.messages.create.return_value = _mock_model_response([])
+        get_flags("NVDA", sections, _filing_ref(), _CFG, client, tmp_path)  # populate cache
+        call_info = {}
+        get_flags("NVDA", sections, _filing_ref(), _CFG, client, tmp_path, call_info=call_info)
+        assert call_info == {"cache_status": "from_cache", "input_tokens": None, "output_tokens": None}
+
+    def test_force_refresh_reports_cache_status_refresh(self, tmp_path):
+        sections = {"1A": "Risk text."}
+        client = MagicMock()
+        client.messages.create.return_value = _mock_model_response([])
+        get_flags("NVDA", sections, _filing_ref(), _CFG, client, tmp_path)
+        call_info = {}
+        get_flags("NVDA", sections, _filing_ref(), _CFG, client, tmp_path, force_refresh=True, call_info=call_info)
+        assert call_info["cache_status"] == "refresh"
+
+    def test_call_info_none_is_a_no_op_backward_compatible_default(self, tmp_path):
+        """Every pre-existing caller passes no call_info at all — must not
+        raise or change behavior."""
+        sections = {"1A": "Risk text."}
+        client = MagicMock()
+        client.messages.create.return_value = _mock_model_response([])
+        result = get_flags("NVDA", sections, _filing_ref(), _CFG, client, tmp_path)
+        assert isinstance(result, FlagsResult)
+
+
+# ---------------------------------------------------------------------------
+# Cost estimation / stamping (config.yaml flags.pricing)
+# ---------------------------------------------------------------------------
+
+class TestCostHelpers:
+    _PRICED_CFG = {
+        "flags": {
+            "model": "claude-sonnet-4-6",
+            "pricing": {
+                "claude-sonnet-4-6": {"input_per_million": 3.00, "output_per_million": 15.00},
+            },
+        },
+    }
+
+    def test_estimate_uses_pinned_model_pricing(self):
+        est = estimate_extraction_cost_usd(self._PRICED_CFG)
+        assert est is not None
+        assert est > 0
+
+    def test_estimate_is_none_when_pinned_model_has_no_pricing_entry(self):
+        cfg = {"flags": {"model": "claude-sonnet-5", "pricing": {}}}
+        assert estimate_extraction_cost_usd(cfg) is None
+
+    def test_estimate_is_none_when_no_pricing_table_at_all(self):
+        assert estimate_extraction_cost_usd({"flags": {"model": "claude-sonnet-5"}}) is None
+
+    def test_compute_cost_matches_hand_calculated_value(self):
+        # 15,000 input tokens @ $3/M + 600 output tokens @ $15/M, scaled here
+        # to round numbers: 1,000,000 input @ $3/M + 1,000,000 output @ $15/M = $18.
+        cost = compute_cost_usd(self._PRICED_CFG, "claude-sonnet-4-6", 1_000_000, 1_000_000)
+        assert cost == pytest.approx(18.0)
+
+    def test_compute_cost_is_zero_for_unpriced_model(self):
+        cost = compute_cost_usd(self._PRICED_CFG, "some-other-model", 1_000_000, 1_000_000)
+        assert cost == 0.0
+
+    def test_compute_cost_treats_missing_token_counts_as_zero(self):
+        cost = compute_cost_usd(self._PRICED_CFG, "claude-sonnet-4-6", None, None)
+        assert cost == 0.0
 
 
 # ---------------------------------------------------------------------------
