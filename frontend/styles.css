@@ -16,6 +16,16 @@
   --gap-red-rgb:200,54,47;
   --radius:12px;
   --mono:"SF Mono","Cascadia Code",ui-monospace,Menlo,monospace;
+
+  /* Dark chrome (app bar, table header rows, tooltips) — the light
+     --bg/--surface tokens above stay the data-surface tier; Koyfin-style
+     two-tone dashboards keep those on a darker ink so structure reads
+     before content does. */
+  --chrome-bg:#1a1d24;
+  --chrome-bg-2:#23262e;
+  --chrome-border:rgba(255,255,255,0.10);
+  --chrome-text:#f2f3f5;
+  --chrome-text-dim:#9aa0aa;
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
@@ -26,26 +36,30 @@ body{
   font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
 }
 
-/* ---- top nav ---- */
+/* ---- top nav (dark chrome) ---- */
 .topnav{
   display:flex;align-items:center;gap:24px;
-  padding:14px 24px;background:var(--surface);
-  border-bottom:1px solid var(--hairline-strong);
+  padding:14px 24px;background:var(--chrome-bg);
+  border-bottom:1px solid var(--chrome-border);
   position:sticky;top:0;z-index:10;
 }
-.wordmark{font-size:1rem;font-weight:600;letter-spacing:-0.01em;white-space:nowrap}
+.wordmark{font-size:1rem;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;color:var(--chrome-text)}
 
 .search-wrap{flex:1;display:flex;justify-content:center;position:relative}
 .search-box{display:flex;align-items:center;gap:8px;width:100%;max-width:360px}
 .search-box input{
-  flex:1;font:inherit;font-size:0.8125rem;color:var(--text-1);
-  background:var(--bg);border:1px solid var(--hairline-strong);border-radius:999px;
+  flex:1;font:inherit;font-size:0.8125rem;color:var(--chrome-text);
+  background:rgba(255,255,255,0.06);border:1px solid var(--chrome-border);border-radius:999px;
   padding:7px 14px;outline:none;
 }
+.search-box input::placeholder{color:var(--chrome-text-dim)}
 .search-box input:focus{border-color:var(--accent)}
-.search-status{font-size:0.9375rem;width:1.2em;text-align:center}
+.search-status{font-size:0.9375rem;width:1.2em;text-align:center;color:var(--chrome-text-dim)}
 .search-status.found{color:var(--good)}
 .search-status.not-found{color:var(--bad)}
+
+#refresh-btn{color:var(--chrome-text-dim);border-color:var(--chrome-border)}
+#refresh-btn:hover{color:var(--accent);border-color:var(--accent)}
 
 .search-confirm{
   position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);
@@ -93,7 +107,7 @@ body{
 .table-section:last-of-type{margin-bottom:0}
 .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .sec-lbl{
-  font-size:0.6875rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);
+  font-size:0.6875rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-1);
 }
 
 .surface{
@@ -105,8 +119,8 @@ body{
 table{width:100%;border-collapse:collapse}
 thead th{
   font-size:0.75rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--text-3);background:var(--bg);
-  padding:13px 16px;border-bottom:1px solid var(--hairline-strong);
+  color:var(--chrome-text-dim);background:var(--chrome-bg);
+  padding:13px 16px;border-bottom:1px solid var(--chrome-border);
   text-align:right;white-space:nowrap;
 }
 thead th.l{text-align:left}
@@ -120,8 +134,8 @@ thead th.l{text-align:left}
 
 .th-tooltip{
   position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
-  background:var(--surface);color:var(--text-1);border:1px solid var(--hairline);
-  border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);
+  background:var(--chrome-bg-2);color:var(--chrome-text);border:1px solid var(--chrome-border);
+  border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.35);
   padding:10px 12px;max-width:280px;width:max-content;
   font-size:0.75rem;font-weight:400;font-style:normal;letter-spacing:normal;
   text-transform:none;text-align:left;white-space:normal;line-height:1.5;
@@ -142,7 +156,7 @@ thead th.l{text-align:left}
 thead th.has-tooltip::before{
   /* dotted-underline affordance so discoverability doesn't depend on luck */
   content:"";position:absolute;left:16px;right:16px;bottom:4px;
-  border-bottom:1px dotted var(--text-3);opacity:0;transition:opacity .15s ease;
+  border-bottom:1px dotted var(--chrome-text-dim);opacity:0;transition:opacity .15s ease;
 }
 thead th.l.has-tooltip::before{right:auto;width:calc(100% - 32px)}
 thead th.has-tooltip:hover::before,
