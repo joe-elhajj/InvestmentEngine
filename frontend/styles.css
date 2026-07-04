@@ -111,20 +111,11 @@ thead th{
 }
 thead th.l{text-align:left}
 
-/* ---- column-header tooltips (Equities / ETF tables) ---- */
-thead th.has-tooltip{
-  position:relative;cursor:default;
-}
-thead th.has-tooltip::before{
-  /* dotted-underline affordance so discoverability doesn't depend on luck */
-  content:"";position:absolute;left:16px;right:16px;bottom:4px;
-  border-bottom:1px dotted var(--text-3);opacity:0;transition:opacity .15s ease;
-}
-thead th.l.has-tooltip::before{right:auto;width:calc(100% - 32px)}
-thead th.has-tooltip:hover::before,
-thead th.has-tooltip:focus::before,
-thead th.has-tooltip:focus-within::before{opacity:1}
-thead th.has-tooltip:focus{outline:none}
+/* ---- generic tooltip trigger + popup (column headers AND the DCF stat
+   card share this — table headers get their own dotted-underline
+   positioning below; .stat gets its own further down near .report-summary) ---- */
+.has-tooltip{position:relative;cursor:default}
+.has-tooltip:focus{outline:none}
 
 .th-tooltip{
   position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
@@ -136,11 +127,9 @@ thead th.has-tooltip:focus{outline:none}
   opacity:0;visibility:hidden;pointer-events:none;
   transition:opacity .15s ease;z-index:30;
 }
-thead th:first-child .th-tooltip{left:0;transform:none}
-thead th:last-child .th-tooltip{left:auto;right:0;transform:none}
-thead th.has-tooltip:hover .th-tooltip,
-thead th.has-tooltip:focus .th-tooltip,
-thead th.has-tooltip:focus-within .th-tooltip{opacity:1;visibility:visible}
+.has-tooltip:hover .th-tooltip,
+.has-tooltip:focus .th-tooltip,
+.has-tooltip:focus-within .th-tooltip{opacity:1;visibility:visible}
 
 /* No hover trap on touch devices / narrow viewports — tap just does nothing
    rather than leaving a tooltip stuck open with no way to dismiss it. */
@@ -148,6 +137,19 @@ thead th.has-tooltip:focus-within .th-tooltip{opacity:1;visibility:visible}
   .th-tooltip{display:none !important}
   thead th.has-tooltip::before{display:none}
 }
+
+/* ---- column-header-specific affordance + positioning ---- */
+thead th.has-tooltip::before{
+  /* dotted-underline affordance so discoverability doesn't depend on luck */
+  content:"";position:absolute;left:16px;right:16px;bottom:4px;
+  border-bottom:1px dotted var(--text-3);opacity:0;transition:opacity .15s ease;
+}
+thead th.l.has-tooltip::before{right:auto;width:calc(100% - 32px)}
+thead th.has-tooltip:hover::before,
+thead th.has-tooltip:focus::before,
+thead th.has-tooltip:focus-within::before{opacity:1}
+thead th:first-child .th-tooltip{left:0;transform:none}
+thead th:last-child .th-tooltip{left:auto;right:0;transform:none}
 
 tbody td{
   padding:13px 16px;border-bottom:1px solid var(--hairline);
@@ -188,6 +190,18 @@ tr.accordion-row:hover > td{background:var(--bg)}
   display:block;font-size:1.0625rem;font-weight:600;letter-spacing:-0.01em;
   font-variant-numeric:tabular-nums;color:var(--text-1);
 }
+
+/* stat card tooltip (e.g. "DCF Base (Systematic)") — dotted underline on
+   the label only, popup anchored below-left of the card rather than the
+   header-centered positioning (reuses the same .th-tooltip popup box). */
+.report-summary .stat.has-tooltip .stat-label{
+  border-bottom:1px dotted transparent;transition:border-color .15s ease;
+  width:fit-content;
+}
+.report-summary .stat.has-tooltip:hover .stat-label,
+.report-summary .stat.has-tooltip:focus .stat-label,
+.report-summary .stat.has-tooltip:focus-within .stat-label{border-color:var(--text-3)}
+.report-summary .stat .th-tooltip{top:calc(100% + 8px);left:0;transform:none}
 
 .report-section{
   background:var(--surface);border:1px solid var(--hairline);border-radius:10px;
@@ -231,6 +245,11 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-caption{
   font-size:0.6875rem;font-weight:600;letter-spacing:.02em;color:var(--text-3);
   padding:10px 14px 0;
+}
+
+.gaps-list{
+  text-align:left;list-style:disc;padding:8px 14px 14px 30px;
+  font-size:0.75rem;color:var(--text-1);line-height:1.6;
 }
 
 .report-error{padding:16px 24px;color:var(--bad);font-size:0.8125rem}

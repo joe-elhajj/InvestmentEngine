@@ -544,7 +544,7 @@ def _fr_details_with_sources(title: str, content: str, open_: bool = False) -> s
     )
 
 
-def _fr_stat(label: str, value: str, tint: Optional[float] = None) -> str:
+def _fr_stat(label: str, value: str, tint: Optional[float] = None, tooltip: Optional[str] = None) -> str:
     style = ""
     if tint is not None:
         magnitude = min(abs(tint), 0.30)
@@ -552,10 +552,14 @@ def _fr_stat(label: str, value: str, tint: Optional[float] = None) -> str:
         rgb = "200,54,47" if tint > 0 else "29,125,84"
         color = "var(--bad)" if tint > 0 else "var(--good)"
         style = f' style="background-color:rgba({rgb},{alpha:.3f});color:{color}"'
+    cls = "stat has-tooltip" if tooltip else "stat"
+    tabindex_attr = ' tabindex="0"' if tooltip else ""
+    tooltip_html = f'<div class="th-tooltip">{escape(tooltip)}</div>' if tooltip else ""
     return (
-        f'<div class="stat"{style}>'
+        f'<div class="{cls}"{style}{tabindex_attr}>'
         f'<span class="stat-label">{escape(label)}</span>'
         f'<span class="stat-value">{escape(value)}</span>'
+        f"{tooltip_html}"
         "</div>"
     )
 
@@ -581,7 +585,14 @@ def render_fragment(
         + _fr_stat("Market Cap", summary["market_cap"])
         + _fr_stat("Durability", summary["durability_composite"])
         + _fr_stat("Expectations Gap", summary["expectations_gap"], tint=summary["expectations_gap_raw"])
-        + _fr_stat("DCF Base Upside", summary["dcf_upside"])
+        + _fr_stat(
+            "DCF Base (Systematic)", summary["dcf_upside"],
+            tooltip=(
+                "Single-stage DCF under systematic config assumptions - comparable "
+                "across tickers, conservative by construction for high-growth names. "
+                "The expectations gap is the primary signal."
+            ),
+        )
         + "</div>"
     )
 
@@ -678,7 +689,11 @@ def render_fragment(
 
     gaps = _gaps_list(res)
     if gaps:
-        gaps_html = "<ul>" + "".join(f"<li>{escape(g)}</li>" for g in gaps) + "</ul>"
+        gaps_html = (
+            '<p class="report-caption">Could not be resolved from EDGAR; excluded '
+            "rather than defaulted to zero.</p>"
+            '<ul class="gaps-list">' + "".join(f"<li>{escape(g)}</li>" for g in gaps) + "</ul>"
+        )
     else:
         gaps_html = '<p class="report-caption">None — all targeted concepts resolved.</p>'
     gaps_section = _fr_details("Data gaps", gaps_html)

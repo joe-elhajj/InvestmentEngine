@@ -95,11 +95,32 @@ class TestLightFragmentRenderer:
         assert "Durability" in frag
         assert "71.4" in frag
         assert "Expectations Gap" in frag
-        assert "DCF Base Upside" in frag
+        assert "DCF Base (Systematic)" in frag
 
     def test_durability_composite_none_shows_na_not_zero(self):
         frag = RH.render_fragment(_company_result(), durability_composite=None)
         assert '<span class="stat-value">n/a</span>' in frag
+
+    def test_dcf_stat_has_tooltip(self):
+        """Task 5: DCF card relabeled with a tooltip explaining the systematic,
+        cross-ticker-comparable nature of the single-stage DCF."""
+        frag = RH.render_fragment(_company_result())
+        assert '<div class="stat has-tooltip" tabindex="0">' in frag
+        assert "Single-stage DCF under systematic config assumptions" in frag
+        assert "The expectations gap is the primary signal." in frag
+
+    def test_data_gaps_explanatory_line_and_list_when_gaps_present(self):
+        res = _company_result()
+        res.gaps = ["revenue: no value for period 2025-12-31 (latest available is 2024-12-31, not used)"]
+        frag = RH.render_fragment(res)
+        assert "Could not be resolved from EDGAR; excluded rather than defaulted to zero." in frag
+        assert 'class="gaps-list"' in frag
+        assert res.gaps[0] in frag
+
+    def test_data_gaps_none_message_when_no_gaps(self):
+        frag = RH.render_fragment(_company_result())  # fixture has no gaps
+        assert "None — all targeted concepts resolved." in frag
+        assert "gaps-list" not in frag
 
     def test_collapsible_sections_present(self):
         frag = RH.render_fragment(_company_result())
