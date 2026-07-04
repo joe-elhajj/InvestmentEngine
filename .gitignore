@@ -8,3 +8,4 @@ reports/*.html
 .Rhistory
 reports_sample_TEST.md
 .cache/
+scripts/council_output_*.md
