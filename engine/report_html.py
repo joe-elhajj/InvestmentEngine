@@ -617,7 +617,6 @@ def render_fragment(
     position_html = _fr_details_with_sources(
         "Financial position",
         _fr_table(["Item", "Value"], "".join(_fr_row_with_lineage(*r) for r in _position_rows(res))),
-        open_=True,
     )
 
     quarter_html = ""

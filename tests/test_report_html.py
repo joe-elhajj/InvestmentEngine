@@ -9,6 +9,8 @@ between them, only how they're laid out.
 
 from __future__ import annotations
 
+import re
+
 from engine import report_html as RH
 from engine.edgar import CompanyData, Fact
 from engine.market import Quote
@@ -128,6 +130,15 @@ class TestLightFragmentRenderer:
         assert "<summary>Financial position</summary>" in frag
         assert "<summary>Growth</summary>" in frag
         assert "<summary>Margins &amp; returns</summary>" in frag  # html.escape()'d "&"
+
+    def test_no_section_open_by_default_on_row_expand(self):
+        """Every <details> in the equity fragment — including Financial
+        position, which used to auto-open — must render collapsed. The
+        user opens each section they want; nothing is pre-expanded."""
+        frag = RH.render_fragment(_company_result())
+        details_tags = re.findall(r"<details[^>]*>", frag)
+        assert len(details_tags) >= 4
+        assert all(" open" not in tag for tag in details_tags)
 
     def test_lineage_reachable_via_hover_title(self):
         """Lineage isn't a visible column in the fragment, but must still be reachable."""
