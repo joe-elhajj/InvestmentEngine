@@ -519,6 +519,24 @@ def _fr_details(title: str, content: str, open_: bool = False) -> str:
     return f'<details class="report-section"{open_attr}><summary>{escape(title)}</summary>{content}</details>'
 
 
+def _flags_section(ticker: str) -> str:
+    """
+    Tier 2 (engine/flags.py) — unlike every other section in this fragment,
+    this one is NOT server-rendered from AnalysisResult: it's a
+    non-deterministic, separately-cached LLM extraction fetched from
+    /api/flags/{ticker}, so the content here is just a placeholder that
+    app.js populates on first expand (a delegated `toggle` listener on
+    .flags-section, keyed off data-ticker). Closed by default, same as
+    Growth/Margins/Valuation/Data gaps.
+    """
+    return (
+        f'<details class="report-section flags-section" data-ticker="{escape(ticker)}">'
+        "<summary>Flags</summary>"
+        '<div class="flags-body"><p class="report-caption">Loading flags…</p></div>'
+        "</details>"
+    )
+
+
 def _fr_details_with_sources(title: str, content: str, open_: bool = False) -> str:
     """
     Same as _fr_details, plus a "Sources" toggle button in a small toolbar
@@ -698,6 +716,8 @@ def render_fragment(
         gaps_html = '<p class="report-caption">None — all targeted concepts resolved.</p>'
     gaps_section = _fr_details("Data gaps", gaps_html)
 
+    flags_section = _flags_section(res.company.ticker)
+
     return (
         '<div class="report-fragment">'
         + summary_html
@@ -707,6 +727,7 @@ def render_fragment(
         + margins_html
         + valuation_html
         + gaps_section
+        + flags_section
         + "</div>"
     )
 
