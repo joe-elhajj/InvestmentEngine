@@ -47,10 +47,57 @@ bash -x app/launcher.sh
 
 ## 3. Auto-start at login
 
+### 3a. Give the launchd job your Anthropic API key
+
+Tier 2's flag extraction (`/api/flags/{ticker}`) needs `ANTHROPIC_API_KEY` at
+runtime. The key must never be committed to this repo, and `launchd` jobs
+don't inherit your shell's environment (no `~/.zshrc`, no `export`), so it
+has to be injected directly into the installed plist's own
+`EnvironmentVariables` — from a file that lives outside the repo entirely.
+
+Create `~/.investment_engine/env.plist` (this directory is NOT part of the
+git repo, so nothing here can ever be committed):
+
+```bash
+mkdir -p ~/.investment_engine
+cat > ~/.investment_engine/env.plist <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ANTHROPIC_API_KEY</key>
+        <string>sk-ant-REPLACE-WITH-YOUR-REAL-KEY</string>
+    </dict>
+</dict>
+</plist>
+EOF
+chmod 600 ~/.investment_engine/env.plist   # readable only by you — it holds a live API key
+```
+
+### 3b. Install the plist and merge the key in
+
 ```bash
 cp app/com.joeelhajj.investmentengine.plist ~/Library/LaunchAgents/
+/usr/libexec/PlistBuddy -c "Merge ~/.investment_engine/env.plist" \
+  ~/Library/LaunchAgents/com.joeelhajj.investmentengine.plist
 launchctl load ~/Library/LaunchAgents/com.joeelhajj.investmentengine.plist
 ```
+
+`PlistBuddy Merge` adds `env.plist`'s top-level `EnvironmentVariables` dict
+into the COPY sitting in `~/Library/LaunchAgents` — the tracked template in
+this repo (`app/com.joeelhajj.investmentengine.plist`) is never touched and
+never carries a key. `launchd` sets that environment on the job's process;
+`launcher.sh`'s `exec` inherits it straight through to `uvicorn`, no code
+change needed there.
+
+If you ever rotate the key: edit `~/.investment_engine/env.plist`, re-run
+the `PlistBuddy Merge` + `cp` step above (Merge overwrites the existing
+`EnvironmentVariables` key rather than duplicating it), then
+`launchctl kickstart -k gui/$(id -u)/com.joeelhajj.investmentengine` to
+restart with the new value.
 
 Verify it's actually listening:
 

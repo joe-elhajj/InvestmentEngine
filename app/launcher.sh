@@ -7,7 +7,12 @@
 # PATH. So this resolves an ABSOLUTE path to the conda base environment's
 # uvicorn instead of just calling `uvicorn` and hoping PATH has it.
 #
-# No secrets live here — just a path resolution and an exec.
+# No secrets live here — just a path resolution and an exec. ANTHROPIC_API_KEY
+# (needed for Tier 2's /api/flags/{ticker}) is NOT set by this script: it's
+# set in the launchd job's own environment via the EnvironmentVariables block
+# merged into ~/Library/LaunchAgents/com.joeelhajj.investmentengine.plist from
+# the gitignored ~/.investment_engine/env.plist (see app/INSTALL.md) — `exec`
+# below inherits that environment down to uvicorn without any extra code here.
 
 set -euo pipefail
 
