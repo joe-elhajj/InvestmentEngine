@@ -25,11 +25,11 @@ def db_path(tmp_path) -> Path:
 
 def _log(db_path, ticker="NVDA", model="claude-sonnet-5", prompt_version="v1",
           input_tokens=1000, output_tokens=100, cost_usd=0.01, cache_status="live",
-          called_at=None):
+          call_type="flags", called_at=None):
     usage.log_call(
         ticker=ticker, model=model, prompt_version=prompt_version,
         input_tokens=input_tokens, output_tokens=output_tokens,
-        cost_usd=cost_usd, cache_status=cache_status, db_path=db_path,
+        cost_usd=cost_usd, cache_status=cache_status, call_type=call_type, db_path=db_path,
     )
     if called_at is not None:
         # log_call always stamps "now" internally — tests that need a
@@ -154,9 +154,21 @@ class TestSummary:
         assert by_model["claude-sonnet-4-6"] == {"model": "claude-sonnet-4-6", "cost_usd": 3.0, "calls": 2}
         assert by_model["claude-haiku-4-5-20251001"] == {"model": "claude-haiku-4-5-20251001", "cost_usd": 0.5, "calls": 1}
 
+    def test_per_call_type_breakdown_groups_correctly(self, db_path):
+        _log(db_path, cost_usd=1.0, cache_status="live", call_type="flags", called_at="2026-07-01T00:00:00+00:00")
+        _log(db_path, cost_usd=2.0, cache_status="live", call_type="council_opinions", called_at="2026-07-01T00:00:00+00:00")
+        _log(db_path, cost_usd=0.5, cache_status="live", call_type="council_review", called_at="2026-07-01T00:00:00+00:00")
+        now = datetime(2026, 7, 4, tzinfo=timezone.utc)
+        result = usage.summary(db_path=db_path, now=now)
+        by_type = {t["call_type"]: t for t in result["per_call_type"]}
+        assert by_type["flags"] == {"call_type": "flags", "cost_usd": 1.0, "calls": 1}
+        assert by_type["council_opinions"] == {"call_type": "council_opinions", "cost_usd": 2.0, "calls": 1}
+        assert by_type["council_review"] == {"call_type": "council_review", "cost_usd": 0.5, "calls": 1}
+
 
 # ---------------------------------------------------------------------------
-# Null-cost (pricing_unknown) rows — see engine.flags.compute_cost_usd
+# Null-cost (pricing_unknown) rows — see engine.flags.compute_cost_usd /
+# engine.council.compute_council_cost_usd
 # ---------------------------------------------------------------------------
 
 class TestUnknownPricingRows:
@@ -199,7 +211,10 @@ class TestUnknownPricingRows:
 
 
 # ---------------------------------------------------------------------------
-# Schema migration — an existing DB may predate nullable cost_usd
+# Schema migration — an existing DB may predate nullable cost_usd, the
+# call_type column, both, or neither. _migrate() must handle all four
+# starting states idempotently: it must never assume which (if any) prior
+# migration already ran against a given on-disk database.
 # ---------------------------------------------------------------------------
 
 class TestCostUsdNullableMigration:
@@ -249,3 +264,136 @@ class TestCostUsdNullableMigration:
         finally:
             conn.close()
         assert count == 2
+
+
+class TestMigration:
+    """A table created by an older version of this module (cost_usd NOT
+    NULL, no call_type column) must upgrade in place — existing rows
+    preserved, never dropped or reset. Also covers the intermediate state
+    a real deployment can be in TODAY: cost_usd already nullable (from
+    TestCostUsdNullableMigration's fix, above) but call_type still absent
+    — _migrate() must not assume its own rebuild path is the only one that
+    ever ran against a given database."""
+
+    def _old_schema_db(self, db_path):
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE flag_extraction_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                model TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                cost_usd REAL NOT NULL,
+                called_at TEXT NOT NULL,
+                cache_status TEXT NOT NULL
+            );
+        """)
+        conn.execute(
+            "INSERT INTO flag_extraction_usage "
+            "(ticker, model, prompt_version, input_tokens, output_tokens, cost_usd, called_at, cache_status) "
+            "VALUES ('NVDA', 'claude-sonnet-5', 'v1', 1000, 100, 0.05, '2026-01-01T00:00:00+00:00', 'live')"
+        )
+        conn.commit()
+        conn.close()
+
+    def _nullable_no_call_type_db(self, db_path):
+        """The state a real database is in immediately after
+        TestCostUsdNullableMigration's fix ran but before this call_type
+        migration existed: cost_usd already nullable, call_type absent."""
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE flag_extraction_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL,
+                model TEXT NOT NULL,
+                prompt_version TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL,
+                output_tokens INTEGER NOT NULL,
+                cost_usd REAL,
+                called_at TEXT NOT NULL,
+                cache_status TEXT NOT NULL
+            );
+        """)
+        conn.execute(
+            "INSERT INTO flag_extraction_usage "
+            "(ticker, model, prompt_version, input_tokens, output_tokens, cost_usd, called_at, cache_status) "
+            "VALUES ('NVDA', 'claude-sonnet-5', 'v1', 1000, 100, NULL, '2026-01-01T00:00:00+00:00', 'live')"
+        )
+        conn.commit()
+        conn.close()
+
+    def test_call_type_column_added_with_flags_default(self, db_path):
+        self._old_schema_db(db_path)
+        conn = usage._connect(db_path)  # triggers _migrate()
+        try:
+            row = conn.execute("SELECT ticker, call_type FROM flag_extraction_usage").fetchone()
+        finally:
+            conn.close()
+        assert row == ("NVDA", "flags")
+
+    def test_existing_row_data_fully_preserved(self, db_path):
+        self._old_schema_db(db_path)
+        conn = usage._connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT ticker, model, prompt_version, input_tokens, output_tokens, cost_usd, called_at, cache_status "
+                "FROM flag_extraction_usage"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert row == ("NVDA", "claude-sonnet-5", "v1", 1000, 100, 0.05, "2026-01-01T00:00:00+00:00", "live")
+
+    def test_cost_usd_is_nullable_after_migration(self, db_path):
+        self._old_schema_db(db_path)
+        conn = usage._connect(db_path)
+        try:
+            conn.execute(
+                "INSERT INTO flag_extraction_usage "
+                "(ticker, model, prompt_version, input_tokens, output_tokens, cost_usd, called_at, cache_status, call_type) "
+                "VALUES ('AAPL', 'claude-sonnet-5', 'v1', 500, 50, NULL, '2026-02-01T00:00:00+00:00', 'live', 'flags')"
+            )
+            conn.commit()
+            count = conn.execute("SELECT COUNT(*) FROM flag_extraction_usage WHERE cost_usd IS NULL").fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 1
+
+    def test_a_brand_new_db_needs_no_migration_and_already_has_call_type(self, db_path):
+        # _connect() on a path with no existing file just creates the
+        # current schema directly — _migrate() should be a clean no-op.
+        conn = usage._connect(db_path)
+        try:
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(flag_extraction_usage)").fetchall()}
+        finally:
+            conn.close()
+        assert "call_type" in cols
+
+    def test_log_call_works_immediately_after_migration(self, db_path):
+        self._old_schema_db(db_path)
+        usage.log_call(
+            ticker="MSFT", model="claude-sonnet-5", prompt_version="v1",
+            input_tokens=200, output_tokens=20, cost_usd=0.01, cache_status="live",
+            call_type="council_chairman", db_path=db_path,
+        )
+        conn = usage._connect(db_path)
+        try:
+            rows = conn.execute("SELECT ticker, call_type FROM flag_extraction_usage ORDER BY id").fetchall()
+        finally:
+            conn.close()
+        assert rows == [("NVDA", "flags"), ("MSFT", "council_chairman")]
+
+    def test_already_nullable_db_missing_only_call_type_upgrades_via_add_column_not_rebuild(self, db_path):
+        """The exact scenario Task 2 is worried about: a real deployment
+        where TestCostUsdNullableMigration's fix already ran (cost_usd
+        nullable) but call_type didn't exist yet. Must add the column
+        in place — never assume a full rebuild is required, and never
+        assume this is the FIRST migration this database has ever seen."""
+        self._nullable_no_call_type_db(db_path)
+        conn = usage._connect(db_path)
+        try:
+            row = conn.execute("SELECT ticker, cost_usd, call_type FROM flag_extraction_usage").fetchone()
+        finally:
+            conn.close()
+        assert row == ("NVDA", None, "flags")
