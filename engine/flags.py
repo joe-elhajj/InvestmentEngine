@@ -114,18 +114,22 @@ def _build_user_prompt(sections: dict) -> str:
     return "\n\n".join(parts)
 
 
-def _call_model(client, model: str, temperature: float, prompt: str, usage_sink: Optional[dict] = None) -> str:
+def _call_model(client, model: str, prompt: str, usage_sink: Optional[dict] = None) -> str:
     """Isolated so tests can patch exactly this function (mock the API,
     assert call count) without needing a real anthropic.Anthropic client.
     usage_sink, if given, is filled in with the SDK response's real
     input_tokens/output_tokens — the spend-tracking layer (app/usage.py)
     prices these at call time rather than trusting an estimate. Left None
     by every existing caller that doesn't need it, so this stays a no-op
-    for tests that mock a bare response with no `.usage` set up."""
+    for tests that mock a bare response with no `.usage` set up.
+
+    No `temperature` kwarg: claude-sonnet-5 (and other current-generation
+    models) reject it outright (400 invalid_request_error — "temperature
+    is deprecated for this model"). This is not conditioned on the pinned
+    model string — the parameter is simply never sent, for any model."""
     response = client.messages.create(
         model=model,
         max_tokens=2000,
-        temperature=temperature,
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -163,11 +167,10 @@ def extract_flags_raw(
     """
     flags_cfg = cfg.get("flags", {})
     model = flags_cfg.get("model", "claude-sonnet-5")
-    temperature = flags_cfg.get("temperature", 0)
     prompt_version = flags_cfg.get("prompt_version", "v1")
 
     prompt = _build_user_prompt(sections)
-    raw_text = _call_model(client, model, temperature, prompt, usage_sink=usage_sink)
+    raw_text = _call_model(client, model, prompt, usage_sink=usage_sink)
     candidates = _parse_model_flags(raw_text)
 
     verified: list = []
@@ -391,14 +394,26 @@ def estimate_extraction_cost_usd(cfg: dict) -> Optional[float]:
     return round(cost, 2)
 
 
-def compute_cost_usd(cfg: dict, model: str, input_tokens: Optional[int], output_tokens: Optional[int]) -> float:
+def compute_cost_usd(cfg: dict, model: str, input_tokens: Optional[int], output_tokens: Optional[int]) -> Optional[float]:
     """Actual cost from real SDK token counts, priced against config.yaml
     AT CALL TIME — the caller stores this returned value, so a later price
-    change never retroactively rewrites a historical usage row. Missing
-    pricing or missing token counts price as 0.0 rather than raising —
-    an honest "we don't know" belongs in the config/logs, not a 500 on
-    the extraction endpoint the user is actively waiting on."""
-    pricing = _pricing_for(cfg, model) or {}
+    change never retroactively rewrites a historical usage row.
+
+    Returns None — never a fabricated 0.0 — when the pinned model has no
+    entry in config.yaml's flags.pricing table. A real, billed model call
+    with unknown pricing is not the same thing as a free cache hit, and
+    conflating the two (both showing $0) would silently understate spend
+    the next time the pinned model changes and pricing isn't updated to
+    match. Logs a warning so that gap is visible immediately, not just
+    discoverable later by an analyst noticing the dashboard total looks
+    low."""
+    pricing = _pricing_for(cfg, model)
+    if not pricing:
+        log.warning(
+            "! pricing_unknown: config.yaml flags.pricing has no entry for model %r — "
+            "cost_usd will be recorded as unknown (null), not $0", model,
+        )
+        return None
     cost = (
         (input_tokens or 0) / 1_000_000 * pricing.get("input_per_million", 0)
         + (output_tokens or 0) / 1_000_000 * pricing.get("output_per_million", 0)
@@ -417,10 +432,6 @@ def validate_flags_config(cfg: dict) -> None:
 
     if not flags_cfg.get("model"):
         raise ValueError("config.yaml flags.model is required.")
-
-    temperature = flags_cfg.get("temperature", 0)
-    if not isinstance(temperature, (int, float)) or isinstance(temperature, bool):
-        raise ValueError("config.yaml flags.temperature must be a number.")
 
     overrides = flags_cfg.get("overrides", {})
     if not isinstance(overrides, dict):

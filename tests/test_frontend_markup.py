@@ -205,17 +205,35 @@ class TestDataDiagnosticsSection:
         assert excluded_pos < diagnostics_pos
 
     def test_diagnostics_table_headers(self):
+        """Universe/config_hash are gone from the per-row columns — see
+        test_diagnostics_stamp_element_present for where they went instead."""
         match = re.search(
             r'<table id="diagnostics-table">.*?<thead>(.*?)</thead>', _INDEX_HTML, re.S
         )
         assert match
         labels = re.findall(r"<th[^>]*>(.*?)</th>", match.group(1))
-        assert labels == ["Ticker", "Band", "Completeness", "Stable", "Universe", "Config Hash", "Notes"]
+        assert labels == ["Ticker", "Band", "Completeness", "Stable", "Notes"]
+
+    def test_diagnostics_stamp_element_present(self):
+        assert '<p id="diagnostics-stamp"' in _INDEX_HTML
+
+    def test_diagnostics_clean_message_present_and_hidden_by_default(self):
+        match = re.search(r'<p id="diagnostics-clean"([^>]*)>', _INDEX_HTML)
+        assert match
+        assert "hidden" in match.group(1)
+        assert "no diagnostics to report" in _INDEX_HTML
 
     def test_no_second_screen_run_for_diagnostics(self):
         """Diagnostics must be populated from the same renderScreen() data
         as the other tables, not a second fetch to /api/screen."""
-        assert "renderDiagnostics(data.equities)" in _APP_JS
+        assert "renderDiagnostics(data)" in _APP_JS
         diagnostics_fn = re.search(r"function renderDiagnostics\(.*?\n  \}", _APP_JS, re.S)
         assert diagnostics_fn
         assert "fetch(" not in diagnostics_fn.group(0)
+
+    def test_exceptions_only_filter_present(self):
+        """Task 3: only rows with completeness<100%, stable==no, or a note
+        render at all — everything else is pure noise (band/completeness/
+        stable identical, universe/config_hash repeated every row)."""
+        assert "function diagnosticsRowNeeded" in _APP_JS
+        assert ".filter(diagnosticsRowNeeded)" in _APP_JS

@@ -103,13 +103,14 @@ web:
 flags:
   # Tier 2 — qualitative red/green flag extraction (engine/flags.py). The
   # ONLY LLM call in the codebase; pinned here, never hardcoded, so a model
-  # or prompt change is a version-controlled, auditable event. temperature: 0
-  # for maximally deterministic (though still non-deterministic) selection.
+  # or prompt change is a version-controlled, auditable event. No
+  # `temperature` setting: current-generation models (claude-sonnet-5
+  # included) reject the parameter outright (400 invalid_request_error),
+  # so engine/flags.py never sends it — nothing here would take effect.
   # prompt_version bump whenever _SYSTEM_PROMPT changes materially — it's
   # part of the extraction cache key, so a bump forces re-extraction on next
   # request rather than silently reusing a stale cached result.
   model: "claude-sonnet-5"
-  temperature: 0
   prompt_version: v1
 
   # Spend control (app/usage.py, app/main.py's /api/flags/{ticker} gate).
@@ -119,6 +120,12 @@ flags:
   # Prices are looked up AT CALL TIME and stamped onto the usage row, so a
   # price edit here never retroactively changes a historical row's cost.
   pricing:
+    # Introductory pricing through 2026-08-31; reverts to $3.00 / $15.00 per
+    # million after that — bump this entry when it does, or cost stamping
+    # silently undercharges every call by a third.
+    claude-sonnet-5:
+      input_per_million: 2.00
+      output_per_million: 10.00
     claude-sonnet-4-6:
       input_per_million: 3.00
       output_per_million: 15.00

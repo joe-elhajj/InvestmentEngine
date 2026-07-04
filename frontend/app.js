@@ -102,6 +102,9 @@
     etfBody: document.querySelector("#etf-table tbody"),
     excludedBody: document.querySelector("#excluded-table tbody"),
     diagnosticsBody: document.querySelector("#diagnostics-table tbody"),
+    diagnosticsStamp: document.getElementById("diagnostics-stamp"),
+    diagnosticsClean: document.getElementById("diagnostics-clean"),
+    diagnosticsTableWrap: document.getElementById("diagnostics-table-wrap"),
     metaLine: document.getElementById("meta-line"),
     removeConfirm: document.getElementById("remove-confirm"),
     removeConfirmText: document.getElementById("remove-confirm-text"),
@@ -437,8 +440,13 @@
       inner = html;
     }
 
+    var pricingNote = data.pricing_unknown
+      ? '<p class="flags-pricing-unknown">Pricing not configured for this model — cost not recorded for this call.</p>'
+      : "";
+
     body.innerHTML =
       '<div class="flags-toolbar"><button type="button" class="flags-reextract-btn">Re-extract</button></div>'
+      + pricingNote
       + inner;
   }
 
@@ -612,6 +620,12 @@
   // Uses the same equities rows already returned by /api/screen (each
   // ScreenRow is serialized in full via dataclasses.asdict() — see
   // app/main.py's _serialize_screen()) — no second screen run.
+  //
+  // Exceptions-only: a ticker that's 100% complete, stable, and note-free
+  // is pure noise here (its band/completeness/stable columns are always
+  // identical) and is omitted entirely. universe_version/config_hash are
+  // identical across every row in a single run, so they're shown once as
+  // a run-level stamp instead of repeated per row.
 
   function bandDisplay(row) {
     var loNa = row.composite_low === null || row.composite_low === undefined;
@@ -627,21 +641,37 @@
     return row.is_stable ? "yes" : "unstable";
   }
 
+  function diagnosticsRowNeeded(row) {
+    var completenessFull = row.completeness !== null && row.completeness !== undefined && row.completeness >= 1;
+    var unstable = row.is_stable === false;
+    var hasNote = !!(row.flag && row.flag.length);
+    return !completenessFull || unstable || hasNote;
+  }
+
   function renderDiagnosticsRow(row) {
     var tr = document.createElement("tr");
     tr.appendChild(td(row.ticker, { cls: "l" }));
     tr.appendChild(td(bandDisplay(row), { cls: "l" }));
     tr.appendChild(td(fmtPct(row.completeness)));
     tr.appendChild(td(stableDisplay(row), { cls: "l" }));
-    tr.appendChild(td(row.universe_version, { cls: "l" }));
-    tr.appendChild(td(row.config_hash, { cls: "l mono" }));
     tr.appendChild(td(row.flag ? humanizeReason(row.flag) : null, { cls: "l" }));
     return tr;
   }
 
-  function renderDiagnostics(equities) {
+  function renderDiagnostics(data) {
+    var equities = data.equities;
+    var exceptions = equities.filter(diagnosticsRowNeeded);
+
+    var stampParts = [];
+    if (data.universe) stampParts.push("Universe " + data.universe);
+    if (data.config_hash) stampParts.push("config " + data.config_hash);
+    els.diagnosticsStamp.textContent = stampParts.join(" · ");
+
     els.diagnosticsBody.innerHTML = "";
-    equities.forEach(function (r) { els.diagnosticsBody.appendChild(renderDiagnosticsRow(r)); });
+    exceptions.forEach(function (r) { els.diagnosticsBody.appendChild(renderDiagnosticsRow(r)); });
+
+    els.diagnosticsTableWrap.classList.toggle("hidden", exceptions.length === 0);
+    els.diagnosticsClean.classList.toggle("hidden", exceptions.length !== 0);
     els.diagnosticsSection.classList.toggle("hidden", equities.length === 0);
   }
 
@@ -662,7 +692,7 @@
     renderEquitiesBody();
     renderEtfBody();
     data.excluded.forEach(function (r) { els.excludedBody.appendChild(renderExcludedRow(r)); });
-    renderDiagnostics(data.equities);
+    renderDiagnostics(data);
 
     els.equitiesSection.classList.toggle("hidden", data.equities.length === 0);
     els.etfSection.classList.toggle("hidden", data.etfs.length === 0);
@@ -932,6 +962,14 @@
         + "<td>" + escapeHtml(String(m.calls)) + "</td></tr>";
     }).join("");
 
+    var unknownPricingNote = data.rows_with_unknown_pricing
+      ? '<p class="usage-unknown-pricing-note">'
+        + data.rows_with_unknown_pricing
+        + (data.rows_with_unknown_pricing === 1 ? " call has" : " calls have")
+        + " no pricing configured and are excluded from the totals above — the real spend is at least this much."
+        + "</p>"
+      : "";
+
     els.usageModalBody.innerHTML =
       '<div class="usage-stats">'
       + '<div class="usage-stat"><span class="usage-stat-label">Lifetime spend</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.lifetime_total_usd)) + "</span></div>"
@@ -940,6 +978,7 @@
       + '<div class="usage-stat"><span class="usage-stat-label">Trailing-12mo projection</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.trailing_12mo_projection_usd)) + "</span></div>"
       + "</div>"
       + '<p class="usage-projection-note">Projection = trailing 30-day spend &times; 12, assuming the current usage rate continues.</p>'
+      + unknownPricingNote
       + '<div class="surface"><div class="scroll"><table class="usage-table">'
       + '<thead><tr><th class="l">Month</th><th>Cost</th><th>Calls</th></tr></thead>'
       + "<tbody>" + rows + "</tbody>"

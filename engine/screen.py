@@ -41,11 +41,68 @@ from typing import Optional
 
 from engine.edgar import CompanyData, EdgarClient
 from engine.market import get_quote
-from engine.pipeline import derive
+from engine.pipeline import AnalysisResult, derive
 from engine import durability as D
 from engine.etf import EtfProfile, fetch_etf_profile, FUND_QUOTE_TYPES
 
 log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Implied-growth "n/a" reason text — single source of truth. Both consumers
+# (ScreenRow.implied_growth_note, folded into ScreenRow.flag for the
+# diagnostics/excluded Notes column) read the same string built once here,
+# so the dashboard's Data Diagnostics section and this module's own HTML
+# report can never diverge into two separate copies of the same reason.
+# ---------------------------------------------------------------------------
+
+_IG_NOTE_BRACKET_UPPER_HIT = (
+    "Reverse-DCF: market implies >60% annual growth, above the model's "
+    "+60% solver ceiling — expectations gap not computable (price is "
+    "off-scale rich vs. current FCF)."
+)
+_IG_NOTE_FCF_NON_POSITIVE = (
+    "Reverse-DCF: normalized free cash flow is zero or negative, so "
+    "implied growth cannot be computed (no positive FCF base to grow "
+    "from)."
+)
+
+
+def _implied_growth_columns(res: AnalysisResult, cd: CompanyData) -> tuple:
+    """
+    Pure: derives (implied_g, gap, ig_note) from an already-computed
+    AnalysisResult + CompanyData, no I/O and no scoring dependency —
+    extracted out of _score_ticker() so the n/a-reason text can be unit
+    tested directly without standing up a full mocked EDGAR/quote/
+    durability pipeline.
+    """
+    igr = res.implied_growth_result
+    if igr is None:
+        implied_g = None
+        if cd.reporting_currency != "USD":
+            ig_note = (
+                f"n/a — valuation gated: reporting currency {cd.reporting_currency} "
+                "vs USD market data"
+            )
+        else:
+            ig_note = f"n/a — {_IG_NOTE_FCF_NON_POSITIVE}"
+    elif igr.bracket_hit and igr.bracket_bound == "upper":
+        implied_g = None
+        ig_note = f"n/a — {_IG_NOTE_BRACKET_UPPER_HIT}"
+    elif igr.bracket_hit:
+        implied_g = None
+        bound = igr.bracket_bound or "?"
+        ig_note = (
+            f"n/a — bracket {bound} hit "
+            f"(implied g {'<' if bound == 'lower' else '>'} "
+            f"{igr.implied_growth:.0%})"
+        )
+    else:
+        implied_g = igr.implied_growth
+        ig_note = ""
+
+    gap = res.expectations_gap if (igr is not None and not igr.bracket_hit) else None
+    return implied_g, gap, ig_note
+
 
 # ---------------------------------------------------------------------------
 # Routing outcome per ticker (operating securities)
@@ -330,29 +387,7 @@ def _process_one(
         return c.composite if c else None
 
     # Build growth-signal columns
-    igr = res.implied_growth_result
-    if igr is None:
-        implied_g = None
-        if cd.reporting_currency != "USD":
-            ig_note = (
-                f"n/a — valuation gated: reporting currency {cd.reporting_currency} "
-                "vs USD market data"
-            )
-        else:
-            ig_note = "n/a — not meaningful: normalized FCF unavailable or non-positive"
-    elif igr.bracket_hit:
-        implied_g = None
-        bound = igr.bracket_bound or "?"
-        ig_note = (
-            f"n/a — bracket {bound} hit "
-            f"(implied g {'<' if bound == 'lower' else '>'} "
-            f"{igr.implied_growth:.0%})"
-        )
-    else:
-        implied_g = igr.implied_growth
-        ig_note = ""
-
-    gap = res.expectations_gap if (igr is not None and not igr.bracket_hit) else None
+    implied_g, gap, ig_note = _implied_growth_columns(res, cd)
 
     # Compose diagnostics flag: combine evidence + ig_note + currency info
     flag_parts: list[str] = []

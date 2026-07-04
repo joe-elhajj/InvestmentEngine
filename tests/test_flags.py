@@ -10,6 +10,7 @@ user. Every other test here mocks the model call (engine.flags._call_model)
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -37,7 +38,7 @@ def _filing_ref(accession="0000320193-24-000123") -> FilingRef:
     )
 
 
-_CFG = {"flags": {"model": "claude-sonnet-5", "temperature": 0, "prompt_version": "v1"}}
+_CFG = {"flags": {"model": "claude-sonnet-5", "prompt_version": "v1"}}
 
 
 def _mock_model_response(payload: list) -> MagicMock:
@@ -179,6 +180,19 @@ class TestExtractFlagsRaw:
         assert result.prompt_version == "v1"
         assert result.extracted_at
         assert result.ticker == "NVDA"
+
+    def test_messages_create_never_sent_a_temperature_kwarg(self):
+        """current-generation models (claude-sonnet-5 included) reject
+        `temperature` outright with a 400 — the mocked client can't catch
+        that live, but it CAN catch the regression of the kwarg creeping
+        back into the constructed request."""
+        sections = {"1A": "Risk text."}
+        client = MagicMock()
+        client.messages.create.return_value = _mock_model_response([])
+        extract_flags_raw("NVDA", sections, _filing_ref(), _CFG, client)
+        client.messages.create.assert_called_once()
+        _, kwargs = client.messages.create.call_args
+        assert "temperature" not in kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -423,9 +437,24 @@ class TestCostHelpers:
         cost = compute_cost_usd(self._PRICED_CFG, "claude-sonnet-4-6", 1_000_000, 1_000_000)
         assert cost == pytest.approx(18.0)
 
-    def test_compute_cost_is_zero_for_unpriced_model(self):
+    def test_compute_cost_is_none_not_zero_for_unpriced_model(self):
+        """A real, billed call with unknown pricing must never be recorded
+        as a fabricated $0 — that would be indistinguishable from a
+        legitimately-free cache hit and would silently understate spend."""
         cost = compute_cost_usd(self._PRICED_CFG, "some-other-model", 1_000_000, 1_000_000)
-        assert cost == 0.0
+        assert cost is None
+
+    def test_compute_cost_unpriced_model_logs_a_warning(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="engine.flags"):
+            compute_cost_usd(self._PRICED_CFG, "some-other-model", 1_000_000, 1_000_000)
+        assert "some-other-model" in caplog.text
+        assert "pricing" in caplog.text.lower()
+
+    def test_compute_cost_priced_model_path_is_unaffected(self):
+        """The fix for the unpriced-model gap must not change behavior for
+        a model that DOES have a pricing entry."""
+        cost = compute_cost_usd(self._PRICED_CFG, "claude-sonnet-4-6", 1_000_000, 1_000_000)
+        assert cost == pytest.approx(18.0)
 
     def test_compute_cost_treats_missing_token_counts_as_zero(self):
         cost = compute_cost_usd(self._PRICED_CFG, "claude-sonnet-4-6", None, None)
@@ -445,11 +474,7 @@ class TestValidateFlagsConfig:
 
     def test_missing_model_raises(self):
         with pytest.raises(ValueError, match="model"):
-            validate_flags_config({"flags": {"temperature": 0}})
-
-    def test_non_numeric_temperature_raises(self):
-        with pytest.raises(ValueError, match="temperature"):
-            validate_flags_config({"flags": {"model": "m", "temperature": "cold"}})
+            validate_flags_config({"flags": {"prompt_version": "v1"}})
 
     def test_overrides_must_be_a_mapping(self):
         with pytest.raises(ValueError, match="overrides"):
