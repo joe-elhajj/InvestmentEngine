@@ -35,6 +35,7 @@ from pydantic import BaseModel
 
 from app import usage, watchlist
 from engine.analysis import run_single_ticker
+from engine import council as COUNCIL
 from engine import durability as D
 from engine.edgar import EdgarClient, SEC_TICKERS_URL
 from engine.etf import fetch_etf_profile, FUND_QUOTE_TYPES
@@ -111,6 +112,7 @@ async def lifespan(app: FastAPI):
     # Fail fast: a malformed flags.overrides in config.yaml surfaces at
     # startup, not on the first /api/flags/{ticker} request.
     FLAGS.validate_flags_config(cfg)
+    COUNCIL.validate_council_config(cfg)
 
     # Filing text fetch/parse/cache (engine/filings.py) — reuses the same
     # EdgarClient session/rate-limit/User-Agent, own on-disk cache keyed by
@@ -713,6 +715,181 @@ async def get_flags(ticker: str, extract: bool = False, refresh: bool = False):
 @app.get("/api/usage")
 def get_usage():
     return usage.summary()
+
+
+# ---------------------------------------------------------------------------
+# Council — Tier 3 adversarial synthesis (engine/council.py). Spend-gated
+# exactly like /api/flags/{ticker} above: GET never spends, POST
+# ?convene=true is the only path that does. A council run reuses
+# flags.model/flags.pricing directly and NEVER triggers a flag extraction
+# of its own — if flags aren't cached yet for this ticker's latest 10-K,
+# both endpoints report that plainly rather than spending on the user's
+# behalf.
+# ---------------------------------------------------------------------------
+
+_COUNCIL_CACHE_DIR = REPO_ROOT / ".cache" / "council"
+
+# No thesis-journal store exists in this codebase yet (grep confirms it —
+# every bundle today is pre-thesis). This is the single place that fact is
+# encoded, so wiring up a real thesis store later only touches this
+# constant/helper, not either endpoint below.
+_THESIS_TAG = "prethesis"
+
+
+async def _council_preflight(tk: str):
+    """Free (non-LLM) preflight shared by both endpoints: the latest 10-K's
+    accession number plus whether Tier 2 flags are already cached for it.
+    Never triggers a flag extraction."""
+    loop = asyncio.get_running_loop()
+    filing_sections = await loop.run_in_executor(
+        None, app.state.filings_client.latest_10k_sections, tk
+    )
+    if filing_sections is None:
+        raise HTTPException(status_code=404, detail=f"No 10-K filing found for {tk}.")
+
+    flags_cfg = app.state.cfg.get("flags", {})
+    flags_model = flags_cfg.get("model", "claude-sonnet-5")
+    flags_prompt_version = flags_cfg.get("prompt_version", "v1")
+    flags_cached = FLAGS.is_cached(_FLAGS_CACHE_DIR, filing_sections.accession, flags_prompt_version, flags_model)
+    return filing_sections, flags_cached, flags_model, flags_prompt_version
+
+
+async def _assemble_council_bundle(tk: str, filing_sections, flags_model: str, flags_prompt_version: str) -> COUNCIL.EvidenceBundle:
+    """Only ever called once the preflight has confirmed flags are cached —
+    get_flags() below will find the raw extraction on disk and never reach
+    its model-call branch, so passing the (possibly None) anthropic client
+    here can never trigger a paid call."""
+    filing_ref = FLAGS.FilingRef(
+        form=filing_sections.form, accession=filing_sections.accession,
+        period_ending=filing_sections.period_ending, filed=filing_sections.filed,
+        url=filing_sections.url,
+    )
+    loop = asyncio.get_running_loop()
+    flags_result = await loop.run_in_executor(
+        None, FLAGS.get_flags, tk, filing_sections.sections, filing_ref,
+        app.state.cfg, app.state.anthropic_client, _FLAGS_CACHE_DIR, False, None,
+    )
+    quant_res = await _get_analysis_result(tk)
+    quant_payload = asdict(quant_res)
+    config_hash = _config_hash(app.state.cfg)
+    quant_payload["config_hash"] = config_hash
+    # Thesis journal not yet implemented as a store (see _THESIS_TAG) —
+    # every bundle assembled here is pre-thesis until one exists.
+    return COUNCIL.assemble_bundle(
+        ticker=tk, quant=quant_payload, flags_result=flags_result, thesis=None,
+        accession=filing_sections.accession, config_hash=config_hash,
+    )
+
+
+def _log_council_usage(tk: str, call_info: list, model: str, prompt_version: str, cache_status: str) -> None:
+    """One usage row per real call in call_info — a run that fails partway
+    through still logs whatever calls actually completed (and were
+    billed) before the failure; nothing real ever goes unlogged."""
+    for rec in call_info:
+        usage.log_call(
+            ticker=tk, model=model, prompt_version=prompt_version,
+            input_tokens=rec.get("input_tokens") or 0, output_tokens=rec.get("output_tokens") or 0,
+            cost_usd=COUNCIL.compute_council_cost_usd(app.state.cfg, model, rec.get("input_tokens"), rec.get("output_tokens")),
+            cache_status=cache_status, call_type=rec["call_type"],
+        )
+
+
+@app.get("/api/council/{ticker}")
+async def get_council(ticker: str):
+    """Never spends. Reports one of three states: blocked_no_flags (Tier 2
+    flags must be extracted first — this endpoint will not do it for you),
+    not_cached (a cost/call estimate, no model call), or the full cached
+    council record from a prior convene."""
+    tk = ticker.strip().upper()
+    filing_sections, flags_cached, flags_model, flags_prompt_version = await _council_preflight(tk)
+
+    if not flags_cached:
+        return {
+            "state": "blocked_no_flags",
+            "message": f"Flags not extracted for {tk} yet. Extract them first: GET /api/flags/{tk}?extract=true.",
+        }
+
+    council_prompt_version = app.state.cfg.get("council", {}).get("prompt_version", "v1")
+    cached = COUNCIL.is_cached(_COUNCIL_CACHE_DIR, filing_sections.accession, _THESIS_TAG, council_prompt_version, flags_model)
+    if cached:
+        result = COUNCIL.load_cached(_COUNCIL_CACHE_DIR, filing_sections.accession, _THESIS_TAG, council_prompt_version, flags_model)
+        payload = asdict(result)
+        payload["state"] = "ok"
+        payload["cache_status"] = "cached"
+        return payload
+
+    # Assembling the bundle here (not just checking quant status) is what lets
+    # the cost estimate below be sized to THIS ticker's real evidence volume
+    # rather than a ticker-independent guess — a fixed baseline was tried
+    # first and was wrong-low by more than 2x on a real convene (see
+    # engine.council.estimate_council_cost_usd's docstring). This is still a
+    # free operation: get_flags() only reads the on-disk cache (flags_cached
+    # was already confirmed True above) and _get_analysis_result() is Tier
+    # 1's deterministic EDGAR/yfinance path — neither ever calls the
+    # Anthropic API, so GET still never spends.
+    bundle_text = None
+    try:
+        bundle = await _assemble_council_bundle(tk, filing_sections, flags_model, flags_prompt_version)
+        quant_status = "ok"
+        bundle_text = COUNCIL.render_bundle_text(bundle)
+    except Exception:
+        quant_status = "error"
+
+    return {
+        "state": "not_cached",
+        "model": flags_model,
+        "calls": 7,
+        "estimated_cost_usd": COUNCIL.estimate_council_cost_usd(app.state.cfg, bundle_text),
+        "evidence_status": {"quant": quant_status, "flags": "cached", "thesis": "pre_thesis"},
+    }
+
+
+@app.post("/api/council/{ticker}")
+async def convene_council(ticker: str, convene: bool = False, refresh: bool = False):
+    """The ONLY path that spends. Requires ?convene=true explicitly — a
+    bare POST is rejected, same discipline as /api/flags/{ticker}'s bare
+    GET never triggering a paid call. ?refresh=true re-convenes past an
+    existing cache entry."""
+    tk = ticker.strip().upper()
+    if not convene:
+        raise HTTPException(
+            status_code=400,
+            detail="POST /api/council/{ticker} requires ?convene=true — that is the only path that spends.",
+        )
+
+    filing_sections, flags_cached, flags_model, flags_prompt_version = await _council_preflight(tk)
+    if not flags_cached:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Flags not extracted for {tk} yet. Extract them first: GET /api/flags/{tk}?extract=true.",
+        )
+    if app.state.anthropic_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Anthropic API key not configured (set ANTHROPIC_API_KEY).",
+        )
+
+    bundle = await _assemble_council_bundle(tk, filing_sections, flags_model, flags_prompt_version)
+    council_prompt_version = app.state.cfg.get("council", {}).get("prompt_version", "v1")
+
+    loop = asyncio.get_running_loop()
+    call_info: list = []
+    try:
+        result = await loop.run_in_executor(
+            None, COUNCIL.get_council, tk, bundle, app.state.cfg, app.state.anthropic_client,
+            _COUNCIL_CACHE_DIR, refresh, call_info,
+        )
+    except Exception as e:
+        _log_council_usage(tk, call_info, flags_model, council_prompt_version, "refresh" if refresh else "live")
+        raise HTTPException(status_code=502, detail=str(e) or type(e).__name__)
+
+    if call_info:
+        _log_council_usage(tk, call_info, flags_model, council_prompt_version, "refresh" if refresh else "live")
+
+    payload = asdict(result)
+    payload["state"] = "ok"
+    payload["cache_status"] = "live" if call_info else "from_cache"
+    return payload
 
 
 # ---------------------------------------------------------------------------

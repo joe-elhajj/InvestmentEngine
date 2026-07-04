@@ -14,7 +14,9 @@ uvicorn[standard]>=0.29
 # httpx: not an app runtime dependency, but required by fastapi.testclient
 # (Starlette's TestClient is httpx-based) — needed to run tests/test_app.py.
 httpx>=0.27
-# Tier 2 (engine/flags.py) — the ONLY LLM call in the codebase. Selects
-# verbatim spans from 10-K text; every returned snippet is validated as an
-# exact substring before it's trusted (see engine/flags.py's verify_verbatim).
+# Tier 2 (engine/flags.py, verbatim-selection) and Tier 3 (engine/council.py,
+# adversarial synthesis) — the only two LLM surfaces in the codebase.
+# engine/council.py's thinking={"type": "disabled"} kwarg needs a build that
+# recognizes the shape (verified against anthropic==0.116.0); the floor below
+# is a soft minimum, not that specific verification.
 anthropic>=0.40
