@@ -150,6 +150,136 @@
   var fragmentInFlight = {};
   var expandedRows = {};
 
+  // ---- column sorting (equities + ETF tables) ----
+  //
+  // equitiesData/etfData hold the rows exactly as last returned by
+  // /api/screen — this is "default order" for the 3-state cycle below.
+  // Sorting never re-fetches or mutates that array; it only changes what
+  // order renderEquitiesBody()/renderEtfBody() rebuild the tbody in.
+  var equitiesData = [];
+  var etfData = [];
+  var sortState = {
+    equities: { key: null, dir: null },
+    etf: { key: null, dir: null },
+  };
+
+  var EQUITIES_SORT_LABELS = {
+    ticker: "Ticker", composite: "Durability", cat_reinvestment: "Reinv",
+    cat_quality: "Quality", cat_resilience: "Resilience", cat_discipline: "Discipline",
+    cat_optionality: "Optionality", implied_fcf_growth: "Implied g",
+    delivered_fcf_growth: "Delivered g", expectations_gap: "Gap",
+  };
+  var ETF_SORT_LABELS = {
+    ticker: "Ticker", expense_ratio: "Exp Ratio", aum: "AUM",
+    overlap_with_screen: "Overlap w/ Singles",
+  };
+
+  // Implied g / Gap are gated (implied_growth_note set) the same way the
+  // rendered cell is — sorting must use the same "effective" value that's
+  // actually on screen, not a raw value the display suppressed to n/a.
+  function equitiesSortValue(row, key) {
+    if (key === "implied_fcf_growth" || key === "expectations_gap") {
+      return row.implied_growth_note ? null : row[key];
+    }
+    return row[key];
+  }
+
+  function etfSortValue(row, key) {
+    return row[key];
+  }
+
+  // Stable sort by `key`/`dir` ("asc"|"desc") using valueOf(row,key) to pull
+  // the comparable value. n/a (null/undefined) ALWAYS sorts to the bottom,
+  // in both directions — absence-is-not-zero applies to ordering too, so a
+  // missing value is never coerced to 0 or -Infinity.
+  function sortRows(rows, key, dir, valueOf) {
+    if (!key || !dir) return rows.slice();
+    var withIndex = rows.map(function (r, i) { return { r: r, i: i }; });
+    withIndex.sort(function (a, b) {
+      var va = valueOf(a.r, key), vb = valueOf(b.r, key);
+      var aNa = va === null || va === undefined;
+      var bNa = vb === null || vb === undefined;
+      if (aNa && bNa) return a.i - b.i;
+      if (aNa) return 1;
+      if (bNa) return -1;
+      var cmp = (typeof va === "string" || typeof vb === "string")
+        ? String(va).localeCompare(String(vb))
+        : (va < vb ? -1 : va > vb ? 1 : 0);
+      if (cmp === 0) return a.i - b.i;
+      return dir === "asc" ? cmp : -cmp;
+    });
+    return withIndex.map(function (x) { return x.r; });
+  }
+
+  function updateSortArrows(tableId, state) {
+    document.querySelectorAll("#" + tableId + " thead th[data-sort-key]").forEach(function (th) {
+      var arrow = th.querySelector(".sort-arrow");
+      if (!arrow) return;
+      arrow.textContent = (state.key && th.getAttribute("data-sort-key") === state.key)
+        ? (state.dir === "asc" ? " ▲" : " ▼")
+        : "";
+    });
+  }
+
+  function updateSortCaption(captionId, state, labels) {
+    var el = document.getElementById(captionId);
+    if (!el) return;
+    el.textContent = state.key ? "Sorted by: " + labels[state.key] + " (" + state.dir + ")" : "";
+  }
+
+  // Any accordion currently open for one of these tickers is tied to a
+  // <tr> DOM node this render is about to discard — drop the stale
+  // reference so a later click creates a fresh accordion instead of
+  // thinking one is already open and immediately closing (no-op-looking)
+  // on a detached node.
+  function clearExpandedFor(rows) {
+    rows.forEach(function (r) { delete expandedRows[r.ticker]; });
+  }
+
+  function renderEquitiesBody() {
+    var rows = sortRows(equitiesData, sortState.equities.key, sortState.equities.dir, equitiesSortValue);
+    clearExpandedFor(equitiesData);
+    els.equitiesBody.innerHTML = "";
+    rows.forEach(function (r) { els.equitiesBody.appendChild(renderEquitiesRow(r)); });
+    updateSortArrows("equities-table", sortState.equities);
+    updateSortCaption("equities-sort-caption", sortState.equities, EQUITIES_SORT_LABELS);
+  }
+
+  function renderEtfBody() {
+    var rows = sortRows(etfData, sortState.etf.key, sortState.etf.dir, etfSortValue);
+    clearExpandedFor(etfData);
+    els.etfBody.innerHTML = "";
+    rows.forEach(function (r) { els.etfBody.appendChild(renderEtfRow(r)); });
+    updateSortArrows("etf-table", sortState.etf);
+    updateSortCaption("etf-sort-caption", sortState.etf, ETF_SORT_LABELS);
+  }
+
+  // Click cycle per column: unsorted/other-column -> desc -> asc -> back
+  // to default (key cleared). Clicking a different column always starts
+  // that column fresh at desc.
+  function attachSortHandler(tableId, stateKey, renderFn) {
+    var thead = document.querySelector("#" + tableId + " thead");
+    thead.addEventListener("click", function (ev) {
+      var th = ev.target.closest("th[data-sort-key]");
+      if (!th) return;
+      var key = th.getAttribute("data-sort-key");
+      var st = sortState[stateKey];
+      if (st.key !== key) {
+        st.key = key;
+        st.dir = "desc";
+      } else if (st.dir === "desc") {
+        st.dir = "asc";
+      } else {
+        st.key = null;
+        st.dir = null;
+      }
+      renderFn();
+    });
+  }
+
+  attachSortHandler("equities-table", "equities", renderEquitiesBody);
+  attachSortHandler("etf-table", "etf", renderEtfBody);
+
   function toggleAccordion(ticker, row) {
     var existing = expandedRows[ticker];
     if (existing) {
@@ -316,18 +446,21 @@
   }
 
   function renderScreen(data) {
-    // A fresh render replaces every row, so any accordion <tr> currently
-    // inserted is gone too — drop the stale DOM references. The fetched
-    // fragment HTML in fragmentCache is still valid and reused if the
-    // ticker is expanded again.
+    // A fresh screen run replaces every row, so any accordion <tr>
+    // currently inserted is gone too — drop the stale DOM references. The
+    // fetched fragment HTML in fragmentCache is still valid and reused if
+    // the ticker is expanded again. A new run's data is also a new
+    // "default order" baseline, so any active sort resets.
     expandedRows = {};
+    equitiesData = data.equities.slice();
+    etfData = data.etfs.slice();
+    sortState.equities = { key: null, dir: null };
+    sortState.etf = { key: null, dir: null };
 
-    els.equitiesBody.innerHTML = "";
-    els.etfBody.innerHTML = "";
     els.excludedBody.innerHTML = "";
 
-    data.equities.forEach(function (r) { els.equitiesBody.appendChild(renderEquitiesRow(r)); });
-    data.etfs.forEach(function (r) { els.etfBody.appendChild(renderEtfRow(r)); });
+    renderEquitiesBody();
+    renderEtfBody();
     data.excluded.forEach(function (r) { els.excludedBody.appendChild(renderExcludedRow(r)); });
 
     els.equitiesSection.classList.toggle("hidden", data.equities.length === 0);

@@ -109,6 +109,7 @@ body{
 .sec-lbl{
   font-size:0.6875rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-1);
 }
+.sort-caption{font-size:0.6875rem;color:var(--text-3);font-weight:500;letter-spacing:.02em}
 
 .surface{
   background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
@@ -124,6 +125,7 @@ thead th{
   text-align:right;white-space:nowrap;
 }
 thead th.l{text-align:left}
+thead th[data-sort-key]{cursor:pointer}
 
 /* Dark chrome header rows — scoped to the three top-level dashboard
    tables' OWN header row only, via a direct-child combinator (>). The
@@ -141,6 +143,7 @@ thead th.l{text-align:left}
   color:var(--chrome-text-dim);background:var(--chrome-bg);
   border-bottom:1px solid var(--chrome-border);
 }
+.sort-arrow{margin-left:4px;font-size:0.7em;color:var(--accent)}
 
 /* ---- generic tooltip trigger + popup (column headers AND the DCF stat
    card share this — table headers get their own dotted-underline
