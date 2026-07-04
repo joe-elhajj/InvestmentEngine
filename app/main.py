@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import html
 import json
+import logging
 import re
 import time
 import uuid
@@ -44,6 +45,8 @@ from engine.pipeline import AnalysisResult
 from engine import report_html as RH
 from engine.screen import _classify as _engine_classify
 from engine.screen import run_screen
+
+log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = REPO_ROOT / "frontend"
@@ -538,6 +541,35 @@ async def analyze_fragment(ticker: str):
 _FLAGS_CACHE_DIR = REPO_ROOT / ".cache" / "flags"
 
 
+def _describe_exception(e: Exception) -> dict:
+    """
+    Best-effort structured description of any exception a flags
+    extraction call can raise. The Anthropic SDK's own exception classes
+    (anthropic.APIStatusError and subclasses) expose `.status_code` and
+    `.body` for a real API-level failure; a plain network/programming
+    error won't have those, so every field is read defensively via
+    getattr and left None (never fabricated) when absent — this is what
+    lets the client and the server log see the ACTUAL exception (type,
+    message, and the API's own response body when there is one) instead
+    of a bare "502 Bad Gateway" with no diagnostic content.
+    """
+    status_code = getattr(e, "status_code", None)
+    body = getattr(e, "body", None)
+    if body is None:
+        response = getattr(e, "response", None)
+        if response is not None:
+            try:
+                body = response.json()
+            except Exception:
+                body = getattr(response, "text", None)
+    return {
+        "error_type": type(e).__name__,
+        "message": str(e) or type(e).__name__,
+        "sdk_status_code": status_code,
+        "sdk_body": body,
+    }
+
+
 @app.get("/api/flags/{ticker}")
 async def get_flags(ticker: str, extract: bool = False, refresh: bool = False):
     """
@@ -629,7 +661,19 @@ async def get_flags(ticker: str, extract: bool = False, refresh: bool = False):
             call_info,
         )
     except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e) or type(e).__name__)
+        # get_flags() only reaches its cache WRITE after extract_flags_raw()
+        # returns successfully (engine/flags.py) — an exception here means
+        # that never happened, so the cache is guaranteed untouched by this
+        # failure: the next plain request naturally retries instead of
+        # replaying a stored error. Status stays 502 (our server's proxy to
+        # the upstream Anthropic API failed) — the fix is a richer BODY,
+        # not a different status; surfacing the SDK's own status as our
+        # HTTP status would wrongly imply the client's request was bad.
+        # Full type/message/SDK body logged server-side AND returned to
+        # the client as structured JSON, never a content-less "502".
+        detail = _describe_exception(e)
+        log.error("! %s: flag extraction failed — %s", tk, detail)
+        raise HTTPException(status_code=502, detail={"state": "error", **detail})
 
     cache_status = call_info.get("cache_status", "from_cache")
     if cache_status == "from_cache":

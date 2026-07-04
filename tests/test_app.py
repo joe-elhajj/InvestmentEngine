@@ -1123,6 +1123,90 @@ class TestFlagsUsageLogging:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/flags/{ticker} — failure handling: real error surfaced, no
+# poisoned cache (live-verification bug: CAT 502, stale error displayed)
+# ---------------------------------------------------------------------------
+
+class TestFlagsFailureHandling:
+    @pytest.fixture(autouse=True)
+    def _setup(self, client, tmp_path):
+        fastapi_app.state.anthropic_client = MagicMock()
+        self.cache_dir = tmp_path / "flags_cache"
+        with patch("app.main._FLAGS_CACHE_DIR", self.cache_dir):
+            yield
+
+    def _cache_files(self):
+        if not self.cache_dir.exists():
+            return []
+        return list(self.cache_dir.iterdir())
+
+    def test_failed_extraction_returns_structured_error_not_a_bare_502(self, client, caplog):
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", side_effect=RuntimeError("connection reset by peer")), \
+             caplog.at_level(logging.ERROR, logger="app.main"):
+            resp = client.get("/api/flags/NVDA?extract=true")
+
+        assert resp.status_code == 502
+        detail = resp.json()["detail"]
+        assert isinstance(detail, dict), "detail must be a structured object, not a bare string"
+        assert detail["state"] == "error"
+        assert detail["error_type"] == "RuntimeError"
+        assert "connection reset by peer" in detail["message"]
+        # Logged server-side too — the whole point is this must never be silent.
+        assert "NVDA" in caplog.text
+        assert "connection reset by peer" in caplog.text
+
+    def test_failed_extraction_writes_no_cache_file(self, client):
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", side_effect=RuntimeError("boom")):
+            client.get("/api/flags/NVDA?extract=true")
+        assert self._cache_files() == []
+
+    def test_failed_extraction_leaves_ticker_not_cached_for_the_next_plain_request(self, client):
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", side_effect=RuntimeError("boom")):
+            client.get("/api/flags/NVDA?extract=true")
+
+        # A plain follow-up GET (no ?extract=true) must see NOT_CACHED, never
+        # a replayed error — proof the failed attempt left no trace to serve.
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs):
+            resp = client.get("/api/flags/NVDA")
+        assert resp.status_code == 200
+        assert resp.json()["state"] == "not_cached"
+
+    def test_subsequent_extract_true_call_retries_the_model_after_a_failure(self, client):
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", side_effect=RuntimeError("boom")) as mock_call:
+            client.get("/api/flags/NVDA?extract=true")
+            assert mock_call.call_count == 1
+
+        canned_text = _model_response([]).content[0].text
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", return_value=canned_text) as mock_call2:
+            resp = client.get("/api/flags/NVDA?extract=true")
+        assert mock_call2.call_count == 1  # a genuinely new attempt, not a skipped/replayed one
+        assert resp.status_code == 200
+        assert resp.json()["state"] == "ok"
+
+    def test_successful_extraction_still_writes_the_cache_file(self, client):
+        fs = _filing_sections()
+        canned_text = _model_response([]).content[0].text
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", return_value=canned_text):
+            resp = client.get("/api/flags/NVDA?extract=true")
+        assert resp.status_code == 200
+        files = self._cache_files()
+        assert len(files) == 1
+        cached = json.loads(files[0].read_text())
+        assert cached["ticker"] == "NVDA"
+        assert "error" not in cached
+
+
+# ---------------------------------------------------------------------------
 # GET /api/usage (Task 3)
 # ---------------------------------------------------------------------------
 
