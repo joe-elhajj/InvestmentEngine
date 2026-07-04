@@ -38,7 +38,7 @@ def _filing_ref(accession="0000320193-24-000123") -> FilingRef:
     )
 
 
-_CFG = {"flags": {"model": "claude-sonnet-5", "temperature": 0, "prompt_version": "v1"}}
+_CFG = {"flags": {"model": "claude-sonnet-5", "prompt_version": "v1"}}
 
 
 def _mock_model_response(payload: list) -> MagicMock:
@@ -180,6 +180,19 @@ class TestExtractFlagsRaw:
         assert result.prompt_version == "v1"
         assert result.extracted_at
         assert result.ticker == "NVDA"
+
+    def test_messages_create_never_sent_a_temperature_kwarg(self):
+        """current-generation models (claude-sonnet-5 included) reject
+        `temperature` outright with a 400 — the mocked client can't catch
+        that live, but it CAN catch the regression of the kwarg creeping
+        back into the constructed request."""
+        sections = {"1A": "Risk text."}
+        client = MagicMock()
+        client.messages.create.return_value = _mock_model_response([])
+        extract_flags_raw("NVDA", sections, _filing_ref(), _CFG, client)
+        client.messages.create.assert_called_once()
+        _, kwargs = client.messages.create.call_args
+        assert "temperature" not in kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -461,11 +474,7 @@ class TestValidateFlagsConfig:
 
     def test_missing_model_raises(self):
         with pytest.raises(ValueError, match="model"):
-            validate_flags_config({"flags": {"temperature": 0}})
-
-    def test_non_numeric_temperature_raises(self):
-        with pytest.raises(ValueError, match="temperature"):
-            validate_flags_config({"flags": {"model": "m", "temperature": "cold"}})
+            validate_flags_config({"flags": {"prompt_version": "v1"}})
 
     def test_overrides_must_be_a_mapping(self):
         with pytest.raises(ValueError, match="overrides"):

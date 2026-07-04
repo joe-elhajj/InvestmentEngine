@@ -114,18 +114,22 @@ def _build_user_prompt(sections: dict) -> str:
     return "\n\n".join(parts)
 
 
-def _call_model(client, model: str, temperature: float, prompt: str, usage_sink: Optional[dict] = None) -> str:
+def _call_model(client, model: str, prompt: str, usage_sink: Optional[dict] = None) -> str:
     """Isolated so tests can patch exactly this function (mock the API,
     assert call count) without needing a real anthropic.Anthropic client.
     usage_sink, if given, is filled in with the SDK response's real
     input_tokens/output_tokens — the spend-tracking layer (app/usage.py)
     prices these at call time rather than trusting an estimate. Left None
     by every existing caller that doesn't need it, so this stays a no-op
-    for tests that mock a bare response with no `.usage` set up."""
+    for tests that mock a bare response with no `.usage` set up.
+
+    No `temperature` kwarg: claude-sonnet-5 (and other current-generation
+    models) reject it outright (400 invalid_request_error — "temperature
+    is deprecated for this model"). This is not conditioned on the pinned
+    model string — the parameter is simply never sent, for any model."""
     response = client.messages.create(
         model=model,
         max_tokens=2000,
-        temperature=temperature,
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -163,11 +167,10 @@ def extract_flags_raw(
     """
     flags_cfg = cfg.get("flags", {})
     model = flags_cfg.get("model", "claude-sonnet-5")
-    temperature = flags_cfg.get("temperature", 0)
     prompt_version = flags_cfg.get("prompt_version", "v1")
 
     prompt = _build_user_prompt(sections)
-    raw_text = _call_model(client, model, temperature, prompt, usage_sink=usage_sink)
+    raw_text = _call_model(client, model, prompt, usage_sink=usage_sink)
     candidates = _parse_model_flags(raw_text)
 
     verified: list = []
@@ -429,10 +432,6 @@ def validate_flags_config(cfg: dict) -> None:
 
     if not flags_cfg.get("model"):
         raise ValueError("config.yaml flags.model is required.")
-
-    temperature = flags_cfg.get("temperature", 0)
-    if not isinstance(temperature, (int, float)) or isinstance(temperature, bool):
-        raise ValueError("config.yaml flags.temperature must be a number.")
 
     overrides = flags_cfg.get("overrides", {})
     if not isinstance(overrides, dict):

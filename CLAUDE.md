@@ -103,8 +103,8 @@ are for speed of iteration, not for authorising a merge.
   valuation or scenario parameters change.
 - **`config.yaml`** — all tunables: SEC credentials, history window,
   classification overrides, valuation assumptions, DCF scenarios, screening
-  weights, and Tier 2's `flags:` section (pinned model/temperature/
-  prompt_version + analyst `overrides:`). The code never invents values at
+  weights, and Tier 2's `flags:` section (pinned model/prompt_version +
+  pricing table + analyst `overrides:`). The code never invents values at
   runtime.
 - **`.claude/skills/llm-council/SKILL.md`** — Tier 3 adversarial council
   skill. Triggered by "run council on TICKER", "council this", "war room".
