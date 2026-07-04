@@ -9,9 +9,12 @@ involvement, and all assumptions live in version-controlled config. **Tier 2
 (in progress)** adds LLM-driven qualitative extraction layered on top of the
 deterministic output; the first slice — verbatim red/green flag extraction from
 10-K Item 1/1A/7 text (`engine/flags.py`) — is built. Moat classification and
-other Tier 2 annotations are not yet built. **Tier 3** (not yet built) is an
-LLM council that synthesises Tier 1 signals and Tier 2 annotations into a final
-research memo. Tiers 2 and 3 consume Tier 1 output; they never alter it.
+other Tier 2 annotations are not yet built. **Tier 3 (in progress)** is an LLM
+council that synthesises Tier 1 signals and Tier 2 annotations into a final
+research memo; the production endpoint (`engine/council.py`, a spend-gated
+`/api/council/{ticker}`) runs a 7-call hybrid structure — one combined Round 1
+across all five advisors, five isolated Round 2 peer reviews, one Chairman
+synthesis. Tiers 2 and 3 consume Tier 1 output; they never alter it.
 
 ## Module responsibilities
 
@@ -31,6 +34,7 @@ research memo. Tiers 2 and 3 consume Tier 1 output; they never alter it.
 | `engine/report_html.py` | Render `AnalysisResult` to self-contained HTML |
 | `engine/filings.py` | Tier 2: fetch/parse 10-K document text into Item 1/1A/7 sections (no model involvement) |
 | `engine/flags.py` | Tier 2: LLM verbatim-selection flag extraction + the verbatim validator (see invariant below) |
+| `engine/council.py` | Tier 3: adversarial council synthesis — 5 advisors → 5 blind reviews → Chairman (see invariant below) |
 
 ## Non-negotiable invariants
 
@@ -53,6 +57,17 @@ is DROPPED as a hallucination and logged to stdout/stderr
 flag's `verified_verbatim` field is set ONLY by this validator, never trusted
 from the model's own claim. This validation is non-negotiable and has its own
 dedicated test (`tests/test_flags.py::TestVerifyVerbatim`).
+
+**LLM synthesis boundary (Tier 3).** The second — and, alongside Tier 2's
+verbatim-selection boundary, only — sanctioned use of a model in this
+codebase is to SYNTHESISE and ARGUE over evidence Tier 1/2 already produced
+(`engine/council.py`). It never derives, adjusts, or recomputes a number;
+every prompt requires "not in evidence" as a valid answer instead. A council
+run never triggers a Tier 2 flag extraction of its own — if flags aren't
+already cached for a ticker, `/api/council/{ticker}` reports that plainly and
+stops. Spend discipline mirrors Tier 2 exactly: `GET` never spends, `POST
+?convene=true` is the only path that does, and only a fully successful run is
+ever cached — a failed or partial run is never served back as if real.
 
 **Evidence-based classification.** A security's type (operating equity, FPI,
 fund) is inferred only from positive evidence: SEC form history for equities
@@ -103,13 +118,19 @@ are for speed of iteration, not for authorising a merge.
   valuation or scenario parameters change.
 - **`config.yaml`** — all tunables: SEC credentials, history window,
   classification overrides, valuation assumptions, DCF scenarios, screening
-  weights, and Tier 2's `flags:` section (pinned model/prompt_version +
-  pricing table + analyst `overrides:`). The code never invents values at
-  runtime.
-- **`.claude/skills/llm-council/SKILL.md`** — Tier 3 adversarial council
-  skill. Triggered by "run council on TICKER", "council this", "war room".
-  Consumes Tier 1 JSON + Tier 2 flags + thesis journal. Five advisors →
-  peer review → Chairman synthesis. Never computes; only cites engine output.
+  weights, Tier 2's `flags:` section (pinned model/prompt_version + pricing
+  table + analyst `overrides:`), and Tier 3's `council:` section
+  (prompt_version only — reuses `flags.model`/`flags.pricing` directly). The
+  code never invents values at runtime.
+- **`.claude/skills/llm-council/SKILL.md`** — the manually-run Tier 3
+  adversarial council skill, triggered by "run council on TICKER", "council
+  this", "war room". Same five-advisor → peer-review → Chairman shape as
+  `engine/council.py`'s production endpoint below, but ad hoc and
+  conversational rather than spend-gated/cached/API-driven.
+- **`engine/council.py` + `GET`/`POST /api/council/{ticker}`** — the
+  production Tier 3 endpoint. `GET` reports `blocked_no_flags` /
+  `not_cached` (with a cost estimate) / the cached record, and never spends;
+  `POST ?convene=true` is the only path that runs the real 7 calls.
 
 ## Merge safety (non-negotiable — three silent-loss incidents to date)
 Before ANY `gh pr merge`:
