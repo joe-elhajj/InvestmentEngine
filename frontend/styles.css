@@ -393,6 +393,54 @@ tbody tr:hover .row-remove{opacity:1}
 .remove-confirm .btn{border-color:rgba(255,255,255,0.3);color:#fff}
 .remove-confirm .btn:hover{border-color:#fff}
 
+/* ---- Usage modal (Tier 2 spend visibility) — dark chrome, matching topnav ---- */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,0.45);
+  display:flex;align-items:center;justify-content:center;z-index:30;padding:24px;
+}
+.modal{
+  background:var(--chrome-bg);color:var(--chrome-text);border:1px solid var(--chrome-border);
+  border-radius:var(--radius);box-shadow:0 16px 48px rgba(0,0,0,0.4);
+  width:100%;max-width:560px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;
+}
+.modal-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 20px;border-bottom:1px solid var(--chrome-border);flex:none;
+}
+.modal-title{font-size:0.9375rem;font-weight:600;letter-spacing:-0.01em}
+.modal-close{
+  font:inherit;font-size:1.25rem;line-height:1;color:var(--chrome-text-dim);
+  background:transparent;border:none;cursor:pointer;padding:2px 6px;
+}
+.modal-close:hover{color:var(--chrome-text)}
+.modal-body{padding:20px;overflow-y:auto}
+.modal-footnote{
+  font-size:0.6875rem;color:var(--chrome-text-dim);line-height:1.6;
+  padding:12px 20px;border-top:1px solid var(--chrome-border);flex:none;
+}
+
+.usage-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:8px}
+.usage-stat{
+  background:var(--chrome-bg-2);border:1px solid var(--chrome-border);border-radius:8px;
+  padding:12px 14px;display:flex;flex-direction:column;gap:4px;
+}
+.usage-stat-label{font-size:0.6875rem;color:var(--chrome-text-dim);letter-spacing:.02em}
+.usage-stat-value{font-size:1.125rem;font-weight:600}
+.usage-projection-note{font-size:0.6875rem;color:var(--chrome-text-dim);margin:10px 0 14px;line-height:1.5}
+
+.usage-table{width:100%}
+.usage-table thead th{
+  font-size:0.625rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--chrome-text-dim);text-align:right;padding:6px 10px;border-bottom:1px solid var(--chrome-border);
+}
+.usage-table thead th.l{text-align:left}
+.usage-table tbody td{
+  font-size:0.75rem;color:var(--chrome-text);text-align:right;padding:6px 10px;
+  border-bottom:1px solid var(--chrome-border);
+}
+.usage-table tbody td.l{text-align:left;color:var(--chrome-text-dim)}
+.usage-modal .surface{background:transparent;border:none;box-shadow:none}
+
 .hidden{display:none !important}
 
 /* ---- print (Save as PDF -> window.print()) ---- */
@@ -400,7 +448,8 @@ tbody tr:hover .row-remove{opacity:1}
   @page{size:A4 landscape;margin:12mm}
   body{background:#fff;color:#000}
   .topnav,.status-banner,.empty-state,.remove-confirm,.row-remove,
-  .sort-caption,.sort-arrow,.accordion-row,.expand-hint,.th-tooltip{display:none !important}
+  .sort-caption,.sort-arrow,.accordion-row,.expand-hint,.th-tooltip,
+  .modal-overlay{display:none !important}
   .wrap{max-width:100%;padding:0}
   .surface{box-shadow:none !important;border-color:#000}
   .scroll{overflow-x:visible}

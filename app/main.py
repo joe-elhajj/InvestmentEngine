@@ -652,6 +652,15 @@ async def get_flags(ticker: str, extract: bool = False, refresh: bool = False):
 
 
 # ---------------------------------------------------------------------------
+# Usage — Tier 2 spend visibility (app/usage.py's SQLite ledger)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/usage")
+def get_usage():
+    return usage.summary()
+
+
+# ---------------------------------------------------------------------------
 # Screen — batch watchlist run, background job + polling
 # ---------------------------------------------------------------------------
 

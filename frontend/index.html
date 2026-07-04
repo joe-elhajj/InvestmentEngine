@@ -27,6 +27,7 @@
   <div class="topnav-actions">
     <button id="export-csv-btn" class="btn">Export CSV</button>
     <button id="export-pdf-btn" class="btn">Save as PDF</button>
+    <button id="usage-btn" class="btn">Usage</button>
     <button id="refresh-btn" class="btn">Refresh Watchlist</button>
   </div>
 </header>
@@ -124,6 +125,22 @@
   <p id="remove-confirm-text"></p>
   <button id="remove-confirm-btn" class="btn btn-danger">Remove</button>
   <button id="remove-cancel-btn" class="btn">Cancel</button>
+</div>
+
+<div id="usage-modal-overlay" class="modal-overlay hidden">
+  <div class="modal usage-modal">
+    <div class="modal-head">
+      <div class="modal-title">Usage</div>
+      <button id="usage-modal-close" class="modal-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div id="usage-modal-body" class="modal-body">
+      <p class="report-caption">Loading…</p>
+    </div>
+    <p class="modal-footnote">
+      Usage tracked in ~/.investment_engine/watchlist.db. Cached calls not billed.
+      Prices from config.yaml at call time.
+    </p>
+  </div>
 </div>
 
 <script src="/app.js"></script>

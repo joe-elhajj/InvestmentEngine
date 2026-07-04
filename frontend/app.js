@@ -107,6 +107,10 @@
     removeConfirmText: document.getElementById("remove-confirm-text"),
     removeConfirmBtn: document.getElementById("remove-confirm-btn"),
     removeCancelBtn: document.getElementById("remove-cancel-btn"),
+    usageBtn: document.getElementById("usage-btn"),
+    usageModalOverlay: document.getElementById("usage-modal-overlay"),
+    usageModalBody: document.getElementById("usage-modal-body"),
+    usageModalClose: document.getElementById("usage-modal-close"),
   };
 
   var currentSearchTicker = null; // ticker the confirm bar currently refers to
@@ -907,6 +911,63 @@
   // ---- refresh button ----
 
   els.refreshBtn.addEventListener("click", runScreen);
+
+  // ---- Usage modal (Tier 2 spend visibility, GET /api/usage) ----
+
+  var _MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  function fmtUsd(v) {
+    return v === null || v === undefined ? "—" : "$" + v.toFixed(2);
+  }
+
+  function fmtMonthLabel(key) {
+    var parts = key.split("-");
+    return _MONTH_NAMES[parseInt(parts[1], 10) - 1] + " " + parts[0];
+  }
+
+  function renderUsageModal(data) {
+    var rows = (data.monthly_breakdown || []).map(function (m) {
+      return "<tr><td class=\"l\">" + escapeHtml(fmtMonthLabel(m.month)) + "</td>"
+        + "<td>" + escapeHtml(fmtUsd(m.cost_usd)) + "</td>"
+        + "<td>" + escapeHtml(String(m.calls)) + "</td></tr>";
+    }).join("");
+
+    els.usageModalBody.innerHTML =
+      '<div class="usage-stats">'
+      + '<div class="usage-stat"><span class="usage-stat-label">Lifetime spend</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.lifetime_total_usd)) + "</span></div>"
+      + '<div class="usage-stat"><span class="usage-stat-label">This month</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.current_month.cost_usd)) + "</span></div>"
+      + '<div class="usage-stat"><span class="usage-stat-label">This year</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.current_year.cost_usd)) + "</span></div>"
+      + '<div class="usage-stat"><span class="usage-stat-label">Trailing-12mo projection</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.trailing_12mo_projection_usd)) + "</span></div>"
+      + "</div>"
+      + '<p class="usage-projection-note">Projection = trailing 30-day spend &times; 12, assuming the current usage rate continues.</p>'
+      + '<div class="surface"><div class="scroll"><table class="usage-table">'
+      + '<thead><tr><th class="l">Month</th><th>Cost</th><th>Calls</th></tr></thead>'
+      + "<tbody>" + rows + "</tbody>"
+      + "</table></div></div>";
+  }
+
+  function openUsageModal() {
+    els.usageModalOverlay.classList.remove("hidden");
+    els.usageModalBody.innerHTML = '<p class="report-caption">Loading…</p>';
+    apiGet("/api/usage")
+      .then(renderUsageModal)
+      .catch(function (e) {
+        els.usageModalBody.innerHTML = '<p class="report-caption">Usage unavailable: ' + escapeHtml(e.message) + "</p>";
+      });
+  }
+
+  function closeUsageModal() {
+    els.usageModalOverlay.classList.add("hidden");
+  }
+
+  els.usageBtn.addEventListener("click", openUsageModal);
+  els.usageModalClose.addEventListener("click", closeUsageModal);
+  els.usageModalOverlay.addEventListener("click", function (ev) {
+    if (ev.target === els.usageModalOverlay) closeUsageModal();
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && !els.usageModalOverlay.classList.contains("hidden")) closeUsageModal();
+  });
 
   // ---- boot ----
 
