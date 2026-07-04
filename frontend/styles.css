@@ -2,10 +2,19 @@
    renderer (engine/screen.py), so this feels like one product. */
 
 :root{
-  --bg:#fbfbfd;
+  --bg:#fafaf9;
   --surface:#ffffff;
   --hairline:rgba(0,0,0,0.07);
   --hairline-strong:rgba(0,0,0,0.13);
+  /* Card-level border for the top-level containers (the three dashboard
+     tables + Data Diagnostics) — a touch more defined than the internal
+     --hairline used for row dividers/tooltip borders elsewhere, so the
+     outer container reads as a distinct card, not just another rule. */
+  --card-border:rgba(228,228,231,0.6);
+  /* Soft-lift shadow recipe for card containers: a hairline-close contact
+     shadow for grounding, plus a large-blur/low-opacity ambient shadow so
+     the card reads as lifted off the page background, not just outlined. */
+  --card-shadow:0 1px 2px rgba(0,0,0,0.03),0 20px 40px -12px rgba(0,0,0,0.07);
   --text-1:#1d1d1f;
   --text-2:#6e6e73;
   --text-3:#86868b;
@@ -22,7 +31,7 @@
      --bg/--surface tokens above stay the data-surface tier; Koyfin-style
      two-tone dashboards keep those on a darker ink so structure reads
      before content does. */
-  --chrome-bg:#1a1d24;
+  --chrome-bg:#18181b;
   --chrome-bg-2:#23262e;
   --chrome-border:rgba(255,255,255,0.10);
   --chrome-text:#f2f3f5;
@@ -114,16 +123,16 @@ body{
 .sort-caption{font-size:0.6875rem;color:var(--text-3);font-weight:500;letter-spacing:.02em}
 
 .surface{
-  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
-  box-shadow:0 1px 3px rgba(0,0,0,0.04);overflow:hidden;
+  background:var(--surface);border:1px solid var(--card-border);border-radius:var(--radius);
+  box-shadow:var(--card-shadow);overflow:hidden;
 }
 .scroll{overflow-x:auto}
 
 table{width:100%;border-collapse:collapse}
 thead th{
-  font-size:0.75rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  font-size:0.75rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
   color:var(--text-3);background:var(--bg);
-  padding:13px 16px;border-bottom:1px solid var(--hairline-strong);
+  padding:10px 20px;border-bottom:1px solid var(--hairline-strong);
   text-align:right;white-space:nowrap;
 }
 thead th.l{text-align:left}
@@ -151,11 +160,11 @@ td.mono{font-family:var(--mono);font-size:0.75rem}
 
 /* ---- Data Diagnostics (collapsed-by-default <details>, below Excluded) ---- */
 .diag-section{
-  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
-  overflow:hidden;margin-top:24px;
+  background:var(--surface);border:1px solid var(--card-border);border-radius:var(--radius);
+  box-shadow:var(--card-shadow);overflow:hidden;margin-top:24px;
 }
 .diag-section summary{
-  cursor:pointer;padding:13px 16px 13px 34px;font-size:0.6875rem;font-weight:700;letter-spacing:.08em;
+  cursor:pointer;padding:10px 16px 10px 34px;font-size:0.6875rem;font-weight:700;letter-spacing:.08em;
   text-transform:uppercase;color:var(--chrome-text-dim);background:var(--chrome-bg);
   list-style:none;position:relative;text-align:left;
 }
@@ -216,7 +225,7 @@ thead th:first-child .th-tooltip{left:0;transform:none}
 thead th:last-child .th-tooltip{left:auto;right:0;transform:none}
 
 tbody td{
-  padding:13px 16px;border-bottom:1px solid var(--hairline);
+  padding:13px 20px;border-bottom:1px solid var(--hairline);
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
   font-size:0.8125rem;font-weight:450;color:var(--text-1);
   text-align:right;white-space:nowrap;position:relative;
@@ -233,6 +242,19 @@ td.tk .expand-hint{
 td.tk:hover .expand-hint{opacity:1}
 tr.row-expanded td.tk .expand-hint{opacity:1;transform:rotate(90deg)}
 td.na{color:var(--text-3);font-style:italic;font-weight:400;font-variant-numeric:normal}
+
+/* Directional Gap-pill pastel wash — the equities table's Gap column
+   (last <td> in the row; see app.js's td() gapCell/tint) sets its own
+   red/green background as an inline style, computed from the gap's sign
+   and magnitude. Rather than touch that computation, layer a translucent
+   white background-image on top: background-color and background-image
+   composite independently in CSS, so whatever hue is already inline reads
+   lighter/pastel without this rule ever needing to know (or override)
+   which color it is. [style] only matches cells where app.js actually set
+   a tint (a null/n/a gap never gets a style attribute at all). */
+#equities-table tbody tr > td:last-child[style]{
+  background-image:linear-gradient(rgba(255,255,255,0.55),rgba(255,255,255,0.55));
+}
 
 /* ---- inline report accordion (clicking an equity/ETF row) ---- */
 tr.accordion-row > td{padding:0;background:var(--bg);white-space:normal;cursor:default}
@@ -252,15 +274,23 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-summary{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
 .report-summary .stat{
   flex:1;min-width:120px;background:var(--surface);border:1px solid var(--hairline);
-  border-radius:10px;padding:10px 14px;
+  border-radius:14px;padding:20px;
 }
 .report-summary .stat-label{
   display:block;font-size:0.625rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--text-3);margin-bottom:4px;
+  color:var(--text-2);margin-bottom:4px;
 }
 .report-summary .stat-value{
-  display:block;font-size:1.0625rem;font-weight:600;letter-spacing:-0.01em;
+  display:block;font-size:1.0625rem;font-weight:700;letter-spacing:-0.01em;
   font-variant-numeric:tabular-nums;color:var(--text-1);
+}
+
+/* Same pastel-wash trick as the equities table's Gap column, for the
+   "Expectations Gap" stat card — engine/report_html.py's _fr_stat() sets
+   the same kind of inline background-color tint; this is additive CSS
+   only, no Python touched. */
+.report-summary .stat[style]{
+  background-image:linear-gradient(rgba(255,255,255,0.55),rgba(255,255,255,0.55));
 }
 
 /* stat card tooltip (e.g. "DCF Base (Systematic)") — dotted underline on
@@ -296,6 +326,15 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-section thead th{font-size:0.625rem;padding:8px 14px}
 .report-section tbody td{font-size:0.75rem;padding:8px 14px;cursor:default}
 .report-section .surface{border:none;box-shadow:none;border-radius:0;border-top:1px solid var(--hairline)}
+/* Zebra striping so the eye can track a metric name across to its value
+   without losing the row in blank span — every accordion detail table has
+   a real <tbody> (engine/report_html.py's _fr_table()), so this is a plain
+   structural selector, no markup changes needed. A hidden .source-row
+   (revealed only by the "Sources" toggle) still occupies an nth-child slot
+   while hidden, which can shift the visible stripe pattern slightly when
+   toggled — an accepted, purely cosmetic trade-off, not a bug. */
+.report-section tbody tr:nth-child(even) td{background:var(--bg)}
+.report-section tbody tr:nth-child(even):hover td{background:rgba(0,0,0,0.032)}
 
 /* ---- per-figure lineage: "Sources" toggle (Task 4) ---- */
 .section-toolbar{display:flex;justify-content:flex-end;padding:0 14px 8px}
