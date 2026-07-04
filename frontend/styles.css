@@ -210,6 +210,24 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-section thead th{font-size:0.625rem;padding:8px 14px}
 .report-section tbody td{font-size:0.75rem;padding:8px 14px;cursor:default}
 .report-section .surface{border:none;box-shadow:none;border-radius:0;border-top:1px solid var(--hairline)}
+
+/* ---- per-figure lineage: "Sources" toggle (Task 4) ---- */
+.section-toolbar{display:flex;justify-content:flex-end;padding:0 14px 8px}
+.sources-toggle{
+  font:inherit;font-size:0.625rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--text-3);background:transparent;border:1px solid var(--hairline-strong);
+  border-radius:999px;padding:3px 10px;cursor:pointer;
+  transition:color .15s ease,border-color .15s ease,background .15s ease;
+}
+.sources-toggle:hover{color:var(--accent);border-color:var(--accent)}
+.sources-toggle.active{color:var(--accent);border-color:var(--accent);background:rgba(0,102,204,0.08)}
+.source-row{display:none}
+.report-section.sources-on .source-row{display:table-row}
+.source-cell{
+  font-family:var(--mono) !important;font-size:0.6875rem !important;color:var(--text-3) !important;
+  padding:2px 14px 8px !important;background:var(--bg);white-space:normal !important;
+  font-weight:400 !important;
+}
 .report-caption{
   font-size:0.6875rem;font-weight:600;letter-spacing:.02em;color:var(--text-3);
   padding:10px 14px 0;

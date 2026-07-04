@@ -487,6 +487,21 @@ def _fr_row(label: str, value: str, source: str) -> str:
     )
 
 
+def _fr_row_with_lineage(label: str, value: str, source: str) -> str:
+    """
+    Same data row as _fr_row (hover title kept as a quick peek), plus a
+    second <tr> carrying the full lineage string in a muted monospace
+    cell. The lineage row is hidden by CSS (.source-row) by default and
+    revealed by the section's "Sources" toggle button — see
+    _fr_details_with_sources(). `source` is already HTML-escaped by
+    _src()/_derived_source(), so it's inserted as-is here (matching _fr_row).
+    """
+    title_attr = f' title="{source}"' if source else ""
+    main = f'<tr><td class="l">{escape(label)}</td><td{title_attr}>{value}</td></tr>'
+    lineage = f'<tr class="source-row"><td class="l source-cell" colspan="2">{source or "derived"}</td></tr>'
+    return main + lineage
+
+
 def _fr_table(header_cells: list[str], rows_html: str, left_cols: int = 1) -> str:
     ths = []
     for i, h in enumerate(header_cells):
@@ -502,6 +517,31 @@ def _fr_table(header_cells: list[str], rows_html: str, left_cols: int = 1) -> st
 def _fr_details(title: str, content: str, open_: bool = False) -> str:
     open_attr = " open" if open_ else ""
     return f'<details class="report-section"{open_attr}><summary>{escape(title)}</summary>{content}</details>'
+
+
+def _fr_details_with_sources(title: str, content: str, open_: bool = False) -> str:
+    """
+    Same as _fr_details, plus a "Sources" toggle button in a small toolbar
+    row between the <summary> and the table content — sibling to <summary>,
+    not nested inside it, so clicking it never fights the native <details>
+    expand/collapse. The button lives outside <summary> deliberately: the
+    frontend wires a single delegated click listener (app.js) that toggles
+    a "sources-on" class on this <details> element, which CSS uses to show
+    the .source-row sub-rows _fr_row_with_lineage() emits. Default off, and
+    scoped to this DOM subtree only — each expanded ticker's fragment is
+    its own subtree, so this is "state per expanded ticker, not global" by
+    construction, not by any JS bookkeeping.
+    """
+    open_attr = " open" if open_ else ""
+    toolbar = (
+        '<div class="section-toolbar">'
+        '<button class="sources-toggle" type="button">Sources</button>'
+        "</div>"
+    )
+    return (
+        f'<details class="report-section"{open_attr}>'
+        f"<summary>{escape(title)}</summary>{toolbar}{content}</details>"
+    )
 
 
 def _fr_stat(label: str, value: str, tint: Optional[float] = None) -> str:
@@ -545,21 +585,21 @@ def render_fragment(
         + "</div>"
     )
 
-    position_html = _fr_details(
+    position_html = _fr_details_with_sources(
         "Financial position",
-        _fr_table(["Item", "Value"], "".join(_fr_row(*r) for r in _position_rows(res))),
+        _fr_table(["Item", "Value"], "".join(_fr_row_with_lineage(*r) for r in _position_rows(res))),
         open_=True,
     )
 
     quarter_html = ""
     qs = _quarter_section(res)
     if qs:
-        q_rows_html = "".join(_fr_row(*r) for r in qs["rows"])
+        q_rows_html = "".join(_fr_row_with_lineage(*r) for r in qs["rows"])
         q_margin_html = "".join(
             f'<tr><td class="l">{escape(label)}</td><td>{value}</td></tr>'
             for label, value in qs["margin_rows"]
         )
-        quarter_html = _fr_details(
+        quarter_html = _fr_details_with_sources(
             "Latest quarter",
             f'<p class="report-caption">Quarter ended {escape(qs["period_end"])} '
             f'· filed {escape(qs["filed"])}</p>'

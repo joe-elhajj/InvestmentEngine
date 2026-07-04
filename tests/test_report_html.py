@@ -114,6 +114,36 @@ class TestLightFragmentRenderer:
         assert "<th>Source</th>" not in frag  # condensed — no visible source column
         assert 'title="' in frag              # but the lineage is on a hover title
 
+    def test_sources_toggle_present_for_financial_position(self):
+        """Task 4: per-figure lineage is restored via a Sources toggle, not
+        just the hover title — a muted monospace sub-row per data row,
+        default hidden (revealed by the frontend's .sources-on class)."""
+        frag = RH.render_fragment(_company_result())
+        assert '<button class="sources-toggle" type="button">Sources</button>' in frag
+        assert 'class="section-toolbar"' in frag
+        assert 'class="source-row"' in frag
+        assert 'class="l source-cell"' in frag
+
+    def test_sources_toggle_lineage_matches_hover_title(self):
+        """The revealed sub-row and the hover title carry the same lineage string."""
+        frag = RH.render_fragment(_company_result())
+        # Revenue's source is a plain Fact (us-gaap:Test | 10-K | period ... | filed ...)
+        assert "us-gaap:Test | 10-K | period 2025-12-31 | filed 2026-02-15" in frag
+
+    def test_sources_toggle_absent_from_sections_without_lineage(self):
+        """Growth/Margins/Valuation/Data gaps never had per-row source
+        strings — no toggle should be fabricated for them."""
+        frag = RH.render_fragment(_company_result())
+        # Exactly one toggle: Financial position (this fixture has no
+        # quarterly data, so Latest quarter never renders).
+        assert frag.count('class="sources-toggle"') == 1
+
+    def test_source_row_hidden_by_default_in_markup(self):
+        """Default off means the CSS class, not inline display — the toggle
+        is a frontend interaction, not something the renderer decides per-request."""
+        frag = RH.render_fragment(_company_result())
+        assert "sources-on" not in frag  # never rendered server-side as "on"
+
 
 class TestSharedBuildersProduceConsistentData:
     """The dark and light renderers must show the SAME figures — only the

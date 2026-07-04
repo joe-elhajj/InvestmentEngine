@@ -198,6 +198,21 @@
       });
   }
 
+  // "Sources" toggle inside an expanded fragment (engine/report_html.py's
+  // render_fragment): a single delegated listener, since fragment HTML is
+  // injected via innerHTML after this script has already run. Toggling a
+  // class on the enclosing .report-section is the whole mechanism — no JS
+  // state to track, since each expanded ticker's fragment is its own DOM
+  // subtree (state is naturally per-ticker, never global), and it resets
+  // to "off" whenever the fragment is re-rendered from fragmentCache.
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest(".sources-toggle");
+    if (!btn) return;
+    var section = btn.closest(".report-section");
+    if (section) section.classList.toggle("sources-on");
+    btn.classList.toggle("active");
+  });
+
   function removeButton(ticker) {
     var btn = document.createElement("span");
     btn.className = "row-remove";
