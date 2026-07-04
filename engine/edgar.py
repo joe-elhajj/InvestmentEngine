@@ -292,6 +292,20 @@ class EdgarClient:
         r.raise_for_status()
         return r.json()
 
+    def get_text(self, url: str) -> str:
+        """
+        Same session/rate-limit/User-Agent discipline as `_get`, but for
+        fetching a raw filing document (HTML/text) rather than a JSON API
+        response — e.g. the actual 10-K document body, as opposed to the
+        submissions/companyfacts JSON. Public (not `_get_text`): this is a
+        legitimate cross-module fetch primitive, used by engine/filings.py,
+        not an EdgarClient-internal implementation detail.
+        """
+        time.sleep(self.delay)
+        r = self.session.get(url, timeout=30)
+        r.raise_for_status()
+        return r.text
+
     def _get_cached(self, cik: str, kind: str, url: str) -> dict:
         cached = self._read_cache(cik, kind)
         if cached is not None:
