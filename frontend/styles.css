@@ -355,6 +355,22 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .flags-provenance a{color:var(--accent);text-decoration:none}
 .flags-provenance a:hover{text-decoration:underline}
 
+/* ---- Flags: "not yet extracted" placeholder + spend controls ---- */
+.flags-placeholder{padding:18px 14px;text-align:center}
+.flags-placeholder .report-caption{padding:0 0 8px}
+.flags-estimate{font-size:0.75rem;color:var(--text-2);margin-bottom:12px}
+.flags-extract-btn{font-size:0.75rem}
+
+.flags-toolbar{display:flex;justify-content:flex-end;padding:8px 14px 0}
+.flags-reextract-btn{
+  font:inherit;font-size:0.625rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--text-3);background:transparent;border:1px solid var(--hairline-strong);
+  border-radius:999px;padding:3px 10px;cursor:pointer;
+  transition:color .15s ease,border-color .15s ease,background .15s ease;
+}
+.flags-reextract-btn:hover{color:var(--accent);border-color:var(--accent)}
+.flags-reextract-btn:disabled{opacity:0.5;cursor:default}
+
 .row-remove{
   position:absolute;right:6px;top:50%;transform:translateY(-50%);
   width:20px;height:20px;border-radius:50%;border:1px solid var(--hairline-strong);

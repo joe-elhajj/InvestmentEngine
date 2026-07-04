@@ -285,6 +285,17 @@ def _save_cached_raw(cache_dir: Path, accession: str, prompt_version: str, model
     _cache_path(cache_dir, accession, prompt_version, model).write_text(json.dumps(asdict(result)))
 
 
+def is_cached(cache_dir: Path, accession: str, prompt_version: str, model: str) -> bool:
+    """
+    Cheap existence check for the (accession, prompt_version, model) cache
+    entry — no model call, no cache read/parse. This is what the spend
+    gate (app/main.py's /api/flags/{ticker}) uses to decide between
+    rendering the "already extracted" vs. "click to extract" placeholder
+    state, without ever touching the paid API just to answer that question.
+    """
+    return _cache_path(cache_dir, accession, prompt_version, model).exists()
+
+
 def get_flags(
     ticker: str,
     sections: dict,
@@ -311,6 +322,40 @@ def get_flags(
         _save_cached_raw(cache_dir, filing.accession, prompt_version, model, raw)
 
     return apply_overrides(raw, flags_cfg.get("overrides", {}), sections)
+
+
+# ---------------------------------------------------------------------------
+# Cost estimation — config.yaml `flags.pricing`, keyed by the pinned model
+# string. Ticker-independent: the "not yet extracted" placeholder can't
+# know a filing's real token count without fetching it, so it uses a
+# fixed baseline instead.
+# ---------------------------------------------------------------------------
+
+# A typical Item 1/1A/7 bundle after engine/filings.py's 20k-char-per-section
+# cap, plus the system prompt; output is a handful of short flag objects.
+# Deliberately approximate — this only feeds the "~$X.XX" pre-extraction
+# estimate, never a billed amount.
+_BASELINE_INPUT_TOKENS = 15_000
+_BASELINE_OUTPUT_TOKENS = 600
+
+
+def _pricing_for(cfg: dict, model: str) -> Optional[dict]:
+    return cfg.get("flags", {}).get("pricing", {}).get(model)
+
+
+def estimate_extraction_cost_usd(cfg: dict) -> Optional[float]:
+    """Ticker-independent estimate shown on the "not yet extracted"
+    placeholder. Returns None (never a fabricated number) if the pinned
+    model has no pricing entry in config.yaml."""
+    model = cfg.get("flags", {}).get("model", "")
+    pricing = _pricing_for(cfg, model)
+    if not pricing:
+        return None
+    cost = (
+        _BASELINE_INPUT_TOKENS / 1_000_000 * pricing.get("input_per_million", 0)
+        + _BASELINE_OUTPUT_TOKENS / 1_000_000 * pricing.get("output_per_million", 0)
+    )
+    return round(cost, 2)
 
 
 # ---------------------------------------------------------------------------

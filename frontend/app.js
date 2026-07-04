@@ -359,10 +359,19 @@
     if (ev.target.closest(".has-tooltip")) ev.preventDefault();
   });
 
-  // ---- Flags (Tier 2) — lazy-loaded on first expand of the equity
-  // fragment's "Flags" <details> (see engine/report_html.py's
-  // _flags_section()). Never fabricates: a fetch failure or an empty
-  // flags list both render an honest message, never placeholder content.
+  // ---- Flags (Tier 2) — spend-gated. Expanding the "Flags" <details>
+  // (engine/report_html.py's _flags_section()) always does a FREE check
+  // against /api/flags/{ticker}: that endpoint itself never makes a paid
+  // model call unless the request carries ?extract=true or ?refresh=true
+  // (app/main.py's get_flags()), so this auto-check can never trigger
+  // spend on its own. Three renderable states come back:
+  //   state: "not_cached" -> placeholder card + estimated cost + an
+  //     "Extract flags" button, which is the ONLY thing that ever fires
+  //     ?extract=true.
+  //   state: "ok"         -> flags rendered normally, plus a small
+  //     "Re-extract" link that fires ?refresh=true after a confirm().
+  //   non-2xx (no API key, credits exhausted, etc.) -> the server's own
+  //     error detail, verbatim — never a fabricated fallback message.
 
   function escapeHtml(s) {
     return String(s)
@@ -372,50 +381,75 @@
 
   var _SEVERITY_ORDER = { red: 0, yellow: 1, green: 2 };
 
-  function renderFlagsBody(body, data) {
-    var flags = data.flags || [];
-    if (flags.length === 0) {
-      body.innerHTML = '<p class="report-caption">No flags extracted for this filing.</p>';
-      return;
-    }
-    // Red first, then yellow, then green — anything with an unrecognized
-    // severity sorts last rather than being dropped.
-    var sorted = flags.slice().sort(function (a, b) {
-      var oa = _SEVERITY_ORDER.hasOwnProperty(a.severity) ? _SEVERITY_ORDER[a.severity] : 3;
-      var ob = _SEVERITY_ORDER.hasOwnProperty(b.severity) ? _SEVERITY_ORDER[b.severity] : 3;
-      return oa - ob;
-    });
-
-    var html = '<ul class="flags-list">';
-    sorted.forEach(function (f) {
-      var analystTag = f.source === "analyst" ? '<span class="flag-analyst-tag">Analyst</span>' : "";
-      html += '<li class="flag-item">'
-        + '<span class="flag-dot flag-dot-' + escapeHtml(f.severity) + '"></span>'
-        + '<span class="flag-label">' + escapeHtml(f.label) + "</span>"
-        + analystTag
-        + '<span class="flag-item-cite">Item ' + escapeHtml(f.item) + "</span>"
-        + '<blockquote class="flag-snippet">“' + escapeHtml(f.snippet) + "”</blockquote>"
-        + "</li>";
-    });
-    html += "</ul>";
-
-    var filing = data.filing || {};
-    var filingLink = filing.url
-      ? '<a href="' + escapeHtml(filing.url) + '" target="_blank" rel="noopener">' + escapeHtml(filing.accession || filing.url) + "</a>"
-      : escapeHtml(filing.accession || "n/a");
-    html += '<p class="flags-provenance">'
-      + "Model: " + escapeHtml(data.model) + " &middot; Prompt: " + escapeHtml(data.prompt_version)
-      + " &middot; Extracted: " + escapeHtml(data.extracted_at)
-      + " &middot; Filing: " + filingLink
-      + "</p>";
-
-    body.innerHTML = html;
+  function fmtEstimatedCost(v) {
+    return v === null || v === undefined ? "unknown (no pricing configured for this model)" : "~$" + v.toFixed(2);
   }
 
-  function loadFlags(details) {
+  function renderNotCachedFlags(body, data) {
+    body.innerHTML =
+      '<div class="flags-placeholder">'
+      + '<p class="report-caption">Qualitative flags not yet extracted for this ticker.</p>'
+      + '<p class="flags-estimate">Estimated cost: ' + escapeHtml(fmtEstimatedCost(data.estimated_cost_usd)) + "</p>"
+      + '<button type="button" class="btn btn-primary flags-extract-btn">Extract flags</button>'
+      + "</div>";
+  }
+
+  function renderOkFlags(body, data) {
+    var flags = data.flags || [];
+    var inner;
+    if (flags.length === 0) {
+      inner = '<p class="report-caption">No flags extracted for this filing.</p>';
+    } else {
+      // Red first, then yellow, then green — anything with an unrecognized
+      // severity sorts last rather than being dropped.
+      var sorted = flags.slice().sort(function (a, b) {
+        var oa = _SEVERITY_ORDER.hasOwnProperty(a.severity) ? _SEVERITY_ORDER[a.severity] : 3;
+        var ob = _SEVERITY_ORDER.hasOwnProperty(b.severity) ? _SEVERITY_ORDER[b.severity] : 3;
+        return oa - ob;
+      });
+
+      var html = '<ul class="flags-list">';
+      sorted.forEach(function (f) {
+        var analystTag = f.source === "analyst" ? '<span class="flag-analyst-tag">Analyst</span>' : "";
+        html += '<li class="flag-item">'
+          + '<span class="flag-dot flag-dot-' + escapeHtml(f.severity) + '"></span>'
+          + '<span class="flag-label">' + escapeHtml(f.label) + "</span>"
+          + analystTag
+          + '<span class="flag-item-cite">Item ' + escapeHtml(f.item) + "</span>"
+          + '<blockquote class="flag-snippet">“' + escapeHtml(f.snippet) + "”</blockquote>"
+          + "</li>";
+      });
+      html += "</ul>";
+
+      var filing = data.filing || {};
+      var filingLink = filing.url
+        ? '<a href="' + escapeHtml(filing.url) + '" target="_blank" rel="noopener">' + escapeHtml(filing.accession || filing.url) + "</a>"
+        : escapeHtml(filing.accession || "n/a");
+      html += '<p class="flags-provenance">'
+        + "Model: " + escapeHtml(data.model) + " &middot; Prompt: " + escapeHtml(data.prompt_version)
+        + " &middot; Extracted: " + escapeHtml(data.extracted_at)
+        + " &middot; Filing: " + filingLink
+        + "</p>";
+      inner = html;
+    }
+
+    body.innerHTML =
+      '<div class="flags-toolbar"><button type="button" class="flags-reextract-btn">Re-extract</button></div>'
+      + inner;
+  }
+
+  function renderFlagsBody(body, data) {
+    if (data.state === "not_cached") {
+      renderNotCachedFlags(body, data);
+    } else {
+      renderOkFlags(body, data);
+    }
+  }
+
+  function loadFlags(details, query) {
     var ticker = details.dataset.ticker;
     var body = details.querySelector(".flags-body");
-    fetch("/api/flags/" + encodeURIComponent(ticker))
+    fetch("/api/flags/" + encodeURIComponent(ticker) + (query ? "?" + query : ""))
       .then(function (r) {
         if (!r.ok) {
           // .catch() here only covers a body that fails to parse as JSON
@@ -440,7 +474,8 @@
   // down to the target regardless of the event's own bubbling flag, so
   // one listener still covers every .flags-section injected later via
   // innerHTML (same reasoning as the .sources-toggle click delegation
-  // above, adapted for a non-bubbling event type).
+  // above, adapted for a non-bubbling event type). This fires the FREE
+  // cache-status check described above — never the paid extraction.
   document.addEventListener("toggle", function (ev) {
     var details = ev.target;
     if (!details.classList || !details.classList.contains("flags-section")) return;
@@ -448,6 +483,35 @@
     details.dataset.loaded = "true";
     loadFlags(details);
   }, true);
+
+  // "Extract flags" — the ONLY control that can ever cause a paid call on
+  // a never-extracted ticker. Delegated (innerHTML-injected buttons).
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest(".flags-extract-btn");
+    if (!btn) return;
+    var details = btn.closest(".flags-section");
+    if (!details) return;
+    var body = details.querySelector(".flags-body");
+    btn.disabled = true;
+    btn.textContent = "Extracting…";
+    loadFlags(details, "extract=true");
+  });
+
+  // "Re-extract" on already-cached flags — a repeat spend, so it's gated
+  // behind a confirm() (same "no silent paid action" bar as the button
+  // above, plus a guard against an accidental re-click on data you
+  // already have for free).
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest(".flags-reextract-btn");
+    if (!btn) return;
+    var details = btn.closest(".flags-section");
+    if (!details) return;
+    var ticker = details.dataset.ticker;
+    if (!window.confirm("Re-extract flags for " + ticker + "? This makes a new, billed model call.")) return;
+    btn.disabled = true;
+    btn.textContent = "Extracting…";
+    loadFlags(details, "refresh=true");
+  });
 
   function removeButton(ticker) {
     var btn = document.createElement("span");
