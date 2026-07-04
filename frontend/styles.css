@@ -176,7 +176,15 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .accordion-loading{padding:24px;text-align:center;color:var(--text-3);font-size:0.8125rem;font-style:italic}
 
 /* ---- report fragment (engine/report_html.py render_fragment output) ---- */
-.report-fragment{padding:20px 24px 28px}
+/* text-align:left reset: the accordion <td> this gets injected into (see
+   app.js toggleAccordion()) has no class, so it inherits the generic
+   `tbody td{text-align:right}` rule — and text-align is inherited by every
+   descendant that doesn't set its own. Without this reset, every plain
+   element in the fragment (summary labels, captions, etc.) that doesn't
+   explicitly override text-align renders right-aligned. Numeric value
+   cells are unaffected: they carry their own direct `tbody td` rule, which
+   always wins over an inherited value regardless of this reset. */
+.report-fragment{padding:20px 24px 28px;text-align:left}
 .report-summary{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
 .report-summary .stat{
   flex:1;min-width:120px;background:var(--surface);border:1px solid var(--hairline);
@@ -211,6 +219,7 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-section summary{
   cursor:pointer;padding:10px 14px 10px 26px;font-size:0.6875rem;font-weight:600;letter-spacing:.06em;
   text-transform:uppercase;color:var(--text-2);list-style:none;position:relative;
+  text-align:left;
 }
 .report-section summary::-webkit-details-marker{display:none}
 .report-section summary::before{
