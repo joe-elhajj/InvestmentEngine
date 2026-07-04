@@ -114,9 +114,14 @@ def _build_user_prompt(sections: dict) -> str:
     return "\n\n".join(parts)
 
 
-def _call_model(client, model: str, temperature: float, prompt: str) -> str:
+def _call_model(client, model: str, temperature: float, prompt: str, usage_sink: Optional[dict] = None) -> str:
     """Isolated so tests can patch exactly this function (mock the API,
-    assert call count) without needing a real anthropic.Anthropic client."""
+    assert call count) without needing a real anthropic.Anthropic client.
+    usage_sink, if given, is filled in with the SDK response's real
+    input_tokens/output_tokens — the spend-tracking layer (app/usage.py)
+    prices these at call time rather than trusting an estimate. Left None
+    by every existing caller that doesn't need it, so this stays a no-op
+    for tests that mock a bare response with no `.usage` set up."""
     response = client.messages.create(
         model=model,
         max_tokens=2000,
@@ -124,6 +129,10 @@ def _call_model(client, model: str, temperature: float, prompt: str) -> str:
         system=_SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
     )
+    if usage_sink is not None:
+        usage = getattr(response, "usage", None)
+        usage_sink["input_tokens"] = getattr(usage, "input_tokens", None)
+        usage_sink["output_tokens"] = getattr(usage, "output_tokens", None)
     return "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
 
 
@@ -142,11 +151,15 @@ def _parse_model_flags(raw_text: str) -> list:
     return data if isinstance(data, list) else []
 
 
-def extract_flags_raw(ticker: str, sections: dict, filing: FilingRef, cfg: dict, client) -> FlagsResult:
+def extract_flags_raw(
+    ticker: str, sections: dict, filing: FilingRef, cfg: dict, client,
+    usage_sink: Optional[dict] = None,
+) -> FlagsResult:
     """
     Calls the model, validates every candidate snippet as an exact
     substring of ITS OWN item's section text, and drops (counts, logs) any
-    that fail.
+    that fail. usage_sink is passed straight through to _call_model — see
+    its docstring.
     """
     flags_cfg = cfg.get("flags", {})
     model = flags_cfg.get("model", "claude-sonnet-5")
@@ -154,7 +167,7 @@ def extract_flags_raw(ticker: str, sections: dict, filing: FilingRef, cfg: dict,
     prompt_version = flags_cfg.get("prompt_version", "v1")
 
     prompt = _build_user_prompt(sections)
-    raw_text = _call_model(client, model, temperature, prompt)
+    raw_text = _call_model(client, model, temperature, prompt, usage_sink=usage_sink)
     candidates = _parse_model_flags(raw_text)
 
     verified: list = []
@@ -285,6 +298,17 @@ def _save_cached_raw(cache_dir: Path, accession: str, prompt_version: str, model
     _cache_path(cache_dir, accession, prompt_version, model).write_text(json.dumps(asdict(result)))
 
 
+def is_cached(cache_dir: Path, accession: str, prompt_version: str, model: str) -> bool:
+    """
+    Cheap existence check for the (accession, prompt_version, model) cache
+    entry — no model call, no cache read/parse. This is what the spend
+    gate (app/main.py's /api/flags/{ticker}) uses to decide between
+    rendering the "already extracted" vs. "click to extract" placeholder
+    state, without ever touching the paid API just to answer that question.
+    """
+    return _cache_path(cache_dir, accession, prompt_version, model).exists()
+
+
 def get_flags(
     ticker: str,
     sections: dict,
@@ -293,6 +317,7 @@ def get_flags(
     client,
     cache_dir: Path,
     force_refresh: bool = False,
+    call_info: Optional[dict] = None,
 ) -> FlagsResult:
     """
     Public entry point: cache-or-extract the raw model result, then apply
@@ -300,6 +325,14 @@ def get_flags(
     (the endpoint's ?refresh=true) skips the cache READ (always re-calls
     the model) but still WRITES the new result, overwriting the old cache
     entry and re-stamping extracted_at.
+
+    call_info, if given, is filled in with what actually happened this
+    call — {"cache_status": "live"|"refresh"|"from_cache",
+    "input_tokens": int|None, "output_tokens": int|None} — so the caller
+    (the spend-gate endpoint) can write an accurate app/usage.py audit row
+    without this module knowing anything about SQLite. Left None by every
+    existing caller that doesn't need it: no behavior change, no new
+    required argument.
     """
     flags_cfg = cfg.get("flags", {})
     model = flags_cfg.get("model", "claude-sonnet-5")
@@ -307,10 +340,70 @@ def get_flags(
 
     raw = None if force_refresh else _load_cached_raw(cache_dir, filing.accession, prompt_version, model)
     if raw is None:
-        raw = extract_flags_raw(ticker, sections, filing, cfg, client)
+        usage_sink = {} if call_info is not None else None
+        raw = extract_flags_raw(ticker, sections, filing, cfg, client, usage_sink=usage_sink)
         _save_cached_raw(cache_dir, filing.accession, prompt_version, model, raw)
+        if call_info is not None:
+            call_info["cache_status"] = "refresh" if force_refresh else "live"
+            call_info["input_tokens"] = usage_sink.get("input_tokens")
+            call_info["output_tokens"] = usage_sink.get("output_tokens")
+    elif call_info is not None:
+        call_info["cache_status"] = "from_cache"
+        call_info["input_tokens"] = None
+        call_info["output_tokens"] = None
 
     return apply_overrides(raw, flags_cfg.get("overrides", {}), sections)
+
+
+# ---------------------------------------------------------------------------
+# Cost estimation / stamping — config.yaml `flags.pricing`, keyed by the
+# pinned model string. Estimation is ticker-independent (Task 1's "not yet
+# extracted" placeholder can't know a filing's real token count without
+# fetching it, so it uses a fixed baseline instead); the actual stamped
+# cost (Task 2) always comes from real SDK token counts, never this
+# baseline.
+# ---------------------------------------------------------------------------
+
+# A typical Item 1/1A/7 bundle after engine/filings.py's 20k-char-per-section
+# cap, plus the system prompt; output is a handful of short flag objects.
+# Deliberately approximate — this only feeds the "~$X.XX" pre-extraction
+# estimate, never a billed amount.
+_BASELINE_INPUT_TOKENS = 15_000
+_BASELINE_OUTPUT_TOKENS = 600
+
+
+def _pricing_for(cfg: dict, model: str) -> Optional[dict]:
+    return cfg.get("flags", {}).get("pricing", {}).get(model)
+
+
+def estimate_extraction_cost_usd(cfg: dict) -> Optional[float]:
+    """Ticker-independent estimate shown on the "not yet extracted"
+    placeholder. Returns None (never a fabricated number) if the pinned
+    model has no pricing entry in config.yaml."""
+    model = cfg.get("flags", {}).get("model", "")
+    pricing = _pricing_for(cfg, model)
+    if not pricing:
+        return None
+    cost = (
+        _BASELINE_INPUT_TOKENS / 1_000_000 * pricing.get("input_per_million", 0)
+        + _BASELINE_OUTPUT_TOKENS / 1_000_000 * pricing.get("output_per_million", 0)
+    )
+    return round(cost, 2)
+
+
+def compute_cost_usd(cfg: dict, model: str, input_tokens: Optional[int], output_tokens: Optional[int]) -> float:
+    """Actual cost from real SDK token counts, priced against config.yaml
+    AT CALL TIME — the caller stores this returned value, so a later price
+    change never retroactively rewrites a historical usage row. Missing
+    pricing or missing token counts price as 0.0 rather than raising —
+    an honest "we don't know" belongs in the config/logs, not a 500 on
+    the extraction endpoint the user is actively waiting on."""
+    pricing = _pricing_for(cfg, model) or {}
+    cost = (
+        (input_tokens or 0) / 1_000_000 * pricing.get("input_per_million", 0)
+        + (output_tokens or 0) / 1_000_000 * pricing.get("output_per_million", 0)
+    )
+    return round(cost, 6)
 
 
 # ---------------------------------------------------------------------------

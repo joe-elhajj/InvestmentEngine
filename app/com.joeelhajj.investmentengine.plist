@@ -23,5 +23,16 @@
 
     <key>StandardErrorPath</key>
     <string>/Users/joeelhajj/.investment_engine/server.log</string>
+
+    <!--
+      No EnvironmentVariables key here on purpose: ANTHROPIC_API_KEY must
+      never be committed to this repo. INSTALL.md's "Auto-start at login"
+      step merges an EnvironmentVariables dict into the COPY of this file
+      in ~/Library/LaunchAgents (not this tracked template) from a
+      gitignored, outside-the-repo file at ~/.investment_engine/env.plist,
+      via `plutil`/`PlistBuddy Merge`. launchd sets that env on this job's
+      process, which launcher.sh's exec then inherits down to uvicorn —
+      no code change needed in launcher.sh itself for the key to reach it.
+    -->
 </dict>
 </plist>

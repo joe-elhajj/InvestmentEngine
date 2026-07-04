@@ -32,7 +32,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import watchlist
+from app import usage, watchlist
 from engine.analysis import run_single_ticker
 from engine import durability as D
 from engine.edgar import EdgarClient, SEC_TICKERS_URL
@@ -539,18 +539,31 @@ _FLAGS_CACHE_DIR = REPO_ROOT / ".cache" / "flags"
 
 
 @app.get("/api/flags/{ticker}")
-async def get_flags(ticker: str, refresh: bool = False):
+async def get_flags(ticker: str, extract: bool = False, refresh: bool = False):
     """
-    Fetches the latest 10-K's sections, then extracts (or reuses the
-    cached) verbatim-validated flags. This endpoint is equity-only in
-    practice: a fund's filing history has no 10-K, so engine.filings.
-    FilingsClient.latest_10k_sections() returns None for it and this
-    reports 404 — the same "no filing found" 404 an equity with no 10-K
-    yet would get, no special ETF-detection branch needed.
+    Spend-gated Tier 2 boundary. Fetches the latest 10-K's sections (a
+    free EDGAR fetch — no model involved) to learn the filing's accession
+    number, then decides what to do based on cache state and the caller's
+    explicit signal:
 
-    ?refresh=true forces a fresh model call (skips the cache read, still
-    overwrites the cache and re-stamps extracted_at) — see
-    engine.flags.get_flags().
+      - already cached, no ?refresh=true  -> serve the cached (verbatim-
+        validated, override-applied) flags. No model call, no spend —
+        this is what a plain accordion-expand hits every time after the
+        first extraction, and it's why this path needs no `extract` flag.
+      - NOT cached, no ?extract=true, no ?refresh=true -> the "click to
+        extract" placeholder envelope ({"state": "not_cached", ...}), a
+        ticker-independent cost estimate, and NO model call. This is the
+        only response a bare accordion-expand can ever get for a
+        never-extracted ticker — auto-fetch of the paid call is
+        impossible by construction, not just by frontend discipline.
+      - ?extract=true (cache miss) or ?refresh=true (any cache state) ->
+        an actual model call, gated on a configured Anthropic client.
+
+    This endpoint is equity-only in practice: a fund's filing history has
+    no 10-K, so engine.filings.FilingsClient.latest_10k_sections() returns
+    None for it and this reports 404 — the same "no filing found" 404 an
+    equity with no 10-K yet would get, no special ETF-detection branch
+    needed.
     """
     tk = ticker.strip().upper()
     loop = asyncio.get_running_loop()
@@ -564,7 +577,31 @@ async def get_flags(ticker: str, refresh: bool = False):
     if filing_sections is None:
         raise HTTPException(status_code=404, detail=f"No 10-K filing found for {tk}.")
 
-    if app.state.anthropic_client is None:
+    flags_cfg = app.state.cfg.get("flags", {})
+    model = flags_cfg.get("model", "claude-sonnet-5")
+    prompt_version = flags_cfg.get("prompt_version", "v1")
+    already_cached = FLAGS.is_cached(_FLAGS_CACHE_DIR, filing_sections.accession, prompt_version, model)
+
+    # Cache miss with no explicit trigger: report the placeholder state
+    # and estimated cost, no model call — the ONLY response shape a bare
+    # GET can produce for a ticker that's never been extracted.
+    if not already_cached and not extract and not refresh:
+        if app.state.anthropic_client is None:
+            raise HTTPException(
+                status_code=503,
+                detail="Anthropic API key not configured (set ANTHROPIC_API_KEY).",
+            )
+        return {
+            "state": "not_cached",
+            "model": model,
+            "estimated_cost_usd": FLAGS.estimate_extraction_cost_usd(app.state.cfg),
+        }
+
+    # From here, either the request will read from cache (no client
+    # needed) or is about to make a real, billed model call (client
+    # required) — figure out which before touching the API key check.
+    live_call_needed = refresh or not already_cached
+    if live_call_needed and app.state.anthropic_client is None:
         raise HTTPException(
             status_code=503,
             detail="Anthropic API key not configured (set ANTHROPIC_API_KEY).",
@@ -577,6 +614,7 @@ async def get_flags(ticker: str, refresh: bool = False):
         filed=filing_sections.filed,
         url=filing_sections.url,
     )
+    call_info: dict = {}
     try:
         result = await loop.run_in_executor(
             None,
@@ -588,11 +626,38 @@ async def get_flags(ticker: str, refresh: bool = False):
             app.state.anthropic_client,
             _FLAGS_CACHE_DIR,
             refresh,
+            call_info,
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e) or type(e).__name__)
 
-    return asdict(result)
+    cache_status = call_info.get("cache_status", "from_cache")
+    cost_usd = 0.0 if cache_status == "from_cache" else FLAGS.compute_cost_usd(
+        app.state.cfg, model, call_info.get("input_tokens"), call_info.get("output_tokens"),
+    )
+    usage.log_call(
+        ticker=tk,
+        model=model,
+        prompt_version=prompt_version,
+        input_tokens=call_info.get("input_tokens") or 0,
+        output_tokens=call_info.get("output_tokens") or 0,
+        cost_usd=cost_usd,
+        cache_status=cache_status,
+    )
+
+    payload = asdict(result)
+    payload["state"] = "ok"
+    payload["cache_status"] = cache_status
+    return payload
+
+
+# ---------------------------------------------------------------------------
+# Usage — Tier 2 spend visibility (app/usage.py's SQLite ledger)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/usage")
+def get_usage():
+    return usage.summary()
 
 
 # ---------------------------------------------------------------------------

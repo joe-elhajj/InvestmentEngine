@@ -107,6 +107,10 @@
     removeConfirmText: document.getElementById("remove-confirm-text"),
     removeConfirmBtn: document.getElementById("remove-confirm-btn"),
     removeCancelBtn: document.getElementById("remove-cancel-btn"),
+    usageBtn: document.getElementById("usage-btn"),
+    usageModalOverlay: document.getElementById("usage-modal-overlay"),
+    usageModalBody: document.getElementById("usage-modal-body"),
+    usageModalClose: document.getElementById("usage-modal-close"),
   };
 
   var currentSearchTicker = null; // ticker the confirm bar currently refers to
@@ -359,10 +363,19 @@
     if (ev.target.closest(".has-tooltip")) ev.preventDefault();
   });
 
-  // ---- Flags (Tier 2) — lazy-loaded on first expand of the equity
-  // fragment's "Flags" <details> (see engine/report_html.py's
-  // _flags_section()). Never fabricates: a fetch failure or an empty
-  // flags list both render an honest message, never placeholder content.
+  // ---- Flags (Tier 2) — spend-gated. Expanding the "Flags" <details>
+  // (engine/report_html.py's _flags_section()) always does a FREE check
+  // against /api/flags/{ticker}: that endpoint itself never makes a paid
+  // model call unless the request carries ?extract=true or ?refresh=true
+  // (app/main.py's get_flags()), so this auto-check can never trigger
+  // spend on its own. Three renderable states come back:
+  //   state: "not_cached" -> placeholder card + estimated cost + an
+  //     "Extract flags" button, which is the ONLY thing that ever fires
+  //     ?extract=true.
+  //   state: "ok"         -> flags rendered normally, plus a small
+  //     "Re-extract" link that fires ?refresh=true after a confirm().
+  //   non-2xx (no API key, credits exhausted, etc.) -> the server's own
+  //     error detail, verbatim — never a fabricated fallback message.
 
   function escapeHtml(s) {
     return String(s)
@@ -372,50 +385,75 @@
 
   var _SEVERITY_ORDER = { red: 0, yellow: 1, green: 2 };
 
-  function renderFlagsBody(body, data) {
-    var flags = data.flags || [];
-    if (flags.length === 0) {
-      body.innerHTML = '<p class="report-caption">No flags extracted for this filing.</p>';
-      return;
-    }
-    // Red first, then yellow, then green — anything with an unrecognized
-    // severity sorts last rather than being dropped.
-    var sorted = flags.slice().sort(function (a, b) {
-      var oa = _SEVERITY_ORDER.hasOwnProperty(a.severity) ? _SEVERITY_ORDER[a.severity] : 3;
-      var ob = _SEVERITY_ORDER.hasOwnProperty(b.severity) ? _SEVERITY_ORDER[b.severity] : 3;
-      return oa - ob;
-    });
-
-    var html = '<ul class="flags-list">';
-    sorted.forEach(function (f) {
-      var analystTag = f.source === "analyst" ? '<span class="flag-analyst-tag">Analyst</span>' : "";
-      html += '<li class="flag-item">'
-        + '<span class="flag-dot flag-dot-' + escapeHtml(f.severity) + '"></span>'
-        + '<span class="flag-label">' + escapeHtml(f.label) + "</span>"
-        + analystTag
-        + '<span class="flag-item-cite">Item ' + escapeHtml(f.item) + "</span>"
-        + '<blockquote class="flag-snippet">“' + escapeHtml(f.snippet) + "”</blockquote>"
-        + "</li>";
-    });
-    html += "</ul>";
-
-    var filing = data.filing || {};
-    var filingLink = filing.url
-      ? '<a href="' + escapeHtml(filing.url) + '" target="_blank" rel="noopener">' + escapeHtml(filing.accession || filing.url) + "</a>"
-      : escapeHtml(filing.accession || "n/a");
-    html += '<p class="flags-provenance">'
-      + "Model: " + escapeHtml(data.model) + " &middot; Prompt: " + escapeHtml(data.prompt_version)
-      + " &middot; Extracted: " + escapeHtml(data.extracted_at)
-      + " &middot; Filing: " + filingLink
-      + "</p>";
-
-    body.innerHTML = html;
+  function fmtEstimatedCost(v) {
+    return v === null || v === undefined ? "unknown (no pricing configured for this model)" : "~$" + v.toFixed(2);
   }
 
-  function loadFlags(details) {
+  function renderNotCachedFlags(body, data) {
+    body.innerHTML =
+      '<div class="flags-placeholder">'
+      + '<p class="report-caption">Qualitative flags not yet extracted for this ticker.</p>'
+      + '<p class="flags-estimate">Estimated cost: ' + escapeHtml(fmtEstimatedCost(data.estimated_cost_usd)) + "</p>"
+      + '<button type="button" class="btn btn-primary flags-extract-btn">Extract flags</button>'
+      + "</div>";
+  }
+
+  function renderOkFlags(body, data) {
+    var flags = data.flags || [];
+    var inner;
+    if (flags.length === 0) {
+      inner = '<p class="report-caption">No flags extracted for this filing.</p>';
+    } else {
+      // Red first, then yellow, then green — anything with an unrecognized
+      // severity sorts last rather than being dropped.
+      var sorted = flags.slice().sort(function (a, b) {
+        var oa = _SEVERITY_ORDER.hasOwnProperty(a.severity) ? _SEVERITY_ORDER[a.severity] : 3;
+        var ob = _SEVERITY_ORDER.hasOwnProperty(b.severity) ? _SEVERITY_ORDER[b.severity] : 3;
+        return oa - ob;
+      });
+
+      var html = '<ul class="flags-list">';
+      sorted.forEach(function (f) {
+        var analystTag = f.source === "analyst" ? '<span class="flag-analyst-tag">Analyst</span>' : "";
+        html += '<li class="flag-item">'
+          + '<span class="flag-dot flag-dot-' + escapeHtml(f.severity) + '"></span>'
+          + '<span class="flag-label">' + escapeHtml(f.label) + "</span>"
+          + analystTag
+          + '<span class="flag-item-cite">Item ' + escapeHtml(f.item) + "</span>"
+          + '<blockquote class="flag-snippet">“' + escapeHtml(f.snippet) + "”</blockquote>"
+          + "</li>";
+      });
+      html += "</ul>";
+
+      var filing = data.filing || {};
+      var filingLink = filing.url
+        ? '<a href="' + escapeHtml(filing.url) + '" target="_blank" rel="noopener">' + escapeHtml(filing.accession || filing.url) + "</a>"
+        : escapeHtml(filing.accession || "n/a");
+      html += '<p class="flags-provenance">'
+        + "Model: " + escapeHtml(data.model) + " &middot; Prompt: " + escapeHtml(data.prompt_version)
+        + " &middot; Extracted: " + escapeHtml(data.extracted_at)
+        + " &middot; Filing: " + filingLink
+        + "</p>";
+      inner = html;
+    }
+
+    body.innerHTML =
+      '<div class="flags-toolbar"><button type="button" class="flags-reextract-btn">Re-extract</button></div>'
+      + inner;
+  }
+
+  function renderFlagsBody(body, data) {
+    if (data.state === "not_cached") {
+      renderNotCachedFlags(body, data);
+    } else {
+      renderOkFlags(body, data);
+    }
+  }
+
+  function loadFlags(details, query) {
     var ticker = details.dataset.ticker;
     var body = details.querySelector(".flags-body");
-    fetch("/api/flags/" + encodeURIComponent(ticker))
+    fetch("/api/flags/" + encodeURIComponent(ticker) + (query ? "?" + query : ""))
       .then(function (r) {
         if (!r.ok) {
           // .catch() here only covers a body that fails to parse as JSON
@@ -440,7 +478,8 @@
   // down to the target regardless of the event's own bubbling flag, so
   // one listener still covers every .flags-section injected later via
   // innerHTML (same reasoning as the .sources-toggle click delegation
-  // above, adapted for a non-bubbling event type).
+  // above, adapted for a non-bubbling event type). This fires the FREE
+  // cache-status check described above — never the paid extraction.
   document.addEventListener("toggle", function (ev) {
     var details = ev.target;
     if (!details.classList || !details.classList.contains("flags-section")) return;
@@ -448,6 +487,35 @@
     details.dataset.loaded = "true";
     loadFlags(details);
   }, true);
+
+  // "Extract flags" — the ONLY control that can ever cause a paid call on
+  // a never-extracted ticker. Delegated (innerHTML-injected buttons).
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest(".flags-extract-btn");
+    if (!btn) return;
+    var details = btn.closest(".flags-section");
+    if (!details) return;
+    var body = details.querySelector(".flags-body");
+    btn.disabled = true;
+    btn.textContent = "Extracting…";
+    loadFlags(details, "extract=true");
+  });
+
+  // "Re-extract" on already-cached flags — a repeat spend, so it's gated
+  // behind a confirm() (same "no silent paid action" bar as the button
+  // above, plus a guard against an accidental re-click on data you
+  // already have for free).
+  document.addEventListener("click", function (ev) {
+    var btn = ev.target.closest(".flags-reextract-btn");
+    if (!btn) return;
+    var details = btn.closest(".flags-section");
+    if (!details) return;
+    var ticker = details.dataset.ticker;
+    if (!window.confirm("Re-extract flags for " + ticker + "? This makes a new, billed model call.")) return;
+    btn.disabled = true;
+    btn.textContent = "Extracting…";
+    loadFlags(details, "refresh=true");
+  });
 
   function removeButton(ticker) {
     var btn = document.createElement("span");
@@ -843,6 +911,63 @@
   // ---- refresh button ----
 
   els.refreshBtn.addEventListener("click", runScreen);
+
+  // ---- Usage modal (Tier 2 spend visibility, GET /api/usage) ----
+
+  var _MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  function fmtUsd(v) {
+    return v === null || v === undefined ? "—" : "$" + v.toFixed(2);
+  }
+
+  function fmtMonthLabel(key) {
+    var parts = key.split("-");
+    return _MONTH_NAMES[parseInt(parts[1], 10) - 1] + " " + parts[0];
+  }
+
+  function renderUsageModal(data) {
+    var rows = (data.monthly_breakdown || []).map(function (m) {
+      return "<tr><td class=\"l\">" + escapeHtml(fmtMonthLabel(m.month)) + "</td>"
+        + "<td>" + escapeHtml(fmtUsd(m.cost_usd)) + "</td>"
+        + "<td>" + escapeHtml(String(m.calls)) + "</td></tr>";
+    }).join("");
+
+    els.usageModalBody.innerHTML =
+      '<div class="usage-stats">'
+      + '<div class="usage-stat"><span class="usage-stat-label">Lifetime spend</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.lifetime_total_usd)) + "</span></div>"
+      + '<div class="usage-stat"><span class="usage-stat-label">This month</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.current_month.cost_usd)) + "</span></div>"
+      + '<div class="usage-stat"><span class="usage-stat-label">This year</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.current_year.cost_usd)) + "</span></div>"
+      + '<div class="usage-stat"><span class="usage-stat-label">Trailing-12mo projection</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.trailing_12mo_projection_usd)) + "</span></div>"
+      + "</div>"
+      + '<p class="usage-projection-note">Projection = trailing 30-day spend &times; 12, assuming the current usage rate continues.</p>'
+      + '<div class="surface"><div class="scroll"><table class="usage-table">'
+      + '<thead><tr><th class="l">Month</th><th>Cost</th><th>Calls</th></tr></thead>'
+      + "<tbody>" + rows + "</tbody>"
+      + "</table></div></div>";
+  }
+
+  function openUsageModal() {
+    els.usageModalOverlay.classList.remove("hidden");
+    els.usageModalBody.innerHTML = '<p class="report-caption">Loading…</p>';
+    apiGet("/api/usage")
+      .then(renderUsageModal)
+      .catch(function (e) {
+        els.usageModalBody.innerHTML = '<p class="report-caption">Usage unavailable: ' + escapeHtml(e.message) + "</p>";
+      });
+  }
+
+  function closeUsageModal() {
+    els.usageModalOverlay.classList.add("hidden");
+  }
+
+  els.usageBtn.addEventListener("click", openUsageModal);
+  els.usageModalClose.addEventListener("click", closeUsageModal);
+  els.usageModalOverlay.addEventListener("click", function (ev) {
+    if (ev.target === els.usageModalOverlay) closeUsageModal();
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && !els.usageModalOverlay.classList.contains("hidden")) closeUsageModal();
+  });
 
   // ---- boot ----
 

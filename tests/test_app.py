@@ -824,9 +824,11 @@ class TestFlagsEndpoint:
         ])
         with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
              patch("engine.flags._call_model", return_value=canned.content[0].text):
-            resp = client.get("/api/flags/NVDA")
+            resp = client.get("/api/flags/NVDA?extract=true")
         assert resp.status_code == 200
         body = resp.json()
+        assert body["state"] == "ok"
+        assert body["cache_status"] == "live"
         assert body["ticker"] == "NVDA"
         assert body["model"]
         assert body["prompt_version"]
@@ -849,7 +851,7 @@ class TestFlagsEndpoint:
         ]).content[0].text
         with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
              patch("engine.flags._call_model", return_value=canned_text):
-            resp = client.get("/api/flags/NVDA")
+            resp = client.get("/api/flags/NVDA?extract=true")
         body = resp.json()
         assert body["flags"] == []
         assert body["dropped_count"] == 1
@@ -866,6 +868,13 @@ class TestFlagsEndpoint:
             resp = client.get("/api/flags/NVDA")
         assert resp.status_code == 503
 
+    def test_no_api_key_configured_returns_503_even_with_extract_true(self, client):
+        fastapi_app.state.anthropic_client = None
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs):
+            resp = client.get("/api/flags/NVDA?extract=true")
+        assert resp.status_code == 503
+
     def test_second_request_is_a_cache_hit_model_not_called_again(self, client):
         fs = _filing_sections()
         canned_text = _model_response([
@@ -874,19 +883,23 @@ class TestFlagsEndpoint:
         ]).content[0].text
         with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
              patch("engine.flags._call_model", return_value=canned_text) as mock_call:
-            client.get("/api/flags/NVDA")
-            client.get("/api/flags/NVDA")
+            client.get("/api/flags/NVDA?extract=true")
+            resp2 = client.get("/api/flags/NVDA")
             assert mock_call.call_count == 1
+        body2 = resp2.json()
+        assert body2["state"] == "ok"
+        assert body2["cache_status"] == "from_cache"
 
     def test_refresh_true_re_calls_model_and_re_stamps(self, client):
         fs = _filing_sections()
         canned_text = _model_response([]).content[0].text
         with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
              patch("engine.flags._call_model", return_value=canned_text) as mock_call:
-            r1 = client.get("/api/flags/NVDA").json()
+            r1 = client.get("/api/flags/NVDA?extract=true").json()
             r2 = client.get("/api/flags/NVDA?refresh=true").json()
             assert mock_call.call_count == 2
         assert r1["extracted_at"] != r2["extracted_at"]
+        assert r2["cache_status"] == "refresh"
 
     def test_override_applied_through_the_endpoint(self, client):
         fs = _filing_sections()
@@ -900,7 +913,7 @@ class TestFlagsEndpoint:
         try:
             with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
                  patch("engine.flags._call_model", return_value=canned_text):
-                resp = client.get("/api/flags/NVDA")
+                resp = client.get("/api/flags/NVDA?extract=true")
         finally:
             fastapi_app.state.cfg["flags"]["overrides"] = original_overrides
         assert resp.json()["flags"][0]["severity"] == "yellow"
@@ -917,9 +930,207 @@ class TestFlagsEndpoint:
         try:
             with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
                  patch("engine.flags._call_model", return_value=canned_text):
-                resp = client.get("/api/flags/NVDA")
+                resp = client.get("/api/flags/NVDA?extract=true")
         finally:
             fastapi_app.state.cfg["flags"]["overrides"] = original_overrides
         flags = resp.json()["flags"]
         assert len(flags) == 1
         assert flags[0]["source"] == "analyst"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/flags/{ticker} — explicit-trigger spend gate (Task 1)
+# ---------------------------------------------------------------------------
+
+class TestFlagsExplicitTriggerGate:
+    """
+    The endpoint itself must be spend-safe: a bare GET on a never-extracted
+    ticker can NEVER reach the model, regardless of how many times it's
+    called or from where. Extraction only happens with ?extract=true
+    (cache miss) or ?refresh=true (any cache state).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _mock_anthropic_and_cache_dir(self, client, tmp_path):
+        fastapi_app.state.anthropic_client = MagicMock()
+        with patch("app.main._FLAGS_CACHE_DIR", tmp_path):
+            yield
+
+    def test_cache_miss_bare_get_returns_placeholder_no_model_call(self, client):
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model") as mock_call:
+            resp = client.get("/api/flags/NVDA")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["state"] == "not_cached"
+        assert "estimated_cost_usd" in body
+        mock_call.assert_not_called()
+
+    def test_repeated_bare_gets_on_a_cache_miss_never_call_the_model(self, client):
+        """Auto-fetch on repeated accordion expands must be structurally
+        impossible, not just a frontend convention."""
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model") as mock_call:
+            for _ in range(5):
+                resp = client.get("/api/flags/NVDA")
+                assert resp.json()["state"] == "not_cached"
+            mock_call.assert_not_called()
+
+    def test_estimated_cost_computed_from_config_pricing(self, client):
+        fs = _filing_sections()
+        model = fastapi_app.state.cfg["flags"]["model"]
+        fastapi_app.state.cfg["flags"]["pricing"] = {
+            model: {"input_per_million": 3.0, "output_per_million": 15.0},
+        }
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs):
+            resp = client.get("/api/flags/NVDA")
+        assert resp.json()["estimated_cost_usd"] > 0
+
+    def test_estimated_cost_is_none_for_unpriced_pinned_model(self, client):
+        """The shipped config.yaml pins claude-sonnet-5 but only prices
+        claude-sonnet-4-6 / claude-haiku-4-5-20251001 — an honest None,
+        never a fabricated number, for a model with no pricing entry."""
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs):
+            resp = client.get("/api/flags/NVDA")
+        assert resp.json()["estimated_cost_usd"] is None
+
+    def test_extract_true_on_cache_miss_makes_the_call(self, client):
+        fs = _filing_sections()
+        canned_text = _model_response([]).content[0].text
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model", return_value=canned_text) as mock_call:
+            resp = client.get("/api/flags/NVDA?extract=true")
+        assert resp.json()["state"] == "ok"
+        mock_call.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# GET /api/flags/{ticker} — usage/cost logging (Task 2)
+# ---------------------------------------------------------------------------
+
+class TestFlagsUsageLogging:
+    """
+    Real token counts must flow from the SDK response through to the usage
+    row — these tests mock app.state.anthropic_client.messages.create
+    directly (not engine.flags._call_model) so the real _call_model usage-
+    capture code path actually runs.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _setup(self, client, tmp_path):
+        # `client` (see fixture at top of file) already points
+        # watchlist.DB_PATH at this same tmp_path's watchlist.db — app.usage
+        # resolves against that same constant, so usage rows land there too.
+        fastapi_app.state.anthropic_client = MagicMock()
+        fastapi_app.state.cfg["flags"]["pricing"] = {
+            fastapi_app.state.cfg["flags"]["model"]: {
+                "input_per_million": 3.0, "output_per_million": 15.0,
+            },
+        }
+        with patch("app.main._FLAGS_CACHE_DIR", tmp_path / "flags_cache"):
+            yield
+
+    def _fake_response(self, payload, input_tokens=1000, output_tokens=100):
+        response = _model_response(payload)
+        response.usage = MagicMock(input_tokens=input_tokens, output_tokens=output_tokens)
+        return response
+
+    def _rows(self):
+        import app.usage as usage_mod
+        conn = usage_mod._connect(usage_mod._resolve(None))
+        try:
+            return conn.execute(
+                "SELECT ticker, model, input_tokens, output_tokens, cost_usd, cache_status FROM flag_extraction_usage"
+            ).fetchall()
+        finally:
+            conn.close()
+
+    def test_live_call_writes_one_row_with_real_token_counts_and_positive_cost(self, client):
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch.object(
+                 fastapi_app.state.anthropic_client.messages, "create",
+                 return_value=self._fake_response([]),
+             ):
+            client.get("/api/flags/NVDA?extract=true")
+        rows = self._rows()
+        assert len(rows) == 1
+        ticker, model, in_tok, out_tok, cost, status = rows[0]
+        assert ticker == "NVDA"
+        assert in_tok == 1000
+        assert out_tok == 100
+        assert cost > 0
+        assert status == "live"
+
+    def test_refresh_call_logs_cache_status_refresh(self, client):
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch.object(
+                 fastapi_app.state.anthropic_client.messages, "create",
+                 return_value=self._fake_response([]),
+             ):
+            client.get("/api/flags/NVDA?extract=true")
+            client.get("/api/flags/NVDA?refresh=true")
+        rows = self._rows()
+        assert [r[5] for r in rows] == ["live", "refresh"]
+
+    def test_cache_hit_read_logs_zero_cost_from_cache_row(self, client):
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch.object(
+                 fastapi_app.state.anthropic_client.messages, "create",
+                 return_value=self._fake_response([]),
+             ):
+            client.get("/api/flags/NVDA?extract=true")
+            client.get("/api/flags/NVDA")  # now cached — plain read
+        rows = self._rows()
+        assert [r[5] for r in rows] == ["live", "from_cache"]
+        cache_row_cost = rows[1][4]
+        assert cache_row_cost == 0
+
+    def test_not_cached_placeholder_check_writes_no_row(self, client):
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs):
+            client.get("/api/flags/NVDA")
+        assert self._rows() == []
+
+
+# ---------------------------------------------------------------------------
+# GET /api/usage (Task 3)
+# ---------------------------------------------------------------------------
+
+class TestUsageEndpoint:
+    def test_empty_usage_has_expected_shape(self, client):
+        resp = client.get("/api/usage")
+        assert resp.status_code == 200
+        body = resp.json()
+        for key in (
+            "lifetime_total_usd", "current_month", "current_year",
+            "trailing_12mo_projection_usd", "monthly_breakdown", "per_model",
+        ):
+            assert key in body
+        assert body["lifetime_total_usd"] == 0.0
+        assert len(body["monthly_breakdown"]) == 12
+
+    def test_reflects_a_real_extraction_call(self, client, tmp_path):
+        fastapi_app.state.anthropic_client = MagicMock()
+        fastapi_app.state.cfg["flags"]["pricing"] = {
+            fastapi_app.state.cfg["flags"]["model"]: {
+                "input_per_million": 3.0, "output_per_million": 15.0,
+            },
+        }
+        fs = _filing_sections()
+        response = _model_response([])
+        response.usage = MagicMock(input_tokens=1000, output_tokens=100)
+        with patch("app.main._FLAGS_CACHE_DIR", tmp_path), \
+             patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch.object(fastapi_app.state.anthropic_client.messages, "create", return_value=response):
+            client.get("/api/flags/NVDA?extract=true")
+
+        usage_body = client.get("/api/usage").json()
+        assert usage_body["lifetime_total_usd"] > 0
+        assert usage_body["current_month"]["calls"] == 1
+        assert usage_body["per_model"][0]["calls"] == 1
