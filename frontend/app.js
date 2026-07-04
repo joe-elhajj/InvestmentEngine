@@ -359,6 +359,96 @@
     if (ev.target.closest(".has-tooltip")) ev.preventDefault();
   });
 
+  // ---- Flags (Tier 2) — lazy-loaded on first expand of the equity
+  // fragment's "Flags" <details> (see engine/report_html.py's
+  // _flags_section()). Never fabricates: a fetch failure or an empty
+  // flags list both render an honest message, never placeholder content.
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  var _SEVERITY_ORDER = { red: 0, yellow: 1, green: 2 };
+
+  function renderFlagsBody(body, data) {
+    var flags = data.flags || [];
+    if (flags.length === 0) {
+      body.innerHTML = '<p class="report-caption">No flags extracted for this filing.</p>';
+      return;
+    }
+    // Red first, then yellow, then green — anything with an unrecognized
+    // severity sorts last rather than being dropped.
+    var sorted = flags.slice().sort(function (a, b) {
+      var oa = _SEVERITY_ORDER.hasOwnProperty(a.severity) ? _SEVERITY_ORDER[a.severity] : 3;
+      var ob = _SEVERITY_ORDER.hasOwnProperty(b.severity) ? _SEVERITY_ORDER[b.severity] : 3;
+      return oa - ob;
+    });
+
+    var html = '<ul class="flags-list">';
+    sorted.forEach(function (f) {
+      var analystTag = f.source === "analyst" ? '<span class="flag-analyst-tag">Analyst</span>' : "";
+      html += '<li class="flag-item">'
+        + '<span class="flag-dot flag-dot-' + escapeHtml(f.severity) + '"></span>'
+        + '<span class="flag-label">' + escapeHtml(f.label) + "</span>"
+        + analystTag
+        + '<span class="flag-item-cite">Item ' + escapeHtml(f.item) + "</span>"
+        + '<blockquote class="flag-snippet">“' + escapeHtml(f.snippet) + "”</blockquote>"
+        + "</li>";
+    });
+    html += "</ul>";
+
+    var filing = data.filing || {};
+    var filingLink = filing.url
+      ? '<a href="' + escapeHtml(filing.url) + '" target="_blank" rel="noopener">' + escapeHtml(filing.accession || filing.url) + "</a>"
+      : escapeHtml(filing.accession || "n/a");
+    html += '<p class="flags-provenance">'
+      + "Model: " + escapeHtml(data.model) + " &middot; Prompt: " + escapeHtml(data.prompt_version)
+      + " &middot; Extracted: " + escapeHtml(data.extracted_at)
+      + " &middot; Filing: " + filingLink
+      + "</p>";
+
+    body.innerHTML = html;
+  }
+
+  function loadFlags(details) {
+    var ticker = details.dataset.ticker;
+    var body = details.querySelector(".flags-body");
+    fetch("/api/flags/" + encodeURIComponent(ticker))
+      .then(function (r) {
+        if (!r.ok) {
+          // .catch() here only covers a body that fails to parse as JSON
+          // (falls back to {}) — it must NOT also swallow the throw in
+          // the .then() below, or a real "detail" message from the server
+          // gets replaced by the generic "HTTP <status>" every time.
+          return r.json().catch(function () { return {}; }).then(function (b) {
+            throw new Error(b.detail || ("HTTP " + r.status));
+          });
+        }
+        return r.json();
+      })
+      .then(function (data) { renderFlagsBody(body, data); })
+      .catch(function (e) {
+        body.innerHTML = '<p class="report-caption">Flags unavailable: ' + escapeHtml(e.message) + "</p>";
+      });
+  }
+
+  // The native "toggle" event on <details> does not bubble, so a normal
+  // document-level delegated listener (bubbling phase) never sees it —
+  // this uses the CAPTURING phase instead, which travels from document
+  // down to the target regardless of the event's own bubbling flag, so
+  // one listener still covers every .flags-section injected later via
+  // innerHTML (same reasoning as the .sources-toggle click delegation
+  // above, adapted for a non-bubbling event type).
+  document.addEventListener("toggle", function (ev) {
+    var details = ev.target;
+    if (!details.classList || !details.classList.contains("flags-section")) return;
+    if (!details.open || details.dataset.loaded === "true") return;
+    details.dataset.loaded = "true";
+    loadFlags(details);
+  }, true);
+
   function removeButton(ticker) {
     var btn = document.createElement("span");
     btn.className = "row-remove";

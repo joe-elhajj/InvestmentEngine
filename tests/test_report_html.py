@@ -166,6 +166,39 @@ class TestLightFragmentRenderer:
         assert "sources-on" not in frag  # never rendered server-side as "on"
 
 
+class TestFlagsSection:
+    """Task 5 (Tier 2): a 'Flags' <details> on the equity fragment only —
+    never the ETF fragment, since funds don't file 10-Ks. Unlike every
+    other section, its content is a client-side-populated placeholder
+    (app.js fetches /api/flags/{ticker} on first expand), not server-
+    rendered data — so these tests check the wiring (data-ticker, class,
+    placeholder), not any actual flag content."""
+
+    def test_flags_section_present_on_equity_fragment(self):
+        frag = RH.render_fragment(_company_result())
+        assert 'class="report-section flags-section"' in frag
+        assert "<summary>Flags</summary>" in frag
+
+    def test_flags_section_carries_the_correct_ticker(self):
+        frag = RH.render_fragment(_company_result())
+        assert 'data-ticker="RPT"' in frag  # _company_result()'s CompanyData ticker
+
+    def test_flags_section_is_closed_by_default(self):
+        frag = RH.render_fragment(_company_result())
+        # The <details ...> tag for flags-section must not carry ` open`
+        import re
+        match = re.search(r'<details class="report-section flags-section"[^>]*>', frag)
+        assert match
+        assert " open" not in match.group(0)
+
+    def test_flags_section_absent_from_etf_fragment(self):
+        from engine.etf import EtfProfile
+        profile = EtfProfile(ticker="QQQ", name="Invesco QQQ Trust", quote_type="ETF")
+        frag = RH.render_etf_fragment(profile, price=500.0, evidence="ETF/Fund — fund forms observed", overlap_matches=[])
+        assert "flags-section" not in frag
+        assert "<summary>Flags</summary>" not in frag
+
+
 class TestSharedBuildersProduceConsistentData:
     """The dark and light renderers must show the SAME figures — only the
     layout differs. This is the regression test for 'do not fork the report

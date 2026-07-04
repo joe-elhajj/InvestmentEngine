@@ -12,6 +12,7 @@
   --accent:#0066cc;
   --good:#1d7d54;
   --bad:#c8362f;
+  --warn:#a66a00;
   --gap-green-rgb:29,125,84;
   --gap-red-rgb:200,54,47;
   --radius:12px;
@@ -318,6 +319,41 @@ tr.accordion-row:hover > td{background:var(--bg)}
 
 .report-error{padding:16px 24px;color:var(--bad);font-size:0.8125rem}
 .report-error .report-caption{color:var(--text-3);padding:4px 0 0}
+
+/* ---- Flags (Tier 2, engine/flags.py) — lazy-loaded on first expand,
+   see app.js's "toggle" listener on .flags-section ---- */
+.flags-body{padding:4px 14px 14px}
+.flags-list{list-style:none;padding:10px 0 0;margin:0}
+.flag-item{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;
+  padding:10px 0;border-bottom:1px solid var(--hairline);
+}
+.flag-item:last-child{border-bottom:none}
+.flag-dot{
+  width:8px;height:8px;border-radius:50%;flex:none;
+  align-self:center;
+}
+.flag-dot-red{background:var(--bad)}
+.flag-dot-yellow{background:var(--warn)}
+.flag-dot-green{background:var(--good)}
+.flag-label{font-size:0.8125rem;font-weight:600;color:var(--text-1)}
+.flag-item-cite{font-size:0.6875rem;color:var(--text-3);letter-spacing:.02em}
+.flag-analyst-tag{
+  font-size:0.625rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--text-2);border:1px solid var(--hairline-strong);border-radius:999px;
+  padding:1px 8px;
+}
+.flag-snippet{
+  flex-basis:100%;margin:2px 0 0;padding:8px 12px;border-left:3px solid var(--hairline-strong);
+  font-size:0.8125rem;font-style:italic;color:var(--text-2);line-height:1.6;
+  background:var(--bg);border-radius:0 6px 6px 0;
+}
+.flags-provenance{
+  font-size:0.6875rem;color:var(--text-3);letter-spacing:.02em;
+  padding:12px 0 0;border-top:1px solid var(--hairline);margin-top:4px;
+}
+.flags-provenance a{color:var(--accent);text-decoration:none}
+.flags-provenance a:hover{text-decoration:underline}
 
 .row-remove{
   position:absolute;right:6px;top:50%;transform:translateY(-50%);
