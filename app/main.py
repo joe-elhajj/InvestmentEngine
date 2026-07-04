@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+import anthropic
 import yaml
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +37,8 @@ from engine.analysis import run_single_ticker
 from engine import durability as D
 from engine.edgar import EdgarClient, SEC_TICKERS_URL
 from engine.etf import fetch_etf_profile, FUND_QUOTE_TYPES
+from engine import flags as FLAGS
+from engine.filings import FilingsClient
 from engine.market import get_quote
 from engine.pipeline import AnalysisResult
 from engine import report_html as RH
@@ -101,6 +104,31 @@ async def lifespan(app: FastAPI):
     # EDGAR — the second one finds the cache warm once it gets the lock.
     app.state.analysis_cache = {}   # dict[str, tuple[float, AnalysisResult]]
     app.state.analysis_locks = {}   # dict[str, asyncio.Lock]
+
+    # Fail fast: a malformed flags.overrides in config.yaml surfaces at
+    # startup, not on the first /api/flags/{ticker} request.
+    FLAGS.validate_flags_config(cfg)
+
+    # Filing text fetch/parse/cache (engine/filings.py) — reuses the same
+    # EdgarClient session/rate-limit/User-Agent, own on-disk cache keyed by
+    # accession number (immutable; no TTL, unlike EdgarClient's XBRL cache).
+    app.state.filings_client = FilingsClient(
+        app.state.client, cache_dir=str(REPO_ROOT / ".cache" / "filings")
+    )
+
+    # Tier 2's only LLM client. Constructed once for the process lifetime,
+    # same pattern as EdgarClient above. anthropic.Anthropic() does NOT
+    # raise just because ANTHROPIC_API_KEY is unset — it happily constructs
+    # a client with api_key=None and would only fail later, confusingly, on
+    # the first real .messages.create() call. Checked explicitly here so a
+    # dev/test environment without a key still boots the app AND
+    # /api/flags/{ticker} reports a clean 503 up front instead of a raw SDK
+    # auth error surfacing mid-request.
+    try:
+        client = anthropic.Anthropic()
+        app.state.anthropic_client = client if client.api_key else None
+    except Exception:
+        app.state.anthropic_client = None
 
     yield
 
@@ -501,6 +529,64 @@ async def analyze_fragment(ticker: str):
     except Exception as e:
         return HTMLResponse(_fragment_error(tk, e), status_code=502)
     return HTMLResponse(rendered)
+
+
+# ---------------------------------------------------------------------------
+# Flags — Tier 2 qualitative red/green flag extraction (the LLM boundary)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/flags/{ticker}")
+async def get_flags(ticker: str):
+    """
+    Fetches the latest 10-K's sections, then extracts verbatim-validated
+    flags. This endpoint is equity-only in practice: a fund's filing
+    history has no 10-K, so engine.filings.FilingsClient.
+    latest_10k_sections() returns None for it and this reports 404 — the
+    same "no filing found" 404 an equity with no 10-K yet would get, no
+    special ETF-detection branch needed.
+
+    Re-extracts on every request for now — caching (accession +
+    prompt_version + model) lands in the next commit.
+    """
+    tk = ticker.strip().upper()
+    loop = asyncio.get_running_loop()
+    try:
+        filing_sections = await loop.run_in_executor(
+            None, app.state.filings_client.latest_10k_sections, tk
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e) or type(e).__name__)
+
+    if filing_sections is None:
+        raise HTTPException(status_code=404, detail=f"No 10-K filing found for {tk}.")
+
+    if app.state.anthropic_client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Anthropic API key not configured (set ANTHROPIC_API_KEY).",
+        )
+
+    filing_ref = FLAGS.FilingRef(
+        form=filing_sections.form,
+        accession=filing_sections.accession,
+        period_ending=filing_sections.period_ending,
+        filed=filing_sections.filed,
+        url=filing_sections.url,
+    )
+    try:
+        result = await loop.run_in_executor(
+            None,
+            FLAGS.extract_flags_raw,
+            tk,
+            filing_sections.sections,
+            filing_ref,
+            app.state.cfg,
+            app.state.anthropic_client,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e) or type(e).__name__)
+
+    return asdict(result)
 
 
 # ---------------------------------------------------------------------------
