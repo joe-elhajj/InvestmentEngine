@@ -90,14 +90,18 @@
     searchClassificationBadge: document.getElementById("search-classification-badge"),
     searchAddBtn: document.getElementById("search-add-btn"),
     refreshBtn: document.getElementById("refresh-btn"),
+    exportCsvBtn: document.getElementById("export-csv-btn"),
+    exportPdfBtn: document.getElementById("export-pdf-btn"),
     statusBanner: document.getElementById("status-banner"),
     emptyState: document.getElementById("empty-state"),
     equitiesSection: document.getElementById("equities-section"),
     etfSection: document.getElementById("etf-section"),
     excludedSection: document.getElementById("excluded-section"),
+    diagnosticsSection: document.getElementById("diagnostics-section"),
     equitiesBody: document.querySelector("#equities-table tbody"),
     etfBody: document.querySelector("#etf-table tbody"),
     excludedBody: document.querySelector("#excluded-table tbody"),
+    diagnosticsBody: document.querySelector("#diagnostics-table tbody"),
     metaLine: document.getElementById("meta-line"),
     removeConfirm: document.getElementById("remove-confirm"),
     removeConfirmText: document.getElementById("remove-confirm-text"),
@@ -149,6 +153,136 @@
   var fragmentCache = {};
   var fragmentInFlight = {};
   var expandedRows = {};
+
+  // ---- column sorting (equities + ETF tables) ----
+  //
+  // equitiesData/etfData hold the rows exactly as last returned by
+  // /api/screen — this is "default order" for the 3-state cycle below.
+  // Sorting never re-fetches or mutates that array; it only changes what
+  // order renderEquitiesBody()/renderEtfBody() rebuild the tbody in.
+  var equitiesData = [];
+  var etfData = [];
+  var sortState = {
+    equities: { key: null, dir: null },
+    etf: { key: null, dir: null },
+  };
+
+  var EQUITIES_SORT_LABELS = {
+    ticker: "Ticker", composite: "Durability", cat_reinvestment: "Reinv",
+    cat_quality: "Quality", cat_resilience: "Resilience", cat_discipline: "Discipline",
+    cat_optionality: "Optionality", implied_fcf_growth: "Implied g",
+    delivered_fcf_growth: "Delivered g", expectations_gap: "Gap",
+  };
+  var ETF_SORT_LABELS = {
+    ticker: "Ticker", expense_ratio: "Exp Ratio", aum: "AUM",
+    overlap_with_screen: "Overlap w/ Singles",
+  };
+
+  // Implied g / Gap are gated (implied_growth_note set) the same way the
+  // rendered cell is — sorting must use the same "effective" value that's
+  // actually on screen, not a raw value the display suppressed to n/a.
+  function equitiesSortValue(row, key) {
+    if (key === "implied_fcf_growth" || key === "expectations_gap") {
+      return row.implied_growth_note ? null : row[key];
+    }
+    return row[key];
+  }
+
+  function etfSortValue(row, key) {
+    return row[key];
+  }
+
+  // Stable sort by `key`/`dir` ("asc"|"desc") using valueOf(row,key) to pull
+  // the comparable value. n/a (null/undefined) ALWAYS sorts to the bottom,
+  // in both directions — absence-is-not-zero applies to ordering too, so a
+  // missing value is never coerced to 0 or -Infinity.
+  function sortRows(rows, key, dir, valueOf) {
+    if (!key || !dir) return rows.slice();
+    var withIndex = rows.map(function (r, i) { return { r: r, i: i }; });
+    withIndex.sort(function (a, b) {
+      var va = valueOf(a.r, key), vb = valueOf(b.r, key);
+      var aNa = va === null || va === undefined;
+      var bNa = vb === null || vb === undefined;
+      if (aNa && bNa) return a.i - b.i;
+      if (aNa) return 1;
+      if (bNa) return -1;
+      var cmp = (typeof va === "string" || typeof vb === "string")
+        ? String(va).localeCompare(String(vb))
+        : (va < vb ? -1 : va > vb ? 1 : 0);
+      if (cmp === 0) return a.i - b.i;
+      return dir === "asc" ? cmp : -cmp;
+    });
+    return withIndex.map(function (x) { return x.r; });
+  }
+
+  function updateSortArrows(tableId, state) {
+    document.querySelectorAll("#" + tableId + " thead th[data-sort-key]").forEach(function (th) {
+      var arrow = th.querySelector(".sort-arrow");
+      if (!arrow) return;
+      arrow.textContent = (state.key && th.getAttribute("data-sort-key") === state.key)
+        ? (state.dir === "asc" ? " ▲" : " ▼")
+        : "";
+    });
+  }
+
+  function updateSortCaption(captionId, state, labels) {
+    var el = document.getElementById(captionId);
+    if (!el) return;
+    el.textContent = state.key ? "Sorted by: " + labels[state.key] + " (" + state.dir + ")" : "";
+  }
+
+  // Any accordion currently open for one of these tickers is tied to a
+  // <tr> DOM node this render is about to discard — drop the stale
+  // reference so a later click creates a fresh accordion instead of
+  // thinking one is already open and immediately closing (no-op-looking)
+  // on a detached node.
+  function clearExpandedFor(rows) {
+    rows.forEach(function (r) { delete expandedRows[r.ticker]; });
+  }
+
+  function renderEquitiesBody() {
+    var rows = sortRows(equitiesData, sortState.equities.key, sortState.equities.dir, equitiesSortValue);
+    clearExpandedFor(equitiesData);
+    els.equitiesBody.innerHTML = "";
+    rows.forEach(function (r) { els.equitiesBody.appendChild(renderEquitiesRow(r)); });
+    updateSortArrows("equities-table", sortState.equities);
+    updateSortCaption("equities-sort-caption", sortState.equities, EQUITIES_SORT_LABELS);
+  }
+
+  function renderEtfBody() {
+    var rows = sortRows(etfData, sortState.etf.key, sortState.etf.dir, etfSortValue);
+    clearExpandedFor(etfData);
+    els.etfBody.innerHTML = "";
+    rows.forEach(function (r) { els.etfBody.appendChild(renderEtfRow(r)); });
+    updateSortArrows("etf-table", sortState.etf);
+    updateSortCaption("etf-sort-caption", sortState.etf, ETF_SORT_LABELS);
+  }
+
+  // Click cycle per column: unsorted/other-column -> desc -> asc -> back
+  // to default (key cleared). Clicking a different column always starts
+  // that column fresh at desc.
+  function attachSortHandler(tableId, stateKey, renderFn) {
+    var thead = document.querySelector("#" + tableId + " thead");
+    thead.addEventListener("click", function (ev) {
+      var th = ev.target.closest("th[data-sort-key]");
+      if (!th) return;
+      var key = th.getAttribute("data-sort-key");
+      var st = sortState[stateKey];
+      if (st.key !== key) {
+        st.key = key;
+        st.dir = "desc";
+      } else if (st.dir === "desc") {
+        st.dir = "asc";
+      } else {
+        st.key = null;
+        st.dir = null;
+      }
+      renderFn();
+    });
+  }
+
+  attachSortHandler("equities-table", "equities", renderEquitiesBody);
+  attachSortHandler("etf-table", "etf", renderEtfBody);
 
   function toggleAccordion(ticker, row) {
     var existing = expandedRows[ticker];
@@ -211,6 +345,18 @@
     var section = btn.closest(".report-section");
     if (section) section.classList.toggle("sources-on");
     btn.classList.toggle("active");
+  });
+
+  // A mouse click on a tabindex="0" element assigns it focus by default,
+  // which used to pin its tooltip open (:focus) until the user clicked
+  // elsewhere. The CSS now keys tooltip visibility off :focus-visible
+  // instead, but this preventDefault() is belt-and-suspenders: it stops
+  // the browser from assigning focus on mousedown at all, so no
+  // :focus-visible heuristic quirk can reintroduce the stuck-open bug.
+  // preventDefault() here does not cancel the subsequent click event, so
+  // header click-to-sort still fires normally.
+  document.addEventListener("mousedown", function (ev) {
+    if (ev.target.closest(".has-tooltip")) ev.preventDefault();
   });
 
   function removeButton(ticker) {
@@ -303,20 +449,62 @@
     return tr;
   }
 
-  function renderScreen(data) {
-    // A fresh render replaces every row, so any accordion <tr> currently
-    // inserted is gone too — drop the stale DOM references. The fetched
-    // fragment HTML in fragmentCache is still valid and reused if the
-    // ticker is expanded again.
-    expandedRows = {};
+  // ---- Data Diagnostics (below Excluded, collapsed by default) ----
+  //
+  // Uses the same equities rows already returned by /api/screen (each
+  // ScreenRow is serialized in full via dataclasses.asdict() — see
+  // app/main.py's _serialize_screen()) — no second screen run.
 
-    els.equitiesBody.innerHTML = "";
-    els.etfBody.innerHTML = "";
+  function bandDisplay(row) {
+    var loNa = row.composite_low === null || row.composite_low === undefined;
+    var hiNa = row.composite_high === null || row.composite_high === undefined;
+    if (loNa && hiNa) return null;
+    var lo = loNa ? "n/a" : row.composite_low.toFixed(1);
+    var hi = hiNa ? "n/a" : row.composite_high.toFixed(1);
+    return lo + "–" + hi;
+  }
+
+  function stableDisplay(row) {
+    if (row.is_stable === null || row.is_stable === undefined) return null;
+    return row.is_stable ? "yes" : "unstable";
+  }
+
+  function renderDiagnosticsRow(row) {
+    var tr = document.createElement("tr");
+    tr.appendChild(td(row.ticker, { cls: "l" }));
+    tr.appendChild(td(bandDisplay(row), { cls: "l" }));
+    tr.appendChild(td(fmtPct(row.completeness)));
+    tr.appendChild(td(stableDisplay(row), { cls: "l" }));
+    tr.appendChild(td(row.universe_version, { cls: "l" }));
+    tr.appendChild(td(row.config_hash, { cls: "l mono" }));
+    tr.appendChild(td(row.flag ? humanizeReason(row.flag) : null, { cls: "l" }));
+    return tr;
+  }
+
+  function renderDiagnostics(equities) {
+    els.diagnosticsBody.innerHTML = "";
+    equities.forEach(function (r) { els.diagnosticsBody.appendChild(renderDiagnosticsRow(r)); });
+    els.diagnosticsSection.classList.toggle("hidden", equities.length === 0);
+  }
+
+  function renderScreen(data) {
+    // A fresh screen run replaces every row, so any accordion <tr>
+    // currently inserted is gone too — drop the stale DOM references. The
+    // fetched fragment HTML in fragmentCache is still valid and reused if
+    // the ticker is expanded again. A new run's data is also a new
+    // "default order" baseline, so any active sort resets.
+    expandedRows = {};
+    equitiesData = data.equities.slice();
+    etfData = data.etfs.slice();
+    sortState.equities = { key: null, dir: null };
+    sortState.etf = { key: null, dir: null };
+
     els.excludedBody.innerHTML = "";
 
-    data.equities.forEach(function (r) { els.equitiesBody.appendChild(renderEquitiesRow(r)); });
-    data.etfs.forEach(function (r) { els.etfBody.appendChild(renderEtfRow(r)); });
+    renderEquitiesBody();
+    renderEtfBody();
     data.excluded.forEach(function (r) { els.excludedBody.appendChild(renderExcludedRow(r)); });
+    renderDiagnostics(data.equities);
 
     els.equitiesSection.classList.toggle("hidden", data.equities.length === 0);
     els.etfSection.classList.toggle("hidden", data.etfs.length === 0);
@@ -483,6 +671,84 @@
       })
       .catch(function (e) { showBanner("Failed to add ticker: " + e.message, true); });
   }
+
+  // ---- export: CSV + PDF ----
+
+  function csvEscape(v) {
+    v = String(v);
+    return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+
+  // Absence-is-not-zero for exports too, but CSV's blank convention is an
+  // empty field, not the "n/a" label the UI shows — a spreadsheet reading
+  // "n/a" into a numeric column would coerce it to NaN/text, while a
+  // genuinely empty cell stays absent.
+  function csvVal(v) {
+    return v === null || v === undefined ? "" : v;
+  }
+
+  function downloadCsv(filename, lines) {
+    var blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // Exports rows in whatever order is currently on screen (same sortRows()
+  // call renderEquitiesBody()/renderEtfBody() use), not the default order.
+  function exportEquitiesCsv() {
+    if (equitiesData.length === 0) return;
+    var rows = sortRows(equitiesData, sortState.equities.key, sortState.equities.dir, equitiesSortValue);
+    var lines = [[
+      "Ticker", "Durability", "Reinv", "Quality", "Resilience", "Discipline",
+      "Optionality", "Implied g", "Delivered g", "Gap",
+    ].map(csvEscape).join(",")];
+    rows.forEach(function (r) {
+      var gated = !!r.implied_growth_note;
+      lines.push([
+        r.ticker,
+        csvVal(fmtScore(r.composite)),
+        csvVal(fmtScore(r.cat_reinvestment)),
+        csvVal(fmtScore(r.cat_quality)),
+        csvVal(fmtScore(r.cat_resilience)),
+        csvVal(fmtScore(r.cat_discipline)),
+        csvVal(fmtScore(r.cat_optionality)),
+        csvVal(gated ? null : fmtPct(r.implied_fcf_growth)),
+        csvVal(fmtPct(r.delivered_fcf_growth)),
+        csvVal(gated ? null : fmtSignedPct(r.expectations_gap)),
+      ].map(csvEscape).join(","));
+    });
+    downloadCsv("equities.csv", lines);
+  }
+
+  function exportEtfCsv() {
+    if (etfData.length === 0) return;
+    var rows = sortRows(etfData, sortState.etf.key, sortState.etf.dir, etfSortValue);
+    var lines = [["Ticker", "Name", "Exp Ratio", "AUM", "Overlap w/ Singles", "Evidence"].map(csvEscape).join(",")];
+    rows.forEach(function (r) {
+      lines.push([
+        r.ticker,
+        csvVal(r.name),
+        csvVal(fmtPct(r.expense_ratio, 2)),
+        csvVal(fmtAum(r.aum)),
+        csvVal(fmtOverlap(r.overlap_with_screen, r.overlap_count)),
+        csvVal(r.flag),
+      ].map(csvEscape).join(","));
+    });
+    downloadCsv("etfs_funds.csv", lines);
+  }
+
+  els.exportCsvBtn.addEventListener("click", function () {
+    exportEquitiesCsv();
+    exportEtfCsv();
+  });
+
+  els.exportPdfBtn.addEventListener("click", function () { window.print(); });
 
   // ---- refresh button ----
 

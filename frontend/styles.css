@@ -16,6 +16,16 @@
   --gap-red-rgb:200,54,47;
   --radius:12px;
   --mono:"SF Mono","Cascadia Code",ui-monospace,Menlo,monospace;
+
+  /* Dark chrome (app bar, table header rows, tooltips) — the light
+     --bg/--surface tokens above stay the data-surface tier; Koyfin-style
+     two-tone dashboards keep those on a darker ink so structure reads
+     before content does. */
+  --chrome-bg:#1a1d24;
+  --chrome-bg-2:#23262e;
+  --chrome-border:rgba(255,255,255,0.10);
+  --chrome-text:#f2f3f5;
+  --chrome-text-dim:#9aa0aa;
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
@@ -26,26 +36,31 @@ body{
   font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
 }
 
-/* ---- top nav ---- */
+/* ---- top nav (dark chrome) ---- */
 .topnav{
   display:flex;align-items:center;gap:24px;
-  padding:14px 24px;background:var(--surface);
-  border-bottom:1px solid var(--hairline-strong);
+  padding:14px 24px;background:var(--chrome-bg);
+  border-bottom:1px solid var(--chrome-border);
   position:sticky;top:0;z-index:10;
 }
-.wordmark{font-size:1rem;font-weight:600;letter-spacing:-0.01em;white-space:nowrap}
+.wordmark{font-size:1rem;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;color:var(--chrome-text)}
 
 .search-wrap{flex:1;display:flex;justify-content:center;position:relative}
 .search-box{display:flex;align-items:center;gap:8px;width:100%;max-width:360px}
 .search-box input{
-  flex:1;font:inherit;font-size:0.8125rem;color:var(--text-1);
-  background:var(--bg);border:1px solid var(--hairline-strong);border-radius:999px;
+  flex:1;font:inherit;font-size:0.8125rem;color:var(--chrome-text);
+  background:rgba(255,255,255,0.06);border:1px solid var(--chrome-border);border-radius:999px;
   padding:7px 14px;outline:none;
 }
+.search-box input::placeholder{color:var(--chrome-text-dim)}
 .search-box input:focus{border-color:var(--accent)}
-.search-status{font-size:0.9375rem;width:1.2em;text-align:center}
+.search-status{font-size:0.9375rem;width:1.2em;text-align:center;color:var(--chrome-text-dim)}
 .search-status.found{color:var(--good)}
 .search-status.not-found{color:var(--bad)}
+
+.topnav-actions{display:flex;align-items:center;gap:8px}
+.topnav-actions .btn{color:var(--chrome-text-dim);border-color:var(--chrome-border)}
+.topnav-actions .btn:hover{color:var(--accent);border-color:var(--accent)}
 
 .search-confirm{
   position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);
@@ -93,8 +108,9 @@ body{
 .table-section:last-of-type{margin-bottom:0}
 .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .sec-lbl{
-  font-size:0.6875rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);
+  font-size:0.6875rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-1);
 }
+.sort-caption{font-size:0.6875rem;color:var(--text-3);font-weight:500;letter-spacing:.02em}
 
 .surface{
   background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
@@ -110,17 +126,59 @@ thead th{
   text-align:right;white-space:nowrap;
 }
 thead th.l{text-align:left}
+thead th[data-sort-key]{cursor:pointer}
+
+/* Dark chrome header rows — scoped to the three top-level dashboard
+   tables' OWN header row only, via a direct-child combinator (>). The
+   accordion fragment injected into these same tables' tbody (see
+   app.js toggleAccordion()) contains its own nested <table><thead>
+   markup (.report-section, e.g. "Financial position") several levels
+   down inside a <td> — a plain descendant selector would match those
+   too, since they're technically inside #equities-table in the DOM.
+   The child combinator excludes anything not a direct <thead> of the
+   outer table, so nested fragment tables keep the light styling from
+   the generic rule above. */
+#equities-table > thead th,
+#etf-table > thead th,
+#excluded-table > thead th,
+#diagnostics-table > thead th{
+  color:var(--chrome-text-dim);background:var(--chrome-bg);
+  border-bottom:1px solid var(--chrome-border);
+}
+.sort-arrow{margin-left:4px;font-size:0.7em;color:var(--accent)}
+td.mono{font-family:var(--mono);font-size:0.75rem}
+
+/* ---- Data Diagnostics (collapsed-by-default <details>, below Excluded) ---- */
+.diag-section{
+  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
+  overflow:hidden;margin-top:24px;
+}
+.diag-section summary{
+  cursor:pointer;padding:13px 16px 13px 34px;font-size:0.6875rem;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--chrome-text-dim);background:var(--chrome-bg);
+  list-style:none;position:relative;text-align:left;
+}
+.diag-section summary::-webkit-details-marker{display:none}
+.diag-section summary::before{
+  content:"";position:absolute;left:16px;top:50%;width:0;height:0;
+  border-style:solid;border-width:4px 0 4px 6px;
+  border-color:transparent transparent transparent var(--chrome-text-dim);
+  transform:translateY(-50%);transition:transform .15s ease;
+}
+.diag-section[open] summary::before{transform:translateY(-50%) rotate(90deg)}
+.diag-section .scroll{overflow-x:auto}
 
 /* ---- generic tooltip trigger + popup (column headers AND the DCF stat
    card share this — table headers get their own dotted-underline
    positioning below; .stat gets its own further down near .report-summary) ---- */
 .has-tooltip{position:relative;cursor:default}
 .has-tooltip:focus{outline:none}
+.has-tooltip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 .th-tooltip{
   position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
-  background:var(--surface);color:var(--text-1);border:1px solid var(--hairline);
-  border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.12);
+  background:var(--chrome-bg-2);color:var(--chrome-text);border:1px solid var(--chrome-border);
+  border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.35);
   padding:10px 12px;max-width:280px;width:max-content;
   font-size:0.75rem;font-weight:400;font-style:normal;letter-spacing:normal;
   text-transform:none;text-align:left;white-space:normal;line-height:1.5;
@@ -128,8 +186,7 @@ thead th.l{text-align:left}
   transition:opacity .15s ease;z-index:30;
 }
 .has-tooltip:hover .th-tooltip,
-.has-tooltip:focus .th-tooltip,
-.has-tooltip:focus-within .th-tooltip{opacity:1;visibility:visible}
+.has-tooltip:focus-visible .th-tooltip{opacity:1;visibility:visible}
 
 /* No hover trap on touch devices / narrow viewports — tap just does nothing
    rather than leaving a tooltip stuck open with no way to dismiss it. */
@@ -142,12 +199,11 @@ thead th.l{text-align:left}
 thead th.has-tooltip::before{
   /* dotted-underline affordance so discoverability doesn't depend on luck */
   content:"";position:absolute;left:16px;right:16px;bottom:4px;
-  border-bottom:1px dotted var(--text-3);opacity:0;transition:opacity .15s ease;
+  border-bottom:1px dotted var(--chrome-text-dim);opacity:0;transition:opacity .15s ease;
 }
 thead th.l.has-tooltip::before{right:auto;width:calc(100% - 32px)}
 thead th.has-tooltip:hover::before,
-thead th.has-tooltip:focus::before,
-thead th.has-tooltip:focus-within::before{opacity:1}
+thead th.has-tooltip:focus-visible::before{opacity:1}
 thead th:first-child .th-tooltip{left:0;transform:none}
 thead th:last-child .th-tooltip{left:auto;right:0;transform:none}
 
@@ -176,7 +232,15 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .accordion-loading{padding:24px;text-align:center;color:var(--text-3);font-size:0.8125rem;font-style:italic}
 
 /* ---- report fragment (engine/report_html.py render_fragment output) ---- */
-.report-fragment{padding:20px 24px 28px}
+/* text-align:left reset: the accordion <td> this gets injected into (see
+   app.js toggleAccordion()) has no class, so it inherits the generic
+   `tbody td{text-align:right}` rule — and text-align is inherited by every
+   descendant that doesn't set its own. Without this reset, every plain
+   element in the fragment (summary labels, captions, etc.) that doesn't
+   explicitly override text-align renders right-aligned. Numeric value
+   cells are unaffected: they carry their own direct `tbody td` rule, which
+   always wins over an inherited value regardless of this reset. */
+.report-fragment{padding:20px 24px 28px;text-align:left}
 .report-summary{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
 .report-summary .stat{
   flex:1;min-width:120px;background:var(--surface);border:1px solid var(--hairline);
@@ -199,8 +263,7 @@ tr.accordion-row:hover > td{background:var(--bg)}
   width:fit-content;
 }
 .report-summary .stat.has-tooltip:hover .stat-label,
-.report-summary .stat.has-tooltip:focus .stat-label,
-.report-summary .stat.has-tooltip:focus-within .stat-label{border-color:var(--text-3)}
+.report-summary .stat.has-tooltip:focus-visible .stat-label{border-color:var(--text-3)}
 .report-summary .stat .th-tooltip{top:calc(100% + 8px);left:0;transform:none}
 
 .report-section{
@@ -211,6 +274,7 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-section summary{
   cursor:pointer;padding:10px 14px 10px 26px;font-size:0.6875rem;font-weight:600;letter-spacing:.06em;
   text-transform:uppercase;color:var(--text-2);list-style:none;position:relative;
+  text-align:left;
 }
 .report-section summary::-webkit-details-marker{display:none}
 .report-section summary::before{
@@ -278,3 +342,21 @@ tbody tr:hover .row-remove{opacity:1}
 .remove-confirm .btn:hover{border-color:#fff}
 
 .hidden{display:none !important}
+
+/* ---- print (Save as PDF -> window.print()) ---- */
+@media print{
+  @page{size:A4 landscape;margin:12mm}
+  body{background:#fff;color:#000}
+  .topnav,.status-banner,.empty-state,.remove-confirm,.row-remove,
+  .sort-caption,.sort-arrow,.accordion-row,.expand-hint,.th-tooltip{display:none !important}
+  .wrap{max-width:100%;padding:0}
+  .surface{box-shadow:none !important;border-color:#000}
+  .scroll{overflow-x:visible}
+  #equities-table > thead th,
+  #etf-table > thead th,
+  #excluded-table > thead th,
+  #diagnostics-table > thead th{background:#fff !important;color:#000 !important}
+  .diag-section summary{background:#fff !important;color:#000 !important}
+  tr{page-break-inside:avoid}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
