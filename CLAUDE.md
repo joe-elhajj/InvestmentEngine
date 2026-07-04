@@ -110,3 +110,14 @@ are for speed of iteration, not for authorising a merge.
   skill. Triggered by "run council on TICKER", "council this", "war room".
   Consumes Tier 1 JSON + Tier 2 flags + thesis journal. Five advisors →
   peer review → Chairman synthesis. Never computes; only cites engine output.
+
+## Merge safety (non-negotiable — three silent-loss incidents to date)
+Before ANY `gh pr merge`:
+1. `git log origin/<branch>..<branch>` MUST be empty — unpushed commits +
+   `--delete-branch` = permanent-looking work loss (recoverable only via
+   reflog/fsck within ~90 days).
+2. CI green counts ONLY if the run timestamp matches the current branch tip.
+   A stale green from an earlier push is not validation.
+3. After deleting a branch, if recovering lost commits, use
+   `git fsck --unreachable --no-reflogs` — reflog-walking alone missed
+   orphaned commits above a tip twice.
