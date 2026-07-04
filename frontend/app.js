@@ -97,9 +97,11 @@
     equitiesSection: document.getElementById("equities-section"),
     etfSection: document.getElementById("etf-section"),
     excludedSection: document.getElementById("excluded-section"),
+    diagnosticsSection: document.getElementById("diagnostics-section"),
     equitiesBody: document.querySelector("#equities-table tbody"),
     etfBody: document.querySelector("#etf-table tbody"),
     excludedBody: document.querySelector("#excluded-table tbody"),
+    diagnosticsBody: document.querySelector("#diagnostics-table tbody"),
     metaLine: document.getElementById("meta-line"),
     removeConfirm: document.getElementById("remove-confirm"),
     removeConfirmText: document.getElementById("remove-confirm-text"),
@@ -447,6 +449,44 @@
     return tr;
   }
 
+  // ---- Data Diagnostics (below Excluded, collapsed by default) ----
+  //
+  // Uses the same equities rows already returned by /api/screen (each
+  // ScreenRow is serialized in full via dataclasses.asdict() — see
+  // app/main.py's _serialize_screen()) — no second screen run.
+
+  function bandDisplay(row) {
+    var loNa = row.composite_low === null || row.composite_low === undefined;
+    var hiNa = row.composite_high === null || row.composite_high === undefined;
+    if (loNa && hiNa) return null;
+    var lo = loNa ? "n/a" : row.composite_low.toFixed(1);
+    var hi = hiNa ? "n/a" : row.composite_high.toFixed(1);
+    return lo + "–" + hi;
+  }
+
+  function stableDisplay(row) {
+    if (row.is_stable === null || row.is_stable === undefined) return null;
+    return row.is_stable ? "yes" : "unstable";
+  }
+
+  function renderDiagnosticsRow(row) {
+    var tr = document.createElement("tr");
+    tr.appendChild(td(row.ticker, { cls: "l" }));
+    tr.appendChild(td(bandDisplay(row), { cls: "l" }));
+    tr.appendChild(td(fmtPct(row.completeness)));
+    tr.appendChild(td(stableDisplay(row), { cls: "l" }));
+    tr.appendChild(td(row.universe_version, { cls: "l" }));
+    tr.appendChild(td(row.config_hash, { cls: "l mono" }));
+    tr.appendChild(td(row.flag ? humanizeReason(row.flag) : null, { cls: "l" }));
+    return tr;
+  }
+
+  function renderDiagnostics(equities) {
+    els.diagnosticsBody.innerHTML = "";
+    equities.forEach(function (r) { els.diagnosticsBody.appendChild(renderDiagnosticsRow(r)); });
+    els.diagnosticsSection.classList.toggle("hidden", equities.length === 0);
+  }
+
   function renderScreen(data) {
     // A fresh screen run replaces every row, so any accordion <tr>
     // currently inserted is gone too — drop the stale DOM references. The
@@ -464,6 +504,7 @@
     renderEquitiesBody();
     renderEtfBody();
     data.excluded.forEach(function (r) { els.excludedBody.appendChild(renderExcludedRow(r)); });
+    renderDiagnostics(data.equities);
 
     els.equitiesSection.classList.toggle("hidden", data.equities.length === 0);
     els.etfSection.classList.toggle("hidden", data.etfs.length === 0);

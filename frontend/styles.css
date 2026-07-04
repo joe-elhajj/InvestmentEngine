@@ -140,11 +140,33 @@ thead th[data-sort-key]{cursor:pointer}
    the generic rule above. */
 #equities-table > thead th,
 #etf-table > thead th,
-#excluded-table > thead th{
+#excluded-table > thead th,
+#diagnostics-table > thead th{
   color:var(--chrome-text-dim);background:var(--chrome-bg);
   border-bottom:1px solid var(--chrome-border);
 }
 .sort-arrow{margin-left:4px;font-size:0.7em;color:var(--accent)}
+td.mono{font-family:var(--mono);font-size:0.75rem}
+
+/* ---- Data Diagnostics (collapsed-by-default <details>, below Excluded) ---- */
+.diag-section{
+  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
+  overflow:hidden;margin-top:24px;
+}
+.diag-section summary{
+  cursor:pointer;padding:13px 16px 13px 34px;font-size:0.6875rem;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--chrome-text-dim);background:var(--chrome-bg);
+  list-style:none;position:relative;text-align:left;
+}
+.diag-section summary::-webkit-details-marker{display:none}
+.diag-section summary::before{
+  content:"";position:absolute;left:16px;top:50%;width:0;height:0;
+  border-style:solid;border-width:4px 0 4px 6px;
+  border-color:transparent transparent transparent var(--chrome-text-dim);
+  transform:translateY(-50%);transition:transform .15s ease;
+}
+.diag-section[open] summary::before{transform:translateY(-50%) rotate(90deg)}
+.diag-section .scroll{overflow-x:auto}
 
 /* ---- generic tooltip trigger + popup (column headers AND the DCF stat
    card share this — table headers get their own dotted-underline
@@ -332,7 +354,9 @@ tbody tr:hover .row-remove{opacity:1}
   .scroll{overflow-x:visible}
   #equities-table > thead th,
   #etf-table > thead th,
-  #excluded-table > thead th{background:#fff !important;color:#000 !important}
+  #excluded-table > thead th,
+  #diagnostics-table > thead th{background:#fff !important;color:#000 !important}
+  .diag-section summary{background:#fff !important;color:#000 !important}
   tr{page-break-inside:avoid}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
