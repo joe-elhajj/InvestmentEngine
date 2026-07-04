@@ -654,3 +654,98 @@ def render_fragment(
         + gaps_section
         + "</div>"
     )
+
+
+# ---------------------------------------------------------------------------
+# ETF/fund fragment renderer (Task 2) — a fund has no 10-K, so the equity
+# sections above (Financial position, Latest quarter, Growth, Margins,
+# Valuation) would be wall-to-wall n/a. That's correct per absence-is-not-
+# zero, but it's the wrong SECTION SET for this security type, not a data
+# gap to render through. Built from engine.etf.EtfProfile instead — a
+# market-vendor-tier source, never filing-grade, and labeled as such on
+# every field.
+# ---------------------------------------------------------------------------
+
+_VENDOR_TIER_SOURCE = "source: yfinance (market-vendor tier)"
+
+
+def render_etf_fragment(
+    profile,
+    price: Optional[float],
+    evidence: str,
+    overlap_matches: list[tuple[str, float]],
+) -> str:
+    """
+    profile: engine.etf.EtfProfile
+    price: current quote price (None when unavailable) — a fund still
+        trades, so this is a real market quote, not derived from `profile`.
+    evidence: the classification evidence string (e.g. "ETF/Fund — fund
+        forms observed" or "ETF/Fund — yfinance quoteType=ETF") — the same
+        label the search badge and classify endpoint already use.
+    overlap_matches: (ticker, weight) pairs — this fund's holdings that are
+        also on the current equities watchlist (the detail behind the
+        watchlist table's Overlap column).
+
+    Durability/Gap/DCF do not apply to a fund and are omitted entirely from
+    the summary strip rather than shown as n/a cards.
+    """
+    summary_html = (
+        '<div class="report-summary">'
+        + _fr_stat("Price", _fmt_currency(price) if price is not None else "n/a")
+        + _fr_stat("AUM", _fmt_currency(profile.total_assets) if profile.total_assets is not None else "n/a")
+        + "</div>"
+    )
+
+    profile_rows: list[Row] = [
+        ("Name", profile.name or "n/a", _VENDOR_TIER_SOURCE),
+        ("Classification evidence", evidence or "n/a", _VENDOR_TIER_SOURCE),
+        ("Category / Index", profile.category or "n/a", _VENDOR_TIER_SOURCE),
+        (
+            "Expense ratio",
+            _fmt_pct(profile.expense_ratio, 2) if profile.expense_ratio is not None else "n/a",
+            _VENDOR_TIER_SOURCE,
+        ),
+        (
+            "AUM",
+            _fmt_currency(profile.total_assets) if profile.total_assets is not None else "n/a",
+            _VENDOR_TIER_SOURCE,
+        ),
+        (
+            "Top-10 concentration",
+            _fmt_pct(profile.top10_concentration) if profile.top10_concentration is not None else "n/a",
+            _VENDOR_TIER_SOURCE,
+        ),
+    ]
+    profile_html = _fr_details(
+        "Profile",
+        _fr_table(["Item", "Value"], "".join(_fr_row(*r) for r in profile_rows)),
+        open_=True,
+    )
+
+    if overlap_matches:
+        overlap_total = sum(w for _, w in overlap_matches)
+        noun = "single" if len(overlap_matches) == 1 else "singles"
+        overlap_rows_html = "".join(
+            f'<tr><td class="l">{escape(tk)}</td>'
+            f'<td title="{_VENDOR_TIER_SOURCE}">{_fmt_pct(w)}</td></tr>'
+            for tk, w in overlap_matches
+        )
+        overlap_content = (
+            f'<p class="report-caption">{len(overlap_matches)} watchlist {noun} held, '
+            f"{_fmt_pct(overlap_total)} combined weight</p>"
+            + _fr_table(["Ticker", "Weight"], overlap_rows_html)
+        )
+    else:
+        overlap_content = (
+            '<p class="report-caption">No overlap with the equities currently '
+            "on your watchlist.</p>"
+        )
+    overlap_html = _fr_details("Overlap detail", overlap_content)
+
+    return (
+        '<div class="report-fragment">'
+        + summary_html
+        + profile_html
+        + overlap_html
+        + "</div>"
+    )

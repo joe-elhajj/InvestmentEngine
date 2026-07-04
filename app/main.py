@@ -36,6 +36,7 @@ from engine.analysis import run_single_ticker
 from engine import durability as D
 from engine.edgar import EdgarClient, SEC_TICKERS_URL
 from engine.etf import fetch_etf_profile, FUND_QUOTE_TYPES
+from engine.market import get_quote
 from engine.pipeline import AnalysisResult
 from engine import report_html as RH
 from engine.screen import _classify as _engine_classify
@@ -445,24 +446,58 @@ def _fragment_error(ticker: str, exc: Exception) -> str:
     )
 
 
+async def _render_etf_fragment_for(ticker: str, evidence: str) -> str:
+    """
+    ETF/fund branch of the fragment router (Task 2). Fetches the profile +
+    quote in parallel via the thread executor (both are blocking yfinance
+    calls) — no TTL cache here, matching screen.py's own ETF path, which
+    also re-fetches yfinance fresh every run.
+    """
+    loop = asyncio.get_running_loop()
+    profile, quote = await asyncio.gather(
+        loop.run_in_executor(None, fetch_etf_profile, ticker),
+        loop.run_in_executor(None, get_quote, ticker),
+    )
+    # Overlap detail: which of the CURRENT watchlist's equities this fund
+    # holds, and at what weight — the detail behind the screen table's
+    # Overlap column. Recomputed against the live watchlist rather than a
+    # past screen run's snapshot, since this fragment can be opened without
+    # ever having run a screen.
+    watchlist_tickers = {t.upper() for t in watchlist.load()["tickers"]}
+    overlap_matches = [
+        (tk, w) for tk, w in profile.top_holdings if tk.upper() in watchlist_tickers
+    ]
+    return RH.render_etf_fragment(profile, quote.price, evidence, overlap_matches)
+
+
 @app.get("/api/analyze/{ticker}/fragment", response_class=HTMLResponse)
 async def analyze_fragment(ticker: str):
     """
     Light HTML fragment (no <html>/<head>) for inline embedding in the
-    dashboard's accordion — same underlying AnalysisResult as the full page
-    and /json (shared cache), rendered by report_html.render_fragment().
+    dashboard's accordion. Routed by evidence-based classification: a fund
+    gets the ETF-specific sections (Profile, Overlap detail) built from
+    engine.etf's market-vendor profile — rendering the equity sections for
+    a fund would be wall-to-wall n/a (funds don't file 10-Ks), which is
+    correct per absence-is-not-zero but the wrong section set for the
+    security type. Equities (and anything classification couldn't resolve)
+    get the existing AnalysisResult-based fragment, sharing the same cache
+    as the full page and /json.
     """
     tk = ticker.strip().upper()
     try:
-        res = await _get_analysis_result(tk)
-        # Durability scoring is pure/local (no network) — cheap enough to
-        # run fresh per request rather than adding a second cache. Analyst
-        # overrides apply here too, same as screen.py, so e.g. MARA shows a
-        # real composite instead of "n/a".
-        overrides = app.state.cfg.get("classification", {}).get("overrides", {})
-        ds = D.score(res, app.state.cfg, override_classification=overrides.get(tk))
-        composite = ds.composite if not ds.excluded else None
-        rendered = RH.render_fragment(res, peer_table=None, durability_composite=composite)
+        resolved = _resolve_classification(tk)
+        if resolved["kind"] == "etf":
+            rendered = await _render_etf_fragment_for(tk, resolved["label"])
+        else:
+            res = await _get_analysis_result(tk)
+            # Durability scoring is pure/local (no network) — cheap enough to
+            # run fresh per request rather than adding a second cache. Analyst
+            # overrides apply here too, same as screen.py, so e.g. MARA shows a
+            # real composite instead of "n/a".
+            overrides = app.state.cfg.get("classification", {}).get("overrides", {})
+            ds = D.score(res, app.state.cfg, override_classification=overrides.get(tk))
+            composite = ds.composite if not ds.excluded else None
+            rendered = RH.render_fragment(res, peer_table=None, durability_composite=composite)
     except Exception as e:
         return HTMLResponse(_fragment_error(tk, e), status_code=502)
     return HTMLResponse(rendered)
