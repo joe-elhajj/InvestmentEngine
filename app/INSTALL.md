@@ -1,15 +1,25 @@
 # Installing the local web app
 
 This runs the Investment Engine as a local web app on `http://localhost:8000`,
-optionally auto-starting at login via `launchd`. Single-user, local-only —
-not exposed to the network (CORS restricts to `http://localhost:8000`, and
+auto-starting at login via `launchd`. Single-user, local-only — not exposed
+to the network (CORS restricts to `http://localhost:8000`, and
 `launcher.sh` binds to `127.0.0.1`, not `0.0.0.0`).
 
-## 1. Install dependencies
+`launcher.sh` runs the app through your **conda base environment's**
+`uvicorn`, resolved to an absolute path — not `.venv`, and not whatever
+happens to be on `PATH`. This matters because `launchd` runs the script
+non-interactively: it never sources `~/.zshrc` or activates conda the way
+an open Terminal does, so anything relying on `PATH` or `conda activate`
+silently fails under `launchd` even though it works fine when you run it
+by hand.
+
+## 1. Install dependencies in the conda base env
 
 ```bash
+# from any shell — this is the one command that DOES rely on your normal
+# PATH, because you're running it yourself, not launchd
+conda activate base
 cd "/Users/joeelhajj/Projects/Investment Engine"
-source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -19,46 +29,76 @@ existing `requests`/`PyYAML`/`yfinance` — nothing in `engine/` changed.)
 ## 2. Try it manually first
 
 ```bash
+cd "/Users/joeelhajj/Projects/Investment Engine"
+conda activate base
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Open `http://localhost:8000` in a browser. Ctrl-C to stop. Confirm this
 works before wiring up auto-start.
 
-## 3. Auto-start at login (optional)
+You can also confirm `launcher.sh` itself resolves the right `uvicorn`
+before installing it as a launchd agent:
 
 ```bash
-cp app/ie.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/ie.plist
+bash -x app/launcher.sh
+# watch for the resolved CONDA_BASE / uvicorn path in the trace, then Ctrl-C
 ```
 
-The agent runs `app/launcher.sh`, which activates the venv and starts
-`uvicorn app.main:app --host 127.0.0.1 --port 8000`. Logs go to
-`~/.investment_engine/server.log` (both stdout and stderr).
-
-## 4. Open the dashboard
-
-Open Chrome or Safari → `http://localhost:8000`.
-
-**Optional — install as a standalone app (no browser chrome):** in Chrome,
-open the three-dot menu → "Save and share" → "Install page as app". This
-adds a Dock icon that opens the dashboard in its own window — a personal
-Bloomberg terminal, launched like any other Mac app.
-
-## Stopping / updating
+## 3. Auto-start at login
 
 ```bash
-# stop the auto-start agent
-launchctl unload ~/Library/LaunchAgents/ie.plist
+cp app/com.joeelhajj.investmentengine.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.joeelhajj.investmentengine.plist
+```
 
-# update: pull latest code, then just let it restart
+Verify it's actually listening:
+
+```bash
+lsof -i :8000
+# COMMAND   PID      USER   FD   TYPE ...
+# Python  12345 joeelhajj   ...  TCP  127.0.0.1:8000 (LISTEN)
+```
+
+If nothing shows up, check the log:
+
+```bash
+tail -50 ~/.investment_engine/server.log
+```
+
+## 4. Open the dashboard — and pin it to the Dock
+
+Open Chrome → `http://localhost:8000`.
+
+Chrome's three-dot menu (top right) → **Save and Share** → **Install page
+as app**. This adds a Dock icon that opens the dashboard in its own
+window, no browser chrome — a personal Bloomberg terminal, launched like
+any other Mac app, that's already running by the time you click it
+(`RunAtLoad` means it started at login).
+
+## Restarting / updating
+
+```bash
+# pull latest code
+cd "/Users/joeelhajj/Projects/Investment Engine"
 git pull
-# KeepAlive means launchd restarts the process automatically the next
-# time it exits (e.g. after `launchctl kickstart -k`, or a crash) —
-# no separate "redeploy" step is needed for a `git pull` to take effect
-# on the next natural restart. To force an immediate restart:
+
+# KeepAlive means launchd restarts the process automatically after it
+# exits, but a `git pull` alone doesn't make the ALREADY-RUNNING process
+# pick up new code — force an immediate restart to apply it:
 launchctl kickstart -k gui/$(id -u)/com.joeelhajj.investmentengine
 ```
+
+## Uninstalling
+
+```bash
+launchctl unload ~/Library/LaunchAgents/com.joeelhajj.investmentengine.plist
+rm ~/Library/LaunchAgents/com.joeelhajj.investmentengine.plist
+```
+
+(This stops the agent and removes it from login items. The repo, the
+SQLite watchlist at `~/.investment_engine/watchlist.db`, and the EDGAR
+disk cache are untouched — only the auto-start registration is removed.)
 
 ## Known limitations (by design, for a single-user local tool)
 

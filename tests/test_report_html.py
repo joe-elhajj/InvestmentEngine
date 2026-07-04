@@ -95,11 +95,32 @@ class TestLightFragmentRenderer:
         assert "Durability" in frag
         assert "71.4" in frag
         assert "Expectations Gap" in frag
-        assert "DCF Base Upside" in frag
+        assert "DCF Base (Systematic)" in frag
 
     def test_durability_composite_none_shows_na_not_zero(self):
         frag = RH.render_fragment(_company_result(), durability_composite=None)
         assert '<span class="stat-value">n/a</span>' in frag
+
+    def test_dcf_stat_has_tooltip(self):
+        """Task 5: DCF card relabeled with a tooltip explaining the systematic,
+        cross-ticker-comparable nature of the single-stage DCF."""
+        frag = RH.render_fragment(_company_result())
+        assert '<div class="stat has-tooltip" tabindex="0">' in frag
+        assert "Single-stage DCF under systematic config assumptions" in frag
+        assert "The expectations gap is the primary signal." in frag
+
+    def test_data_gaps_explanatory_line_and_list_when_gaps_present(self):
+        res = _company_result()
+        res.gaps = ["revenue: no value for period 2025-12-31 (latest available is 2024-12-31, not used)"]
+        frag = RH.render_fragment(res)
+        assert "Could not be resolved from EDGAR; excluded rather than defaulted to zero." in frag
+        assert 'class="gaps-list"' in frag
+        assert res.gaps[0] in frag
+
+    def test_data_gaps_none_message_when_no_gaps(self):
+        frag = RH.render_fragment(_company_result())  # fixture has no gaps
+        assert "None — all targeted concepts resolved." in frag
+        assert "gaps-list" not in frag
 
     def test_collapsible_sections_present(self):
         frag = RH.render_fragment(_company_result())
@@ -113,6 +134,36 @@ class TestLightFragmentRenderer:
         frag = RH.render_fragment(_company_result())
         assert "<th>Source</th>" not in frag  # condensed — no visible source column
         assert 'title="' in frag              # but the lineage is on a hover title
+
+    def test_sources_toggle_present_for_financial_position(self):
+        """Task 4: per-figure lineage is restored via a Sources toggle, not
+        just the hover title — a muted monospace sub-row per data row,
+        default hidden (revealed by the frontend's .sources-on class)."""
+        frag = RH.render_fragment(_company_result())
+        assert '<button class="sources-toggle" type="button">Sources</button>' in frag
+        assert 'class="section-toolbar"' in frag
+        assert 'class="source-row"' in frag
+        assert 'class="l source-cell"' in frag
+
+    def test_sources_toggle_lineage_matches_hover_title(self):
+        """The revealed sub-row and the hover title carry the same lineage string."""
+        frag = RH.render_fragment(_company_result())
+        # Revenue's source is a plain Fact (us-gaap:Test | 10-K | period ... | filed ...)
+        assert "us-gaap:Test | 10-K | period 2025-12-31 | filed 2026-02-15" in frag
+
+    def test_sources_toggle_absent_from_sections_without_lineage(self):
+        """Growth/Margins/Valuation/Data gaps never had per-row source
+        strings — no toggle should be fabricated for them."""
+        frag = RH.render_fragment(_company_result())
+        # Exactly one toggle: Financial position (this fixture has no
+        # quarterly data, so Latest quarter never renders).
+        assert frag.count('class="sources-toggle"') == 1
+
+    def test_source_row_hidden_by_default_in_markup(self):
+        """Default off means the CSS class, not inline display — the toggle
+        is a frontend interaction, not something the renderer decides per-request."""
+        frag = RH.render_fragment(_company_result())
+        assert "sources-on" not in frag  # never rendered server-side as "on"
 
 
 class TestSharedBuildersProduceConsistentData:

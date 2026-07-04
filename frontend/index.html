@@ -41,22 +41,21 @@
       <table id="equities-table">
         <thead>
           <tr>
-            <th class="l">Ticker</th>
-            <th>Durability</th>
-            <th>Reinv</th>
-            <th>Quality</th>
-            <th>Resilience</th>
-            <th>Discipline</th>
-            <th>Optionality</th>
-            <th>Implied g</th>
-            <th>Delivered g</th>
-            <th>Gap</th>
+            <th class="l has-tooltip" tabindex="0">Ticker<div class="th-tooltip">Click to expand the full analysis inline.</div></th>
+            <th class="has-tooltip" tabindex="0">Durability<div class="th-tooltip">Composite business-durability score, 0-100, percentile vs the S&amp;P 500 universe. Weighted: Reinv 30%, Quality 25%, Resilience 20%, Discipline 15%, Optionality 10%.</div></th>
+            <th class="has-tooltip" tabindex="0">Reinv<div class="th-tooltip">Reinvestment engine - ROIC x reinvestment rate. The compounding motor. S&amp;P 500 percentile.</div></th>
+            <th class="has-tooltip" tabindex="0">Quality<div class="th-tooltip">Quality persistence - do high returns hold up across years? Separates moats from cyclical luck. S&amp;P 500 percentile.</div></th>
+            <th class="has-tooltip" tabindex="0">Resilience<div class="th-tooltip">Balance-sheet resilience - leverage, liquidity, coverage. Ability to survive downturns. S&amp;P 500 percentile.</div></th>
+            <th class="has-tooltip" tabindex="0">Discipline<div class="th-tooltip">Capital discipline - dilution and SBC. Alignment with per-share value. S&amp;P 500 percentile.</div></th>
+            <th class="has-tooltip" tabindex="0">Optionality<div class="th-tooltip">R&amp;D and capex intensity as proxies for future reinvestment avenues. S&amp;P 500 percentile.</div></th>
+            <th class="has-tooltip" tabindex="0">Implied g<div class="th-tooltip">Growth rate the current price implies, via reverse DCF (base WACC/terminal g from config).</div></th>
+            <th class="has-tooltip" tabindex="0">Delivered g<div class="th-tooltip">Historical delivered FCF growth (CAGR, min history guard applies).</div></th>
+            <th class="has-tooltip" tabindex="0">Gap<div class="th-tooltip">Implied growth minus delivered growth. Red = priced for more than delivered. Green = delivering more than priced in.</div></th>
           </tr>
         </thead>
         <tbody></tbody>
       </table>
     </div></div>
-    <p class="legend">Gap = growth the price implies minus growth delivered · red = priced for more than delivered, green = delivering more than priced in</p>
   </section>
 
   <section id="etf-section" class="table-section hidden">
@@ -65,12 +64,12 @@
       <table id="etf-table">
         <thead>
           <tr>
-            <th class="l">Ticker</th>
+            <th class="l has-tooltip" tabindex="0">Ticker<div class="th-tooltip">Click to expand the full analysis inline.</div></th>
             <th class="l">Name</th>
-            <th>Exp Ratio</th>
-            <th>AUM</th>
-            <th>Overlap w/ Singles</th>
-            <th class="l">Flag</th>
+            <th class="has-tooltip" tabindex="0">Exp Ratio<div class="th-tooltip">Annual expense ratio.</div></th>
+            <th class="has-tooltip" tabindex="0">AUM<div class="th-tooltip">Assets under management.</div></th>
+            <th class="has-tooltip" tabindex="0">Overlap w/ Singles<div class="th-tooltip">Weight of this fund held in names also on your equities watchlist, and how many.</div></th>
+            <th class="l has-tooltip" tabindex="0">Evidence<div class="th-tooltip">SEC fund forms positively observed for this ticker (e.g. 485APOS, N-CSR). Fund classification requires positive evidence, never inference from absence.</div></th>
           </tr>
         </thead>
         <tbody></tbody>

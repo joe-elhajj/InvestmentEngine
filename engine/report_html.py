@@ -487,6 +487,21 @@ def _fr_row(label: str, value: str, source: str) -> str:
     )
 
 
+def _fr_row_with_lineage(label: str, value: str, source: str) -> str:
+    """
+    Same data row as _fr_row (hover title kept as a quick peek), plus a
+    second <tr> carrying the full lineage string in a muted monospace
+    cell. The lineage row is hidden by CSS (.source-row) by default and
+    revealed by the section's "Sources" toggle button — see
+    _fr_details_with_sources(). `source` is already HTML-escaped by
+    _src()/_derived_source(), so it's inserted as-is here (matching _fr_row).
+    """
+    title_attr = f' title="{source}"' if source else ""
+    main = f'<tr><td class="l">{escape(label)}</td><td{title_attr}>{value}</td></tr>'
+    lineage = f'<tr class="source-row"><td class="l source-cell" colspan="2">{source or "derived"}</td></tr>'
+    return main + lineage
+
+
 def _fr_table(header_cells: list[str], rows_html: str, left_cols: int = 1) -> str:
     ths = []
     for i, h in enumerate(header_cells):
@@ -504,7 +519,32 @@ def _fr_details(title: str, content: str, open_: bool = False) -> str:
     return f'<details class="report-section"{open_attr}><summary>{escape(title)}</summary>{content}</details>'
 
 
-def _fr_stat(label: str, value: str, tint: Optional[float] = None) -> str:
+def _fr_details_with_sources(title: str, content: str, open_: bool = False) -> str:
+    """
+    Same as _fr_details, plus a "Sources" toggle button in a small toolbar
+    row between the <summary> and the table content — sibling to <summary>,
+    not nested inside it, so clicking it never fights the native <details>
+    expand/collapse. The button lives outside <summary> deliberately: the
+    frontend wires a single delegated click listener (app.js) that toggles
+    a "sources-on" class on this <details> element, which CSS uses to show
+    the .source-row sub-rows _fr_row_with_lineage() emits. Default off, and
+    scoped to this DOM subtree only — each expanded ticker's fragment is
+    its own subtree, so this is "state per expanded ticker, not global" by
+    construction, not by any JS bookkeeping.
+    """
+    open_attr = " open" if open_ else ""
+    toolbar = (
+        '<div class="section-toolbar">'
+        '<button class="sources-toggle" type="button">Sources</button>'
+        "</div>"
+    )
+    return (
+        f'<details class="report-section"{open_attr}>'
+        f"<summary>{escape(title)}</summary>{toolbar}{content}</details>"
+    )
+
+
+def _fr_stat(label: str, value: str, tint: Optional[float] = None, tooltip: Optional[str] = None) -> str:
     style = ""
     if tint is not None:
         magnitude = min(abs(tint), 0.30)
@@ -512,10 +552,14 @@ def _fr_stat(label: str, value: str, tint: Optional[float] = None) -> str:
         rgb = "200,54,47" if tint > 0 else "29,125,84"
         color = "var(--bad)" if tint > 0 else "var(--good)"
         style = f' style="background-color:rgba({rgb},{alpha:.3f});color:{color}"'
+    cls = "stat has-tooltip" if tooltip else "stat"
+    tabindex_attr = ' tabindex="0"' if tooltip else ""
+    tooltip_html = f'<div class="th-tooltip">{escape(tooltip)}</div>' if tooltip else ""
     return (
-        f'<div class="stat"{style}>'
+        f'<div class="{cls}"{style}{tabindex_attr}>'
         f'<span class="stat-label">{escape(label)}</span>'
         f'<span class="stat-value">{escape(value)}</span>'
+        f"{tooltip_html}"
         "</div>"
     )
 
@@ -541,25 +585,32 @@ def render_fragment(
         + _fr_stat("Market Cap", summary["market_cap"])
         + _fr_stat("Durability", summary["durability_composite"])
         + _fr_stat("Expectations Gap", summary["expectations_gap"], tint=summary["expectations_gap_raw"])
-        + _fr_stat("DCF Base Upside", summary["dcf_upside"])
+        + _fr_stat(
+            "DCF Base (Systematic)", summary["dcf_upside"],
+            tooltip=(
+                "Single-stage DCF under systematic config assumptions - comparable "
+                "across tickers, conservative by construction for high-growth names. "
+                "The expectations gap is the primary signal."
+            ),
+        )
         + "</div>"
     )
 
-    position_html = _fr_details(
+    position_html = _fr_details_with_sources(
         "Financial position",
-        _fr_table(["Item", "Value"], "".join(_fr_row(*r) for r in _position_rows(res))),
+        _fr_table(["Item", "Value"], "".join(_fr_row_with_lineage(*r) for r in _position_rows(res))),
         open_=True,
     )
 
     quarter_html = ""
     qs = _quarter_section(res)
     if qs:
-        q_rows_html = "".join(_fr_row(*r) for r in qs["rows"])
+        q_rows_html = "".join(_fr_row_with_lineage(*r) for r in qs["rows"])
         q_margin_html = "".join(
             f'<tr><td class="l">{escape(label)}</td><td>{value}</td></tr>'
             for label, value in qs["margin_rows"]
         )
-        quarter_html = _fr_details(
+        quarter_html = _fr_details_with_sources(
             "Latest quarter",
             f'<p class="report-caption">Quarter ended {escape(qs["period_end"])} '
             f'· filed {escape(qs["filed"])}</p>'
@@ -638,7 +689,11 @@ def render_fragment(
 
     gaps = _gaps_list(res)
     if gaps:
-        gaps_html = "<ul>" + "".join(f"<li>{escape(g)}</li>" for g in gaps) + "</ul>"
+        gaps_html = (
+            '<p class="report-caption">Could not be resolved from EDGAR; excluded '
+            "rather than defaulted to zero.</p>"
+            '<ul class="gaps-list">' + "".join(f"<li>{escape(g)}</li>" for g in gaps) + "</ul>"
+        )
     else:
         gaps_html = '<p class="report-caption">None — all targeted concepts resolved.</p>'
     gaps_section = _fr_details("Data gaps", gaps_html)
@@ -652,5 +707,100 @@ def render_fragment(
         + margins_html
         + valuation_html
         + gaps_section
+        + "</div>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# ETF/fund fragment renderer (Task 2) — a fund has no 10-K, so the equity
+# sections above (Financial position, Latest quarter, Growth, Margins,
+# Valuation) would be wall-to-wall n/a. That's correct per absence-is-not-
+# zero, but it's the wrong SECTION SET for this security type, not a data
+# gap to render through. Built from engine.etf.EtfProfile instead — a
+# market-vendor-tier source, never filing-grade, and labeled as such on
+# every field.
+# ---------------------------------------------------------------------------
+
+_VENDOR_TIER_SOURCE = "source: yfinance (market-vendor tier)"
+
+
+def render_etf_fragment(
+    profile,
+    price: Optional[float],
+    evidence: str,
+    overlap_matches: list[tuple[str, float]],
+) -> str:
+    """
+    profile: engine.etf.EtfProfile
+    price: current quote price (None when unavailable) — a fund still
+        trades, so this is a real market quote, not derived from `profile`.
+    evidence: the classification evidence string (e.g. "ETF/Fund — fund
+        forms observed" or "ETF/Fund — yfinance quoteType=ETF") — the same
+        label the search badge and classify endpoint already use.
+    overlap_matches: (ticker, weight) pairs — this fund's holdings that are
+        also on the current equities watchlist (the detail behind the
+        watchlist table's Overlap column).
+
+    Durability/Gap/DCF do not apply to a fund and are omitted entirely from
+    the summary strip rather than shown as n/a cards.
+    """
+    summary_html = (
+        '<div class="report-summary">'
+        + _fr_stat("Price", _fmt_currency(price) if price is not None else "n/a")
+        + _fr_stat("AUM", _fmt_currency(profile.total_assets) if profile.total_assets is not None else "n/a")
+        + "</div>"
+    )
+
+    profile_rows: list[Row] = [
+        ("Name", profile.name or "n/a", _VENDOR_TIER_SOURCE),
+        ("Classification evidence", evidence or "n/a", _VENDOR_TIER_SOURCE),
+        ("Category / Index", profile.category or "n/a", _VENDOR_TIER_SOURCE),
+        (
+            "Expense ratio",
+            _fmt_pct(profile.expense_ratio, 2) if profile.expense_ratio is not None else "n/a",
+            _VENDOR_TIER_SOURCE,
+        ),
+        (
+            "AUM",
+            _fmt_currency(profile.total_assets) if profile.total_assets is not None else "n/a",
+            _VENDOR_TIER_SOURCE,
+        ),
+        (
+            "Top-10 concentration",
+            _fmt_pct(profile.top10_concentration) if profile.top10_concentration is not None else "n/a",
+            _VENDOR_TIER_SOURCE,
+        ),
+    ]
+    profile_html = _fr_details(
+        "Profile",
+        _fr_table(["Item", "Value"], "".join(_fr_row(*r) for r in profile_rows)),
+        open_=True,
+    )
+
+    if overlap_matches:
+        overlap_total = sum(w for _, w in overlap_matches)
+        noun = "single" if len(overlap_matches) == 1 else "singles"
+        overlap_rows_html = "".join(
+            f'<tr><td class="l">{escape(tk)}</td>'
+            f'<td title="{_VENDOR_TIER_SOURCE}">{_fmt_pct(w)}</td></tr>'
+            for tk, w in overlap_matches
+        )
+        overlap_content = (
+            f'<p class="report-caption">{len(overlap_matches)} watchlist {noun} held, '
+            f"{_fmt_pct(overlap_total)} combined weight</p>"
+            + _fr_table(["Ticker", "Weight"], overlap_rows_html)
+        )
+    else:
+        overlap_content = (
+            '<p class="report-caption">No overlap with the equities currently '
+            "on your watchlist.</p>"
+        )
+    overlap_html = _fr_details("Overlap detail", overlap_content)
+
+    return (
+        '<div class="report-fragment">'
+        + summary_html
+        + profile_html
+        + overlap_html
         + "</div>"
     )

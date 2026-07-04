@@ -10,6 +10,7 @@ uvicorn — but nothing here makes a real network call.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,6 +19,7 @@ from fastapi.testclient import TestClient
 import app.watchlist as watchlist_mod
 from app.main import app as fastapi_app, _get_analysis_result
 from engine.edgar import CompanyData, Fact
+from engine.etf import EtfProfile
 from engine.market import Quote
 from engine.pipeline import AnalysisResult
 from engine.screen import EtfRow, ScreenRow
@@ -463,6 +465,21 @@ class TestAnalyzeJsonEndpoint:
 # ---------------------------------------------------------------------------
 
 class TestAnalyzeFragmentEndpoint:
+    """
+    analyze_fragment() now routes by classification (Task 2) — every test
+    here mocks app.main._resolve_classification as "equity" by default so
+    the existing AnalysisResult-based path is exercised offline; the ETF
+    routing tests below override it.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _mock_classification(self):
+        with patch(
+            "app.main._resolve_classification",
+            return_value={"kind": "equity", "label": "Equity — 10-K filer"},
+        ):
+            yield
+
     def test_success_returns_fragment_with_no_html_wrapper(self, client):
         with patch("app.main.run_single_ticker", return_value=_real_analysis_result()):
             resp = client.get("/api/analyze/AAPL/fragment")
@@ -512,6 +529,93 @@ class TestAnalyzeFragmentEndpoint:
             client.get("/api/analyze/AAPL/json")
             client.get("/api/analyze/AAPL/fragment")
         mock_run.assert_called_once()
+
+
+class TestAnalyzeFragmentEtfRouting:
+    """Task 2: a ticker classified as a fund gets the ETF-specific sections
+    (Profile, Overlap detail) built from engine.etf's profile — never the
+    equity sections, which would be wall-to-wall n/a for a fund."""
+
+    def _profile(self, **overrides):
+        profile = EtfProfile(
+            ticker="VOO", quote_type="ETF", name="Vanguard S&P 500 ETF",
+            category="Large Blend", expense_ratio=0.0003, total_assets=500e9,
+            top10_concentration=0.35,
+            top_holdings=[("AAPL", 0.07), ("MSFT", 0.06), ("NVDA", 0.05)],
+        )
+        for k, v in overrides.items():
+            setattr(profile, k, v)
+        return profile
+
+    def _patches(self, profile=None, quote=None, watchlist_tickers=None):
+        stack = contextlib.ExitStack()
+        stack.enter_context(patch(
+            "app.main._resolve_classification",
+            return_value={"kind": "etf", "label": "ETF/Fund — fund forms observed"},
+        ))
+        stack.enter_context(patch("app.main.fetch_etf_profile", return_value=profile or self._profile()))
+        stack.enter_context(patch(
+            "app.main.get_quote",
+            return_value=quote or Quote("VOO", price=520.0, shares_outstanding=None,
+                                         market_cap=None, source="test"),
+        ))
+        stack.enter_context(patch("app.main.watchlist.load", return_value={
+            "tickers": watchlist_tickers if watchlist_tickers is not None else ["AAPL"],
+            "etfs": [],
+        }))
+        return stack
+
+    def test_fund_routes_to_etf_sections(self, client):
+        with self._patches():
+            resp = client.get("/api/analyze/VOO/fragment")
+        assert resp.status_code == 200
+        assert "Profile" in resp.text
+        assert "Overlap detail" in resp.text
+
+    def test_fund_never_renders_equity_sections(self, client):
+        with self._patches():
+            resp = client.get("/api/analyze/VOO/fragment")
+        for heading in ("Financial position", "Latest quarter", "Growth", "Margins &amp; returns", "Valuation &amp; sensitivity"):
+            assert heading not in resp.text
+
+    def test_fund_never_calls_run_single_ticker(self, client):
+        with self._patches():
+            with patch("app.main.run_single_ticker") as mock_run:
+                client.get("/api/analyze/VOO/fragment")
+            mock_run.assert_not_called()
+
+    def test_fund_summary_strip_is_price_and_aum_only(self, client):
+        with self._patches():
+            resp = client.get("/api/analyze/VOO/fragment")
+        assert "Price" in resp.text
+        assert "AUM" in resp.text
+        assert "Durability" not in resp.text
+        assert "Expectations Gap" not in resp.text
+        assert "DCF" not in resp.text
+
+    def test_fund_profile_shows_vendor_tier_source(self, client):
+        with self._patches():
+            resp = client.get("/api/analyze/VOO/fragment")
+        assert "market-vendor tier" in resp.text
+        assert "Vanguard S&P 500 ETF" in resp.text
+
+    def test_fund_overlap_detail_shows_matched_watchlist_tickers(self, client):
+        with self._patches(watchlist_tickers=["AAPL", "MSFT"]):
+            resp = client.get("/api/analyze/VOO/fragment")
+        assert "AAPL" in resp.text
+        assert "MSFT" in resp.text
+        assert "7.0%" in resp.text  # AAPL's weight
+        assert "2 watchlist" in resp.text
+
+    def test_fund_no_overlap_shows_clean_message(self, client):
+        with self._patches(watchlist_tickers=["ZZZZ"]):
+            resp = client.get("/api/analyze/VOO/fragment")
+        assert "No overlap" in resp.text
+
+    def test_fund_classification_evidence_shown(self, client):
+        with self._patches():
+            resp = client.get("/api/analyze/VOO/fragment")
+        assert "fund forms observed" in resp.text
 
 
 # ---------------------------------------------------------------------------
