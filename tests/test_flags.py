@@ -10,6 +10,7 @@ user. Every other test here mocks the model call (engine.flags._call_model)
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -423,9 +424,24 @@ class TestCostHelpers:
         cost = compute_cost_usd(self._PRICED_CFG, "claude-sonnet-4-6", 1_000_000, 1_000_000)
         assert cost == pytest.approx(18.0)
 
-    def test_compute_cost_is_zero_for_unpriced_model(self):
+    def test_compute_cost_is_none_not_zero_for_unpriced_model(self):
+        """A real, billed call with unknown pricing must never be recorded
+        as a fabricated $0 — that would be indistinguishable from a
+        legitimately-free cache hit and would silently understate spend."""
         cost = compute_cost_usd(self._PRICED_CFG, "some-other-model", 1_000_000, 1_000_000)
-        assert cost == 0.0
+        assert cost is None
+
+    def test_compute_cost_unpriced_model_logs_a_warning(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="engine.flags"):
+            compute_cost_usd(self._PRICED_CFG, "some-other-model", 1_000_000, 1_000_000)
+        assert "some-other-model" in caplog.text
+        assert "pricing" in caplog.text.lower()
+
+    def test_compute_cost_priced_model_path_is_unaffected(self):
+        """The fix for the unpriced-model gap must not change behavior for
+        a model that DOES have a pricing entry."""
+        cost = compute_cost_usd(self._PRICED_CFG, "claude-sonnet-4-6", 1_000_000, 1_000_000)
+        assert cost == pytest.approx(18.0)
 
     def test_compute_cost_treats_missing_token_counts_as_zero(self):
         cost = compute_cost_usd(self._PRICED_CFG, "claude-sonnet-4-6", None, None)

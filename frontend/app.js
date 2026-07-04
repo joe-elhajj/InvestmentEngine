@@ -437,8 +437,13 @@
       inner = html;
     }
 
+    var pricingNote = data.pricing_unknown
+      ? '<p class="flags-pricing-unknown">Pricing not configured for this model — cost not recorded for this call.</p>'
+      : "";
+
     body.innerHTML =
       '<div class="flags-toolbar"><button type="button" class="flags-reextract-btn">Re-extract</button></div>'
+      + pricingNote
       + inner;
   }
 
@@ -932,6 +937,14 @@
         + "<td>" + escapeHtml(String(m.calls)) + "</td></tr>";
     }).join("");
 
+    var unknownPricingNote = data.rows_with_unknown_pricing
+      ? '<p class="usage-unknown-pricing-note">'
+        + data.rows_with_unknown_pricing
+        + (data.rows_with_unknown_pricing === 1 ? " call has" : " calls have")
+        + " no pricing configured and are excluded from the totals above — the real spend is at least this much."
+        + "</p>"
+      : "";
+
     els.usageModalBody.innerHTML =
       '<div class="usage-stats">'
       + '<div class="usage-stat"><span class="usage-stat-label">Lifetime spend</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.lifetime_total_usd)) + "</span></div>"
@@ -940,6 +953,7 @@
       + '<div class="usage-stat"><span class="usage-stat-label">Trailing-12mo projection</span><span class="usage-stat-value">' + escapeHtml(fmtUsd(data.trailing_12mo_projection_usd)) + "</span></div>"
       + "</div>"
       + '<p class="usage-projection-note">Projection = trailing 30-day spend &times; 12, assuming the current usage rate continues.</p>'
+      + unknownPricingNote
       + '<div class="surface"><div class="scroll"><table class="usage-table">'
       + '<thead><tr><th class="l">Month</th><th>Cost</th><th>Calls</th></tr></thead>'
       + "<tbody>" + rows + "</tbody>"

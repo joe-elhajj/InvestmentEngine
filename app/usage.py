@@ -16,7 +16,11 @@ at all — nothing happened yet to log.
 
 Every live/refresh row's cost_usd is computed from config.yaml pricing AT
 CALL TIME (engine.flags.compute_cost_usd) and stored as-is, so a later
-price change in config.yaml never rewrites history.
+price change in config.yaml never rewrites history. cost_usd is NULLABLE:
+a live/refresh call whose model has no config.yaml flags.pricing entry
+stores cost_usd=NULL, never a fabricated 0.0 — see engine.flags.
+compute_cost_usd's docstring. NULL must stay visibly distinct from a
+from_cache row's genuine, by-construction 0.0.
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ CREATE TABLE IF NOT EXISTS flag_extraction_usage (
     prompt_version TEXT NOT NULL,
     input_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
-    cost_usd REAL NOT NULL,
+    cost_usd REAL,
     called_at TEXT NOT NULL,
     cache_status TEXT NOT NULL
 );
@@ -55,10 +59,33 @@ def _resolve(db_path: Optional[Path]) -> Path:
     return db_path if db_path is not None else watchlist.DB_PATH
 
 
+def _migrate_cost_usd_nullable(conn: sqlite3.Connection) -> None:
+    """A DB created before pricing_unknown rows existed has cost_usd as
+    NOT NULL — inserting a NULL there raises IntegrityError. SQLite can't
+    ALTER a column's nullability in place, so rebuild the table on the
+    (rare, one-time) occasion the old constraint is still present. Cheap
+    no-op once migrated: PRAGMA table_info is a metadata-only read."""
+    cols = conn.execute("PRAGMA table_info(flag_extraction_usage)").fetchall()
+    cost_col = next((c for c in cols if c[1] == "cost_usd"), None)
+    if cost_col is None or cost_col[3] == 0:
+        return  # table doesn't exist yet, or already nullable — nothing to do
+    conn.executescript("ALTER TABLE flag_extraction_usage RENAME TO flag_extraction_usage_old;")
+    conn.executescript(_SCHEMA)
+    conn.execute("""
+        INSERT INTO flag_extraction_usage
+            (id, ticker, model, prompt_version, input_tokens, output_tokens, cost_usd, called_at, cache_status)
+        SELECT id, ticker, model, prompt_version, input_tokens, output_tokens, cost_usd, called_at, cache_status
+        FROM flag_extraction_usage_old
+    """)
+    conn.execute("DROP TABLE flag_extraction_usage_old")
+    conn.commit()
+
+
 def _connect(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(_SCHEMA)
+    _migrate_cost_usd_nullable(conn)
     return conn
 
 
@@ -68,7 +95,7 @@ def log_call(
     prompt_version: str,
     input_tokens: int,
     output_tokens: int,
-    cost_usd: float,
+    cost_usd: Optional[float],
     cache_status: str,
     db_path: Optional[Path] = None,
 ) -> None:
@@ -110,10 +137,15 @@ def _trailing_months(now: datetime, count: int) -> list:
 def summary(db_path: Optional[Path] = None, now: Optional[datetime] = None) -> dict:
     """
     Everything the /api/usage endpoint and the dashboard's Usage modal
-    need. "calls"/"cost_usd" figures throughout only count billable rows
-    (cache_status in "live"/"refresh") — a from_cache row costs 0 by
-    construction, but it also shouldn't inflate a "calls" count that's
-    meant to answer "how many times did I pay for this."
+    need. "calls" figures count every billable row (cache_status in
+    "live"/"refresh") — a real model call happened whether or not its cost
+    is known. "cost_usd" sums, by contrast, only ever add up rows with a
+    non-null cost: a pricing_unknown row (cost_usd IS NULL, see
+    engine.flags.compute_cost_usd) is excluded from every sum rather than
+    treated as a $0 contribution, which would silently understate every
+    total. rows_with_unknown_pricing reports how many such rows exist so
+    the dashboard can flag that the totals are a floor, not the full
+    picture, until config.yaml's pricing table is filled in.
 
     trailing_12mo_projection_usd is an honest <trailing 30 days> x 12
     extrapolation, not a fitted model — the dashboard footnote spells out
@@ -130,6 +162,7 @@ def summary(db_path: Optional[Path] = None, now: Optional[datetime] = None) -> d
         conn.close()
 
     billed = [(model, cost, called_at) for model, cost, called_at, status in rows if status in _BILLABLE_STATUSES]
+    rows_with_unknown_pricing = sum(1 for _, cost, _ in billed if cost is None)
 
     cur_month_key = _month_key(now)
     cur_year = now.year
@@ -144,23 +177,31 @@ def summary(db_path: Optional[Path] = None, now: Optional[datetime] = None) -> d
 
     for model, cost, called_at in billed:
         dt = datetime.fromisoformat(called_at)
-        lifetime_total += cost
 
         key = _month_key(dt)
         bucket = monthly.setdefault(key, [0.0, 0])
-        bucket[0] += cost
         bucket[1] += 1
 
         model_bucket = per_model.setdefault(model, [0.0, 0])
-        model_bucket[0] += cost
         model_bucket[1] += 1
 
-        if key == cur_month_key:
-            month_cost += cost
+        is_current_month = key == cur_month_key
+        is_current_year = dt.year == cur_year
+        if is_current_month:
             month_calls += 1
-        if dt.year == cur_year:
-            year_cost += cost
+        if is_current_year:
             year_calls += 1
+
+        if cost is None:
+            continue  # counted in rows_with_unknown_pricing; excluded from every sum below
+
+        lifetime_total += cost
+        bucket[0] += cost
+        model_bucket[0] += cost
+        if is_current_month:
+            month_cost += cost
+        if is_current_year:
+            year_cost += cost
         if dt >= cutoff_30d:
             trailing_30d_cost += cost
 
@@ -186,4 +227,5 @@ def summary(db_path: Optional[Path] = None, now: Optional[datetime] = None) -> d
         "trailing_12mo_projection_usd": round(trailing_30d_cost * 12, 6),
         "monthly_breakdown": monthly_breakdown,
         "per_model": per_model_breakdown,
+        "rows_with_unknown_pricing": rows_with_unknown_pricing,
     }

@@ -391,14 +391,26 @@ def estimate_extraction_cost_usd(cfg: dict) -> Optional[float]:
     return round(cost, 2)
 
 
-def compute_cost_usd(cfg: dict, model: str, input_tokens: Optional[int], output_tokens: Optional[int]) -> float:
+def compute_cost_usd(cfg: dict, model: str, input_tokens: Optional[int], output_tokens: Optional[int]) -> Optional[float]:
     """Actual cost from real SDK token counts, priced against config.yaml
     AT CALL TIME — the caller stores this returned value, so a later price
-    change never retroactively rewrites a historical usage row. Missing
-    pricing or missing token counts price as 0.0 rather than raising —
-    an honest "we don't know" belongs in the config/logs, not a 500 on
-    the extraction endpoint the user is actively waiting on."""
-    pricing = _pricing_for(cfg, model) or {}
+    change never retroactively rewrites a historical usage row.
+
+    Returns None — never a fabricated 0.0 — when the pinned model has no
+    entry in config.yaml's flags.pricing table. A real, billed model call
+    with unknown pricing is not the same thing as a free cache hit, and
+    conflating the two (both showing $0) would silently understate spend
+    the next time the pinned model changes and pricing isn't updated to
+    match. Logs a warning so that gap is visible immediately, not just
+    discoverable later by an analyst noticing the dashboard total looks
+    low."""
+    pricing = _pricing_for(cfg, model)
+    if not pricing:
+        log.warning(
+            "! pricing_unknown: config.yaml flags.pricing has no entry for model %r — "
+            "cost_usd will be recorded as unknown (null), not $0", model,
+        )
+        return None
     cost = (
         (input_tokens or 0) / 1_000_000 * pricing.get("input_per_million", 0)
         + (output_tokens or 0) / 1_000_000 * pricing.get("output_per_million", 0)

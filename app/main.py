@@ -632,9 +632,18 @@ async def get_flags(ticker: str, extract: bool = False, refresh: bool = False):
         raise HTTPException(status_code=502, detail=str(e) or type(e).__name__)
 
     cache_status = call_info.get("cache_status", "from_cache")
-    cost_usd = 0.0 if cache_status == "from_cache" else FLAGS.compute_cost_usd(
-        app.state.cfg, model, call_info.get("input_tokens"), call_info.get("output_tokens"),
-    )
+    if cache_status == "from_cache":
+        cost_usd = 0.0
+    else:
+        # None (not 0.0) when the pinned model has no config.yaml
+        # flags.pricing entry — a real, billed call with unknown cost is
+        # not the same thing as a free cache hit, and must never be
+        # recorded as one. See engine.flags.compute_cost_usd.
+        cost_usd = FLAGS.compute_cost_usd(
+            app.state.cfg, model, call_info.get("input_tokens"), call_info.get("output_tokens"),
+        )
+    pricing_unknown = cache_status != "from_cache" and cost_usd is None
+
     usage.log_call(
         ticker=tk,
         model=model,
@@ -648,6 +657,8 @@ async def get_flags(ticker: str, extract: bool = False, refresh: bool = False):
     payload = asdict(result)
     payload["state"] = "ok"
     payload["cache_status"] = cache_status
+    if pricing_unknown:
+        payload["pricing_unknown"] = True
     return payload
 
 

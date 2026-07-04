@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -989,9 +990,10 @@ class TestFlagsExplicitTriggerGate:
         assert resp.json()["estimated_cost_usd"] > 0
 
     def test_estimated_cost_is_none_for_unpriced_pinned_model(self, client):
-        """The shipped config.yaml pins claude-sonnet-5 but only prices
-        claude-sonnet-4-6 / claude-haiku-4-5-20251001 — an honest None,
-        never a fabricated number, for a model with no pricing entry."""
+        """If the pinned model ever outruns config.yaml's pricing table
+        again, the estimate must be an honest None, never a fabricated
+        number."""
+        fastapi_app.state.cfg["flags"]["pricing"] = {}
         fs = _filing_sections()
         with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs):
             resp = client.get("/api/flags/NVDA")
@@ -1097,6 +1099,28 @@ class TestFlagsUsageLogging:
             client.get("/api/flags/NVDA")
         assert self._rows() == []
 
+    def test_live_call_with_unpriced_model_stores_null_cost_flags_response_and_warns(self, client, caplog):
+        """The pinned model outrunning config.yaml's pricing table must
+        never silently show up as a $0 call — null cost, a pricing_unknown
+        response flag, and a server-side warning, all three."""
+        fastapi_app.state.cfg["flags"]["pricing"] = {}  # clear the entry set up in _setup
+        fs = _filing_sections()
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch.object(
+                 fastapi_app.state.anthropic_client.messages, "create",
+                 return_value=self._fake_response([]),
+             ), \
+             caplog.at_level(logging.WARNING, logger="engine.flags"):
+            resp = client.get("/api/flags/NVDA?extract=true")
+
+        assert resp.json()["pricing_unknown"] is True
+        rows = self._rows()
+        assert len(rows) == 1
+        ticker, model, in_tok, out_tok, cost, status = rows[0]
+        assert status == "live"
+        assert cost is None  # NULL in the DB, never a fabricated 0
+        assert "pricing" in caplog.text.lower()
+
 
 # ---------------------------------------------------------------------------
 # GET /api/usage (Task 3)
@@ -1110,9 +1134,11 @@ class TestUsageEndpoint:
         for key in (
             "lifetime_total_usd", "current_month", "current_year",
             "trailing_12mo_projection_usd", "monthly_breakdown", "per_model",
+            "rows_with_unknown_pricing",
         ):
             assert key in body
         assert body["lifetime_total_usd"] == 0.0
+        assert body["rows_with_unknown_pricing"] == 0
         assert len(body["monthly_breakdown"]) == 12
 
     def test_reflects_a_real_extraction_call(self, client, tmp_path):
@@ -1134,3 +1160,20 @@ class TestUsageEndpoint:
         assert usage_body["lifetime_total_usd"] > 0
         assert usage_body["current_month"]["calls"] == 1
         assert usage_body["per_model"][0]["calls"] == 1
+
+    def test_null_cost_rows_excluded_from_totals_but_reported_as_a_count(self, client):
+        import app.usage as usage_mod
+
+        usage_mod.log_call(
+            ticker="NVDA", model="claude-sonnet-5", prompt_version="v1",
+            input_tokens=1000, output_tokens=100, cost_usd=None, cache_status="live",
+        )
+        usage_mod.log_call(
+            ticker="MSFT", model="claude-sonnet-5", prompt_version="v1",
+            input_tokens=1000, output_tokens=100, cost_usd=1.5, cache_status="live",
+        )
+
+        body = client.get("/api/usage").json()
+        assert body["lifetime_total_usd"] == 1.5  # the null row contributes nothing, not 0-as-a-number-that-happens-to-add-nothing
+        assert body["rows_with_unknown_pricing"] == 1
+        assert body["current_month"]["calls"] == 2  # both were real, billed calls

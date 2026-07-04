@@ -9,6 +9,7 @@ the wall-clock date it happens to run on.
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -152,3 +153,99 @@ class TestSummary:
         by_model = {m["model"]: m for m in result["per_model"]}
         assert by_model["claude-sonnet-4-6"] == {"model": "claude-sonnet-4-6", "cost_usd": 3.0, "calls": 2}
         assert by_model["claude-haiku-4-5-20251001"] == {"model": "claude-haiku-4-5-20251001", "cost_usd": 0.5, "calls": 1}
+
+
+# ---------------------------------------------------------------------------
+# Null-cost (pricing_unknown) rows — see engine.flags.compute_cost_usd
+# ---------------------------------------------------------------------------
+
+class TestUnknownPricingRows:
+    def test_null_cost_row_excluded_from_lifetime_total(self, db_path):
+        _log(db_path, cost_usd=None, cache_status="live", called_at="2026-07-01T00:00:00+00:00")
+        _log(db_path, cost_usd=2.0, cache_status="live", called_at="2026-07-02T00:00:00+00:00")
+        now = datetime(2026, 7, 4, tzinfo=timezone.utc)
+        result = usage.summary(db_path=db_path, now=now)
+        assert result["lifetime_total_usd"] == 2.0
+
+    def test_null_cost_row_counted_in_rows_with_unknown_pricing(self, db_path):
+        _log(db_path, cost_usd=None, cache_status="live", called_at="2026-07-01T00:00:00+00:00")
+        _log(db_path, cost_usd=None, cache_status="refresh", called_at="2026-07-02T00:00:00+00:00")
+        _log(db_path, cost_usd=1.0, cache_status="live", called_at="2026-07-03T00:00:00+00:00")
+        now = datetime(2026, 7, 4, tzinfo=timezone.utc)
+        result = usage.summary(db_path=db_path, now=now)
+        assert result["rows_with_unknown_pricing"] == 2
+
+    def test_null_cost_row_still_counts_as_a_call(self, db_path):
+        """A pricing_unknown call is a real, billed model call — it must
+        still count toward "calls", just not toward any cost sum."""
+        _log(db_path, cost_usd=None, cache_status="live", called_at="2026-07-01T00:00:00+00:00")
+        now = datetime(2026, 7, 4, tzinfo=timezone.utc)
+        result = usage.summary(db_path=db_path, now=now)
+        assert result["current_month"]["calls"] == 1
+        assert result["current_year"]["calls"] == 1
+        assert result["monthly_breakdown"][0]["calls"] == 1
+        assert result["per_model"][0]["calls"] == 1
+
+    def test_null_cost_row_excluded_from_monthly_and_per_model_sums(self, db_path):
+        _log(db_path, model="claude-sonnet-5", cost_usd=None, called_at="2026-07-01T00:00:00+00:00")
+        now = datetime(2026, 7, 4, tzinfo=timezone.utc)
+        result = usage.summary(db_path=db_path, now=now)
+        assert result["monthly_breakdown"][0]["cost_usd"] == 0.0
+        assert result["per_model"][0]["cost_usd"] == 0.0
+
+    def test_empty_db_reports_zero_unknown_pricing_rows(self, db_path):
+        now = datetime(2026, 7, 4, tzinfo=timezone.utc)
+        assert usage.summary(db_path=db_path, now=now)["rows_with_unknown_pricing"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Schema migration — an existing DB may predate nullable cost_usd
+# ---------------------------------------------------------------------------
+
+class TestCostUsdNullableMigration:
+    def test_migrates_pre_existing_not_null_schema(self, db_path):
+        """Simulates a DB created before pricing_unknown rows existed
+        (cost_usd NOT NULL) — the real ~/.investment_engine/watchlist.db
+        may already be in this state. New code must open it without
+        raising, preserve the existing row, and successfully write a new
+        NULL-cost row."""
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE flag_extraction_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker TEXT NOT NULL, model TEXT NOT NULL, prompt_version TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
+                cost_usd REAL NOT NULL, called_at TEXT NOT NULL, cache_status TEXT NOT NULL
+            );
+        """)
+        conn.execute(
+            "INSERT INTO flag_extraction_usage "
+            "(ticker, model, prompt_version, input_tokens, output_tokens, cost_usd, called_at, cache_status) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            ("OLD", "claude-sonnet-5", "v1", 100, 10, 0.01, "2026-01-01T00:00:00+00:00", "live"),
+        )
+        conn.commit()
+        conn.close()
+
+        # Must not raise an IntegrityError on the old NOT NULL constraint.
+        usage.log_call(
+            ticker="NEW", model="claude-sonnet-5", prompt_version="v1",
+            input_tokens=100, output_tokens=10, cost_usd=None, cache_status="live", db_path=db_path,
+        )
+
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute("SELECT ticker, cost_usd FROM flag_extraction_usage ORDER BY id").fetchall()
+        finally:
+            conn.close()
+        assert rows == [("OLD", 0.01), ("NEW", None)]
+
+    def test_migration_is_idempotent_on_an_already_nullable_table(self, db_path):
+        _log(db_path, cost_usd=None)
+        _log(db_path, cost_usd=1.0)  # second _connect() call must be a no-op migration
+        conn = sqlite3.connect(db_path)
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM flag_extraction_usage").fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 2

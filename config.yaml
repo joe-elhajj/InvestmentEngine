@@ -119,6 +119,12 @@ flags:
   # Prices are looked up AT CALL TIME and stamped onto the usage row, so a
   # price edit here never retroactively changes a historical row's cost.
   pricing:
+    # Introductory pricing through 2026-08-31; reverts to $3.00 / $15.00 per
+    # million after that — bump this entry when it does, or cost stamping
+    # silently undercharges every call by a third.
+    claude-sonnet-5:
+      input_per_million: 2.00
+      output_per_million: 10.00
     claude-sonnet-4-6:
       input_per_million: 3.00
       output_per_million: 15.00
