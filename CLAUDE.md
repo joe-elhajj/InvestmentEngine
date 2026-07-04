@@ -9,7 +9,7 @@ involvement, and all assumptions live in version-controlled config. **Tier 2
 (in progress)** adds LLM-driven qualitative extraction layered on top of the
 deterministic output; the first slice — verbatim red/green flag extraction from
 10-K Item 1/1A/7 text (`engine/flags.py`) — is built. Moat classification and
-other Tier 2 annotations are not yet built. **Tier 3 (in progress)** is an LLM
+other Tier 2 annotations are not yet built. **Tier 3 (built)** is an LLM
 council that synthesises Tier 1 signals and Tier 2 annotations into a final
 research memo; the production endpoint (`engine/council.py`, a spend-gated
 `/api/council/{ticker}`) runs a 7-call hybrid structure — one combined Round 1
