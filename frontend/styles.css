@@ -119,11 +119,28 @@ body{
 table{width:100%;border-collapse:collapse}
 thead th{
   font-size:0.75rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--chrome-text-dim);background:var(--chrome-bg);
-  padding:13px 16px;border-bottom:1px solid var(--chrome-border);
+  color:var(--text-3);background:var(--bg);
+  padding:13px 16px;border-bottom:1px solid var(--hairline-strong);
   text-align:right;white-space:nowrap;
 }
 thead th.l{text-align:left}
+
+/* Dark chrome header rows — scoped to the three top-level dashboard
+   tables' OWN header row only, via a direct-child combinator (>). The
+   accordion fragment injected into these same tables' tbody (see
+   app.js toggleAccordion()) contains its own nested <table><thead>
+   markup (.report-section, e.g. "Financial position") several levels
+   down inside a <td> — a plain descendant selector would match those
+   too, since they're technically inside #equities-table in the DOM.
+   The child combinator excludes anything not a direct <thead> of the
+   outer table, so nested fragment tables keep the light styling from
+   the generic rule above. */
+#equities-table > thead th,
+#etf-table > thead th,
+#excluded-table > thead th{
+  color:var(--chrome-text-dim);background:var(--chrome-bg);
+  border-bottom:1px solid var(--chrome-border);
+}
 
 /* ---- generic tooltip trigger + popup (column headers AND the DCF stat
    card share this — table headers get their own dotted-underline
