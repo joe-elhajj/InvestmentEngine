@@ -160,3 +160,14 @@ flags:
   #                             # checked, tagged distinctly in the UI.
   #       demote: ["Some flag label the model over-weighted"]
   #       remove: ["Some flag label that's boilerplate, not company-specific"]
+
+council:
+  # Tier 3 — adversarial council synthesis (engine/council.py). Deliberately
+  # reuses flags.model and flags.pricing above directly rather than owning
+  # a separate model/pricing table: one pinned model, one spend ledger
+  # pricing table for the whole codebase's only two LLM surfaces.
+  # prompt_version bumps whenever any of the Round 1/2/3 prompts change
+  # materially — it's part of the council cache key, so a bump forces
+  # re-convening on the next request rather than silently reusing a stale
+  # cached run.
+  prompt_version: v1
