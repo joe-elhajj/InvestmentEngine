@@ -14,7 +14,7 @@ import re
 from engine import report_html as RH
 from engine.edgar import CompanyData, Fact
 from engine.market import Quote
-from engine.pipeline import derive
+from engine.pipeline import derive, AnalysisResult
 
 _CFG = {
     "valuation": {
@@ -273,3 +273,33 @@ class TestSharedBuildersProduceConsistentData:
         for g in res.gaps:
             assert g in RH.render(res)
             assert g in RH.render_fragment(res)
+
+
+class TestBasisDisclosureTooltip:
+    """_basis_disclosure_tooltip's revenue-CAGR branch must be conditional
+    on res.expectations_gap, not just on the label -- the frontend's
+    equivalent fix (PR #44) branches on `gated`, which is proven equivalent
+    to `expectations_gap is None` (screen.py:70-104); this surface checks
+    the real attribute directly since it already has it in hand."""
+
+    def _minimal_result(self, expectations_gap) -> AnalysisResult:
+        cd = CompanyData(ticker="RPT", cik="0000000200", name="Report Co",
+                          sic="7372", sic_description="Software")
+        quote = Quote("RPT", price=50.0, shares_outstanding=100.0, market_cap=5000.0, source="test")
+        return AnalysisResult(
+            company=cd, quote=quote,
+            delivered_growth_label="revenue CAGR (FCF history non-positive or unavailable)",
+            expectations_gap=expectations_gap,
+        )
+
+    def test_no_gap_computed_omits_the_mixed_base_comparison(self):
+        res = self._minimal_result(expectations_gap=None)
+        tooltip = RH._basis_disclosure_tooltip(res)
+        assert "No expectations gap is computed" in tooltip
+        assert "compares implied FCF growth" not in tooltip
+
+    def test_gap_computed_keeps_the_mixed_base_comparison(self):
+        res = self._minimal_result(expectations_gap=0.12)
+        tooltip = RH._basis_disclosure_tooltip(res)
+        assert "compares implied FCF growth" in tooltip
+        assert "No expectations gap is computed" not in tooltip

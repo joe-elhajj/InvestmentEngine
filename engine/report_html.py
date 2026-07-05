@@ -290,11 +290,23 @@ def _basis_disclosure_tooltip(res: AnalysisResult) -> str:
     parts: list[str] = []
     label = res.delivered_growth_label
     if label.startswith("revenue CAGR"):
-        parts.append(
-            "Delivered growth is a revenue-CAGR fallback (FCF history non-positive "
-            "or unavailable), not FCF — this Gap compares implied FCF growth "
-            "against delivered REVENUE growth, not a like-for-like FCF gap."
-        )
+        # This surface checks res.expectations_gap directly (the real
+        # attribute, already in hand here) while the frontend's equivalent
+        # fix (PR #44) checks the `gated` proxy instead -- the two
+        # conditions are proven equivalent (screen.py:70-104), just
+        # expressed in the terms each surface has available. Not something
+        # a future reader needs to reconcile.
+        if res.expectations_gap is None:
+            parts.append(
+                "Delivered growth is a revenue-CAGR fallback (FCF history non-positive "
+                "or unavailable), not FCF. No expectations gap is computed for this ticker."
+            )
+        else:
+            parts.append(
+                "Delivered growth is a revenue-CAGR fallback (FCF history non-positive "
+                "or unavailable), not FCF — this Gap compares implied FCF growth "
+                "against delivered REVENUE growth, not a like-for-like FCF gap."
+            )
     if "window:" in label:
         parts.append(f"Delivered growth basis: {label}.")
     if res.quote.source == "yfinance" and "diluted_shares" in res.gaps:
