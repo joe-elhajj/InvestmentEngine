@@ -96,7 +96,34 @@
     // i.e. never changes the number shown, only guards the bar from
     // overflowing its track if a value were ever out of range.
     var pct = Math.max(0, Math.min(100, rawValue));
-    fill.style.width = pct + "%";
+
+    // Composite (DURABILITY) is banded — below 40 amber (a real concern
+    // worth flagging), above 70 teal (comfortably durable) — since it's
+    // the one headline, aggregate score, not a peer of the six sub-scores
+    // it's built from. Sub-scores stay a single teal hue (CSS default on
+    // .score-fill) so the eye ranks by bar LENGTH, not by color — a
+    // rainbow per metric would undercut that.
+    if (opts.composite) {
+      if (pct < 40) fill.classList.add("score-fill-band-low");
+      else if (pct > 70) fill.classList.add("score-fill-band-high");
+    }
+
+    if (opts.animate) {
+      // First-render-only fill animation (the one moment of delight):
+      // paint at 0 width, then flip to the real width on the next frame
+      // so the CSS `transition:width 400ms ease-out` on .score-fill
+      // actually animates instead of jumping straight to its end state.
+      // Staggered per row via a small setTimeout, capped so a long
+      // watchlist doesn't cascade for multiple seconds.
+      fill.style.width = "0%";
+      var delay = Math.min(opts.stagger || 0, 15) * 20;
+      window.setTimeout(function () {
+        fill.style.width = pct + "%";
+      }, delay);
+    } else {
+      fill.style.width = pct + "%";
+    }
+
     track.appendChild(fill);
     cell.appendChild(track);
     return cell;
@@ -152,6 +179,8 @@
     equitiesSection: document.getElementById("equities-section"),
     etfSection: document.getElementById("etf-section"),
     excludedSection: document.getElementById("excluded-section"),
+    excludedScroll: document.getElementById("excluded-scroll"),
+    excludedEmpty: document.getElementById("excluded-empty"),
     diagnosticsSection: document.getElementById("diagnostics-section"),
     equitiesBody: document.querySelector("#equities-table tbody"),
     etfBody: document.querySelector("#etf-table tbody"),
@@ -161,18 +190,13 @@
     diagnosticsClean: document.getElementById("diagnostics-clean"),
     diagnosticsTableWrap: document.getElementById("diagnostics-table-wrap"),
     metaLine: document.getElementById("meta-line"),
-    removeConfirm: document.getElementById("remove-confirm"),
-    removeConfirmText: document.getElementById("remove-confirm-text"),
-    removeConfirmBtn: document.getElementById("remove-confirm-btn"),
-    removeCancelBtn: document.getElementById("remove-cancel-btn"),
     usageBtn: document.getElementById("usage-btn"),
     usageModalOverlay: document.getElementById("usage-modal-overlay"),
     usageModalBody: document.getElementById("usage-modal-body"),
     usageModalClose: document.getElementById("usage-modal-close"),
   };
 
-  var currentSearchTicker = null; // ticker the confirm bar currently refers to
-  var pendingRemoveTicker = null;
+  var currentSearchTicker = null; // ticker the search confirm card currently refers to
 
   function showBanner(text, isError) {
     els.statusBanner.textContent = text;
@@ -304,11 +328,21 @@
     rows.forEach(function (r) { delete expandedRows[r.ticker]; });
   }
 
+  // Score bars animate their fill-in ONCE, on the very first render — a
+  // sort click rebuilds the whole tbody (same as any other re-render) but
+  // must never replay the stagger animation, or every sort would look
+  // like a fresh page load. Set true at the end of the first
+  // renderEquitiesBody() call; scoreCell() reads it (via `animate` below)
+  // BEFORE that row's own call, since forEach hasn't finished yet.
+  var scoreBarsAnimated = false;
+
   function renderEquitiesBody() {
     var rows = sortRows(equitiesData, sortState.equities.key, sortState.equities.dir, equitiesSortValue);
     clearExpandedFor(equitiesData);
     els.equitiesBody.innerHTML = "";
-    rows.forEach(function (r) { els.equitiesBody.appendChild(renderEquitiesRow(r)); });
+    var animate = !scoreBarsAnimated;
+    rows.forEach(function (r, i) { els.equitiesBody.appendChild(renderEquitiesRow(r, i, animate)); });
+    scoreBarsAnimated = true;
     updateSortArrows("equities-table", sortState.equities);
     updateSortCaption("equities-sort-caption", sortState.equities, EQUITIES_SORT_LABELS);
   }
@@ -348,10 +382,51 @@
   attachSortHandler("equities-table", "equities", renderEquitiesBody);
   attachSortHandler("etf-table", "etf", renderEtfBody);
 
+  // Height-animates .accordion-content open: paint at max-height:0 (already
+  // set by the caller before insertion), then flip to the real scrollHeight
+  // on the next frame so the CSS `transition:max-height 200ms ease-out`
+  // actually animates instead of jumping straight to "auto". ≤200ms, the
+  // one other animated moment besides the score-bar fill-in.
+  function expandAccordionContent(inner) {
+    requestAnimationFrame(function () {
+      inner.style.maxHeight = inner.scrollHeight + "px";
+      inner.style.opacity = "1";
+    });
+  }
+
+  // Reverses the same transition on collapse, then removes the row once
+  // it's actually finished (transitionend) rather than mid-animation — a
+  // short setTimeout fallback guarantees the row is removed even if the
+  // event never fires (e.g. content with no measurable transition).
+  function collapseAccordionRow(accRow) {
+    var inner = accRow.querySelector(".accordion-content");
+    if (!inner) {
+      accRow.remove();
+      return;
+    }
+    var removed = false;
+    function finish() {
+      if (removed) return;
+      removed = true;
+      accRow.remove();
+    }
+    inner.style.maxHeight = inner.scrollHeight + "px"; // lock in the current height first
+    requestAnimationFrame(function () {
+      inner.style.maxHeight = "0px";
+      inner.style.opacity = "0";
+    });
+    inner.addEventListener("transitionend", function onEnd(ev) {
+      if (ev.propertyName !== "max-height") return;
+      inner.removeEventListener("transitionend", onEnd);
+      finish();
+    });
+    window.setTimeout(finish, 250);
+  }
+
   function toggleAccordion(ticker, row) {
     var existing = expandedRows[ticker];
     if (existing) {
-      existing.remove();
+      collapseAccordionRow(existing);
       delete expandedRows[ticker];
       row.classList.remove("row-expanded");
       return;
@@ -362,16 +437,23 @@
     accRow.className = "accordion-row";
     var cell = document.createElement("td");
     cell.colSpan = row.cells.length;
+    var inner = document.createElement("div");
+    inner.className = "accordion-content";
+    inner.style.maxHeight = "0px";
+    inner.style.opacity = "0";
+    cell.appendChild(inner);
     accRow.appendChild(cell);
     row.parentNode.insertBefore(accRow, row.nextSibling);
     expandedRows[ticker] = accRow;
 
     if (fragmentCache[ticker]) {
-      cell.innerHTML = fragmentCache[ticker];
+      inner.innerHTML = fragmentCache[ticker];
+      expandAccordionContent(inner);
       return;
     }
 
-    cell.innerHTML = '<div class="accordion-loading">Loading analysis for ' + ticker + '…</div>';
+    inner.innerHTML = '<div class="accordion-loading">Loading analysis for ' + ticker + '…</div>';
+    expandAccordionContent(inner);
 
     var promise = fragmentInFlight[ticker];
     if (!promise) {
@@ -386,12 +468,14 @@
         // Only touch the DOM if this row is still the one currently expanded
         // for this ticker — the user may have collapsed it while we waited.
         if (expandedRows[ticker] === accRow) {
-          cell.innerHTML = html;
+          inner.innerHTML = html;
+          expandAccordionContent(inner);
         }
       })
       .catch(function (e) {
         if (expandedRows[ticker] === accRow) {
-          cell.innerHTML = '<div class="accordion-loading">Failed to load analysis: ' + e.message + "</div>";
+          inner.innerHTML = '<div class="accordion-loading">Failed to load analysis: ' + e.message + "</div>";
+          expandAccordionContent(inner);
         }
       });
   }
@@ -595,46 +679,164 @@
     loadFlags(details, "refresh=true");
   });
 
-  function removeButton(ticker) {
-    var btn = document.createElement("span");
-    btn.className = "row-remove";
-    btn.textContent = "×";
-    btn.title = "Remove " + ticker + " from watchlist";
-    btn.addEventListener("click", function (ev) {
+  // ---- remove from watchlist: inline confirm, immediate removal ----
+  //
+  // Bug (reported): click × -> a confirm bar at the bottom of the
+  // viewport -> clicking Remove does nothing visible -> only a full page
+  // reload shows the ticker gone. Root cause was the SUCCESS handler, not
+  // a lost DOM reference: on a successful DELETE it called runScreen(),
+  // which re-fetches the watchlist and kicks off a brand-new /api/screen
+  // background job — polled every 3s, ~60s for a full watchlist — before
+  // the table changes at all. Removing one row was silently routed
+  // through "recompute every row's durability score from scratch," which
+  // is why it looked broken rather than just slow.
+  //
+  // Fix: remove the row (and its accordion sibling, if expanded) directly
+  // from the DOM and from the same in-memory array renderEquitiesBody()/
+  // renderEtfBody() re-render from on sort, the moment the DELETE
+  // succeeds — no re-screen involved. `dataArray` is null for the
+  // Excluded table, which has no persistent sortable array to begin with
+  // (renderScreen() rebuilds it directly from fetched data each run).
+  //
+  // This also replaces the old viewport-bottom confirm bar with an inline
+  // "Remove? ✓ / ✕" affordance that morphs in place inside the same
+  // control the × lives in — the confirmation now lives exactly where
+  // the intent was expressed, closer to iOS swipe-to-delete than a modal.
+
+  var closeOpenRemoveConfirm = null; // currently-open inline confirm's own reset fn, or null
+
+  document.addEventListener("click", function (ev) {
+    if (closeOpenRemoveConfirm && !ev.target.closest(".row-remove-wrap")) {
+      closeOpenRemoveConfirm();
+    }
+  });
+
+  function removeControl(ticker, tr, dataArray, sectionEl, tableBodyEl, onRemoved) {
+    var wrap = document.createElement("span");
+    wrap.className = "row-remove-wrap";
+
+    var trigger = document.createElement("span");
+    trigger.className = "row-remove";
+    trigger.textContent = "×";
+    trigger.title = "Remove " + ticker + " from watchlist";
+    wrap.appendChild(trigger);
+
+    function showTrigger() {
+      if (closeOpenRemoveConfirm === showTrigger) closeOpenRemoveConfirm = null;
+      wrap.innerHTML = "";
+      wrap.appendChild(trigger);
+    }
+
+    function showConfirm() {
+      if (closeOpenRemoveConfirm) closeOpenRemoveConfirm();
+      wrap.innerHTML = "";
+
+      var confirmWrap = document.createElement("span");
+      confirmWrap.className = "row-remove-confirm";
+
+      var label = document.createElement("span");
+      label.className = "row-remove-label";
+      label.textContent = "Remove?";
+
+      var yes = document.createElement("button");
+      yes.type = "button";
+      yes.className = "row-remove-yes";
+      yes.textContent = "✓";
+      yes.title = "Confirm — remove " + ticker;
+
+      var no = document.createElement("button");
+      no.type = "button";
+      no.className = "row-remove-no";
+      no.textContent = "✕";
+      no.title = "Cancel";
+
+      confirmWrap.appendChild(label);
+      confirmWrap.appendChild(yes);
+      confirmWrap.appendChild(no);
+      wrap.appendChild(confirmWrap);
+
+      yes.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        yes.disabled = true;
+        no.disabled = true;
+        doRemove();
+      });
+      no.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        showTrigger();
+      });
+
+      closeOpenRemoveConfirm = showTrigger;
+    }
+
+    function doRemove() {
+      fetch("/api/watchlist/" + encodeURIComponent(ticker), { method: "DELETE" })
+        .then(function (r) {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          closeOpenRemoveConfirm = null;
+          // An open accordion for this ticker is a sibling <tr> tied to
+          // this one — drop it too, or it's left dangling with no parent
+          // row once `tr` itself is removed below.
+          if (expandedRows[ticker]) {
+            expandedRows[ticker].remove();
+            delete expandedRows[ticker];
+          }
+          if (dataArray) {
+            var idx = dataArray.findIndex(function (r2) { return r2.ticker === ticker; });
+            if (idx !== -1) dataArray.splice(idx, 1);
+          }
+          tr.remove();
+          if (sectionEl && tableBodyEl && tableBodyEl.children.length === 0) {
+            sectionEl.classList.add("hidden");
+          }
+          // Table-specific follow-up (e.g. Excluded's own empty-state
+          // toggle, which never hides its whole section — see
+          // updateExcludedEmptyState()) — optional, most callers pass none.
+          if (onRemoved) onRemoved();
+          checkEmptyWatchlist();
+        })
+        .catch(function (e) {
+          showBanner("Failed to remove " + ticker + ": " + e.message, true);
+          showTrigger();
+        });
+    }
+
+    trigger.addEventListener("click", function (ev) {
       ev.stopPropagation();
-      confirmRemove(ticker);
+      showConfirm();
     });
-    return btn;
+
+    return wrap;
   }
 
-  function confirmRemove(ticker) {
-    pendingRemoveTicker = ticker;
-    els.removeConfirmText.textContent = "Remove " + ticker + " from the watchlist?";
-    els.removeConfirm.classList.remove("hidden");
+  // After any single-row removal, the watchlist may now be completely
+  // empty — the same "nothing to show" state runScreen() already renders
+  // when /api/watchlist reports zero tickers, applied directly since the
+  // removal itself is the new source of truth for the count (no need for
+  // a fresh fetch just to learn what we already know). Also hides the
+  // three per-table sections so a cascade of individual removals doesn't
+  // leave e.g. Excluded's own "no excluded securities" empty-state
+  // showing alongside the global one — a real empty watchlist gets ONE
+  // empty state, not several nested ones.
+  function checkEmptyWatchlist() {
+    var allEmpty = els.equitiesBody.children.length === 0
+      && els.etfBody.children.length === 0
+      && els.excludedBody.children.length === 0;
+    if (allEmpty) {
+      els.emptyState.classList.remove("hidden");
+      els.metaLine.classList.add("hidden");
+      els.equitiesSection.classList.add("hidden");
+      els.etfSection.classList.add("hidden");
+      els.excludedSection.classList.add("hidden");
+    }
   }
 
-  els.removeCancelBtn.addEventListener("click", function () {
-    pendingRemoveTicker = null;
-    els.removeConfirm.classList.add("hidden");
-  });
-
-  els.removeConfirmBtn.addEventListener("click", function () {
-    if (!pendingRemoveTicker) return;
-    var ticker = pendingRemoveTicker;
-    els.removeConfirm.classList.add("hidden");
-    fetch("/api/watchlist/" + encodeURIComponent(ticker), { method: "DELETE" })
-      .then(function () {
-        pendingRemoveTicker = null;
-        runScreen();
-      })
-      .catch(function (e) { showBanner("Failed to remove " + ticker + ": " + e.message, true); });
-  });
-
-  // The remove "×" is absolutely positioned (see .row-remove in styles.css),
-  // so it must live INSIDE a real <td> — never appended as an extra <tr>
-  // child, which would be invalid HTML with an off-by-one column count.
-  function appendRemoveButton(lastCell, ticker) {
-    lastCell.appendChild(removeButton(ticker));
+  // The remove control is absolutely positioned (see .row-remove-wrap in
+  // styles.css), so it must live INSIDE a real <td> — never appended as
+  // an extra <tr> child, which would be invalid HTML with an off-by-one
+  // column count.
+  function appendRemoveControl(lastCell, ticker, tr, dataArray, sectionEl, tableBodyEl, onRemoved) {
+    lastCell.appendChild(removeControl(ticker, tr, dataArray, sectionEl, tableBodyEl, onRemoved));
     return lastCell;
   }
 
@@ -645,34 +847,96 @@
     return tr;
   }
 
-  function renderEquitiesRow(row) {
+  // Tints whichever cell corresponds to the table's currently-active sort
+  // key (if any) with .col-sorted — a ~2% wash so it's visually obvious
+  // what's ordering the table from every row, not just the header glyph.
+  // Purely a class toggle on an already-built cell; never touches
+  // sortState/sortRows() itself.
+  function markSortedCell(cellsByKey, activeKey) {
+    if (activeKey && cellsByKey[activeKey]) cellsByKey[activeKey].classList.add("col-sorted");
+  }
+
+  function renderEquitiesRow(row, index, animate) {
     var tr = document.createElement("tr");
-    tr.appendChild(tickerCell(row.ticker, true));
-    tr.appendChild(scoreCell(row.composite, fmtScore(row.composite), { composite: true }));
-    tr.appendChild(scoreCell(row.cat_reinvestment, fmtScore(row.cat_reinvestment)));
-    tr.appendChild(scoreCell(row.cat_quality, fmtScore(row.cat_quality)));
-    tr.appendChild(scoreCell(row.cat_resilience, fmtScore(row.cat_resilience)));
-    tr.appendChild(scoreCell(row.cat_discipline, fmtScore(row.cat_discipline)));
-    tr.appendChild(scoreCell(row.cat_optionality, fmtScore(row.cat_optionality)));
+    var cellsByKey = {};
+
+    var tickerTd = tickerCell(row.ticker, true);
+    tr.appendChild(tickerTd);
+    cellsByKey.ticker = tickerTd;
+
+    var compositeTd = scoreCell(row.composite, fmtScore(row.composite), { composite: true, animate: animate, stagger: index });
+    tr.appendChild(compositeTd);
+    cellsByKey.composite = compositeTd;
+
+    [
+      ["cat_reinvestment", row.cat_reinvestment],
+      ["cat_quality", row.cat_quality],
+      ["cat_resilience", row.cat_resilience],
+      ["cat_discipline", row.cat_discipline],
+      ["cat_optionality", row.cat_optionality],
+    ].forEach(function (pair) {
+      var key = pair[0], value = pair[1];
+      var cell = scoreCell(value, fmtScore(value), { animate: animate, stagger: index });
+      tr.appendChild(cell);
+      cellsByKey[key] = cell;
+    });
+
     var gated = !!row.implied_growth_note;
-    tr.appendChild(td(gated ? null : fmtPct(row.implied_fcf_growth)));
-    tr.appendChild(td(fmtPct(row.delivered_fcf_growth)));
+    var impliedTd = td(gated ? null : fmtPct(row.implied_fcf_growth));
+    tr.appendChild(impliedTd);
+    cellsByKey.implied_fcf_growth = impliedTd;
+
+    var deliveredTd = td(fmtPct(row.delivered_fcf_growth));
+    tr.appendChild(deliveredTd);
+    cellsByKey.delivered_fcf_growth = deliveredTd;
+
     var gapVal = gated ? null : row.expectations_gap;
     var gapTd = gapCell(gapVal, gated ? null : fmtSignedPct(row.expectations_gap));
-    tr.appendChild(appendRemoveButton(gapTd, row.ticker));
+    cellsByKey.expectations_gap = gapTd;
+    tr.appendChild(appendRemoveControl(gapTd, row.ticker, tr, equitiesData, els.equitiesSection, els.equitiesBody));
+
+    markSortedCell(cellsByKey, sortState.equities.key);
     return makeExpandable(tr, row.ticker);
   }
 
   function renderEtfRow(row) {
     var tr = document.createElement("tr");
-    tr.appendChild(tickerCell(row.ticker, true));
+    var cellsByKey = {};
+
+    var tickerTd = tickerCell(row.ticker, true);
+    tr.appendChild(tickerTd);
+    cellsByKey.ticker = tickerTd;
+
     tr.appendChild(td(row.name, { cls: "l" }));
-    tr.appendChild(td(fmtPct(row.expense_ratio, 2)));
-    tr.appendChild(td(fmtAum(row.aum)));
-    tr.appendChild(td(fmtOverlap(row.overlap_with_screen, row.overlap_count)));
+
+    var expenseTd = td(fmtPct(row.expense_ratio, 2));
+    tr.appendChild(expenseTd);
+    cellsByKey.expense_ratio = expenseTd;
+
+    var aumTd = td(fmtAum(row.aum));
+    tr.appendChild(aumTd);
+    cellsByKey.aum = aumTd;
+
+    var overlapTd = td(fmtOverlap(row.overlap_with_screen, row.overlap_count));
+    tr.appendChild(overlapTd);
+    cellsByKey.overlap_with_screen = overlapTd;
+
     var flagCell = td(row.flag, { cls: "l" });
-    tr.appendChild(appendRemoveButton(flagCell, row.ticker));
+    tr.appendChild(appendRemoveControl(flagCell, row.ticker, tr, etfData, els.etfSection, els.etfBody));
+
+    markSortedCell(cellsByKey, sortState.etf.key);
     return makeExpandable(tr, row.ticker);
+  }
+
+  // Excluded's own empty state (a proper icon + "No excluded securities in
+  // this run" message, never just a bare header over white void) —
+  // toggled here instead of hiding the whole section, since the section
+  // itself stays visible whenever the watchlist as a whole isn't empty
+  // (see renderScreen() and checkEmptyWatchlist()).
+  function updateExcludedEmptyState() {
+    var empty = els.excludedBody.children.length === 0;
+    els.excludedScroll.classList.toggle("hidden", empty);
+    els.excludedEmpty.classList.toggle("hidden", !empty);
   }
 
   function renderExcludedRow(row) {
@@ -681,7 +945,10 @@
     var tr = document.createElement("tr");
     tr.appendChild(tickerCell(row.ticker));
     var reasonCell = td(humanizeReason(row.flag), { cls: "l" });
-    tr.appendChild(appendRemoveButton(reasonCell, row.ticker));
+    // sectionEl is null here (unlike equities/etf): Excluded's SECTION
+    // never auto-hides on empty, only its inner content swaps to the
+    // empty-state message via the onRemoved callback.
+    tr.appendChild(appendRemoveControl(reasonCell, row.ticker, tr, null, null, els.excludedBody, updateExcludedEmptyState));
     return tr;
   }
 
@@ -766,14 +1033,51 @@
 
     els.equitiesSection.classList.toggle("hidden", data.equities.length === 0);
     els.etfSection.classList.toggle("hidden", data.etfs.length === 0);
-    els.excludedSection.classList.toggle("hidden", data.excluded.length === 0);
+    // Excluded's SECTION always shows once we're here (runScreen() already
+    // guarantees the watchlist as a whole isn't empty — see its own
+    // total===0 early return) — an empty Excluded gets its own proper
+    // empty-state message instead of disappearing entirely.
+    els.excludedSection.classList.remove("hidden");
+    updateExcludedEmptyState();
 
-    var parts = [];
-    if (data.universe) parts.push("Universe: " + data.universe);
-    if (data.config_hash) parts.push("Config: " + data.config_hash);
-    if (data.generated_at) parts.push("Generated: " + data.generated_at);
-    els.metaLine.textContent = parts.join("  ·  ");
-    els.metaLine.classList.toggle("hidden", parts.length === 0);
+    buildMetaLine(data);
+  }
+
+  // Provenance footer: mono, small, muted-but-legible, with the config
+  // hash as its own copyable code chip (click to copy) rather than plain
+  // inline text — this is the "which assumption set produced these
+  // numbers" audit trail, worth making it easy to paste elsewhere.
+  function buildMetaLine(data) {
+    els.metaLine.innerHTML = "";
+    var any = false;
+    if (data.universe) {
+      var uni = document.createElement("span");
+      uni.textContent = "Universe " + data.universe;
+      els.metaLine.appendChild(uni);
+      any = true;
+    }
+    if (data.config_hash) {
+      var chip = document.createElement("code");
+      chip.className = "meta-chip";
+      chip.textContent = data.config_hash;
+      chip.title = "Click to copy the config hash";
+      chip.addEventListener("click", function () {
+        if (!navigator.clipboard || !navigator.clipboard.writeText) return;
+        navigator.clipboard.writeText(data.config_hash).then(function () {
+          chip.classList.add("copied");
+          window.setTimeout(function () { chip.classList.remove("copied"); }, 1200);
+        });
+      });
+      els.metaLine.appendChild(chip);
+      any = true;
+    }
+    if (data.generated_at) {
+      var gen = document.createElement("span");
+      gen.textContent = "Generated " + data.generated_at;
+      els.metaLine.appendChild(gen);
+      any = true;
+    }
+    els.metaLine.classList.toggle("hidden", !any);
   }
 
   // ---- screen job: kick off + poll every 3s until done/error ----

@@ -509,7 +509,7 @@ class TestAnalyzeFragmentEndpoint:
         with patch("app.main.run_single_ticker", return_value=_real_analysis_result()):
             resp = client.get("/api/analyze/AAPL/fragment")
         assert resp.status_code == 200
-        assert '<span class="stat-value">n/a</span>' in resp.text
+        assert '<span class="stat-value stat-value-na">n/a</span>' in resp.text
 
     def test_failure_returns_inline_error_fragment_not_full_page(self, client):
         with patch(

@@ -237,3 +237,39 @@ class TestDataDiagnosticsSection:
         stable identical, universe/config_hash repeated every row)."""
         assert "function diagnosticsRowNeeded" in _APP_JS
         assert ".filter(diagnosticsRowNeeded)" in _APP_JS
+
+
+class TestStickyHeaderRemoved:
+    """Bug 1: a previous pass made the three dashboard tables' <thead> rows
+    position:sticky. Root cause of the reported "header floats detached
+    mid-card / appears between rows" artifact: .surface has overflow:hidden
+    (for the card's rounded corners) and .scroll has overflow-x:auto (for
+    responsive horizontal scroll) — either one alone establishes the
+    sticky positioning containing block, and neither is the page's actual
+    scroll container, so the "stuck" header computes its position against
+    a box that isn't what's scrolling and gets clipped mid-stick. Fixed by
+    removing position:sticky from these header rules entirely (see the
+    comment in styles.css for why "make it correct" was rejected in favor
+    of a clean removal) rather than leaving a half-working stick.
+    """
+
+    def test_dashboard_table_headers_are_not_sticky(self):
+        match = re.search(
+            r"#equities-table > thead th,\s*"
+            r"#etf-table > thead th,\s*"
+            r"#excluded-table > thead th,\s*"
+            r"#diagnostics-table > thead th\{([^}]*)\}",
+            _STYLES_CSS,
+        )
+        assert match, "dashboard table header rule not found in styles.css"
+        rule_body = match.group(1)
+        assert "position:sticky" not in rule_body
+        assert "position: sticky" not in rule_body
+
+    def test_topnav_itself_stays_sticky(self):
+        """The removal is scoped to the per-table header rows — the top
+        app bar sticking to the viewport while the page scrolls is a
+        correct, unrelated use of the same CSS property."""
+        topnav_match = re.search(r"\.topnav\{([^}]*)\}", _STYLES_CSS)
+        assert topnav_match
+        assert "position:sticky" in topnav_match.group(1)

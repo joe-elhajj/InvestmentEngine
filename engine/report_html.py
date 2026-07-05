@@ -257,8 +257,17 @@ def _dcf_section(res: AnalysisResult) -> Optional[dict]:
         w_values = sorted(res.sensitivity.keys())
         sensitivity = {
             "g_values": [f"{g:.1%}" for g in g_values],
+            # Each cell keeps BOTH the raw float (or None) and its already-
+            # formatted display string — the raw value is never shown
+            # itself, it only drives the fragment renderer's presentation-
+            # only heat-tint (see render_fragment below); the full-page
+            # renderer below unpacks and ignores it. Formatting/rounding is
+            # unchanged either way — still exactly _fmt_currency's output.
             "rows": [
-                (f"{wv:.1%}", [_fmt_currency(res.sensitivity[wv][g]) for g in g_values])
+                (
+                    f"{wv:.1%}",
+                    [(res.sensitivity[wv][g], _fmt_currency(res.sensitivity[wv][g])) for g in g_values],
+                )
                 for wv in w_values
             ],
         }
@@ -396,7 +405,7 @@ def render(res: AnalysisResult, peer_table: list | None = None) -> str:
             sens = dcf["sensitivity"]
             header = "<tr><th>WACC \\ g</th>" + "".join(f"<th>{g}</th>" for g in sens["g_values"]) + "</tr>"
             body = "".join(
-                f"<tr><td>{wacc_label}</td>" + "".join(f"<td>{c}</td>" for c in cells) + "</tr>"
+                f"<tr><td>{wacc_label}</td>" + "".join(f"<td>{c}</td>" for _, c in cells) + "</tr>"
                 for wacc_label, cells in sens["rows"]
             )
             dcf_html += (
@@ -573,10 +582,16 @@ def _fr_stat(label: str, value: str, tint: Optional[float] = None, tooltip: Opti
     cls = "stat has-tooltip" if tooltip else "stat"
     tabindex_attr = ' tabindex="0"' if tooltip else ""
     tooltip_html = f'<div class="th-tooltip">{escape(tooltip)}</div>' if tooltip else ""
+    # A stat whose value is the literal "n/a" string gets a distinct class
+    # so CSS can render it in neutral gray instead of the bold near-ink
+    # used for a real value — absence must never look like a real (if
+    # oddly dark/bold) number. This never changes what text is shown,
+    # only whether it's tagged for styling.
+    value_cls = "stat-value stat-value-na" if value == "n/a" else "stat-value"
     return (
         f'<div class="{cls}"{style}{tabindex_attr}>'
         f'<span class="stat-label">{escape(label)}</span>'
-        f'<span class="stat-value">{escape(value)}</span>'
+        f'<span class="{value_cls}">{escape(value)}</span>'
         f"{tooltip_html}"
         "</div>"
     )
@@ -693,8 +708,29 @@ def render_fragment(
             if dcf["sensitivity"]:
                 sens = dcf["sensitivity"]
                 head_cells = ["WACC \\ g"] + sens["g_values"]
+                # Two-axis heat tint: a presentation-only encoding derived
+                # from the SAME already-computed fair-value numbers each
+                # cell displays (deeper tint = higher fair value within
+                # THIS grid) — never a new computation, and never shown as
+                # a number itself, just a --heat custom property the CSS
+                # reads. A missing cell (None) gets no tint at all, same
+                # absence-is-not-zero rule the score bars follow: an
+                # unknown fair value is not visually "the low end."
+                raw_values = [v for _, cells in sens["rows"] for v, _ in cells if v is not None]
+                lo = min(raw_values) if raw_values else 0.0
+                hi = max(raw_values) if raw_values else 0.0
+                spread = hi - lo
+
+                def _heat_attr(v: Optional[float]) -> str:
+                    if v is None or spread <= 0:
+                        return ""
+                    heat = (v - lo) / spread
+                    return f' style="--heat:{heat:.3f}"'
+
                 sens_rows_html = "".join(
-                    f'<tr><td class="l">{wacc_label}</td>' + "".join(f"<td>{c}</td>" for c in cells) + "</tr>"
+                    f'<tr><td class="l">{wacc_label}</td>'
+                    + "".join(f'<td class="sens-cell"{_heat_attr(v)}>{c}</td>' for v, c in cells)
+                    + "</tr>"
                     for wacc_label, cells in sens["rows"]
                 )
                 content += (

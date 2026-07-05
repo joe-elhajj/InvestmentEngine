@@ -61,6 +61,9 @@
   <div id="status-banner" class="status-banner hidden"></div>
 
   <div id="empty-state" class="empty-state hidden">
+    <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+    </svg>
     <p>Your watchlist is empty. Search a ticker above to get started.</p>
   </div>
 
@@ -108,17 +111,25 @@
 
   <section id="excluded-section" class="table-section hidden">
     <div class="sec-head"><div class="sec-lbl">Excluded</div></div>
-    <div class="surface"><div class="scroll">
-      <table id="excluded-table">
-        <thead>
-          <tr>
-            <th class="l">Ticker</th>
-            <th class="l">Reason</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div></div>
+    <div class="surface">
+      <div id="excluded-scroll" class="scroll">
+        <table id="excluded-table">
+          <thead>
+            <tr>
+              <th class="l">Ticker</th>
+              <th class="l">Reason</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="excluded-empty" class="table-empty hidden">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/>
+        </svg>
+        <span>No excluded securities in this run.</span>
+      </div>
+    </div>
   </section>
 
   <details id="diagnostics-section" class="diag-section hidden">
@@ -146,12 +157,6 @@
   <p id="meta-line" class="meta-line hidden"></p>
 
 </main>
-
-<div id="remove-confirm" class="remove-confirm hidden">
-  <p id="remove-confirm-text"></p>
-  <button id="remove-confirm-btn" class="btn btn-danger">Remove</button>
-  <button id="remove-cancel-btn" class="btn">Cancel</button>
-</div>
 
 <div id="usage-modal-overlay" class="modal-overlay hidden">
   <div class="modal usage-modal">
