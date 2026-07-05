@@ -539,6 +539,22 @@ td.gap-cell{text-align:right}
 }
 .basis-badge .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
 
+/* ---- Gap-inheritance marker (badge-placement fix): a hollow ring, NOT a
+   second full basis-badge, on the Gap cell when its computed value
+   silently inherits an Implied g/Delivered g caveat (MKT/WIN/REV-with-a-
+   computed-gap). Deliberately smaller/quieter than .basis-badge — "this
+   value has an upstream caveat," one visual step down from "this IS the
+   caveat." Border reuses --emphasis, the same amber already verified at
+   10.89:1 against --surface in this file's contrast table (well past the
+   3:1 WCAG 1.4.11 non-text-contrast minimum for a graphical marker like
+   this) — no new color pairing to verify. */
+.inherit-dot{
+  display:inline-block;width:7px;height:7px;margin-left:6px;
+  border-radius:50%;border:1.5px solid var(--emphasis);background:transparent;
+  vertical-align:middle;cursor:default;
+}
+.inherit-dot .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
+
 /* ---- inline report accordion (clicking an equity/ETF row) ----
    .accordion-content (not the <tr>/<td> themselves — table rows don't
    animate height reliably under the table layout algorithm) is what

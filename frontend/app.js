@@ -171,6 +171,21 @@
     cell.appendChild(badge);
   }
 
+  // Gap-inheritance marker: a small ring (never a second full basis-badge)
+  // on the Gap cell, naming which upstream Implied g/Delivered g caveat(s)
+  // this specific computed gap value silently carries. Reuses .has-tooltip/
+  // .th-tooltip like appendBasisBadge above.
+  function appendInheritDot(cell, reasons) {
+    var dot = document.createElement("span");
+    dot.className = "inherit-dot has-tooltip";
+    dot.tabIndex = 0;
+    var tip = document.createElement("div");
+    tip.className = "th-tooltip";
+    tip.textContent = "Inherits: " + reasons.join(", ");
+    dot.appendChild(tip);
+    cell.appendChild(dot);
+  }
+
   // ---- API helpers ----
 
   function apiGet(url) {
@@ -1218,7 +1233,8 @@
     // extraction failed for this ticker. Not shown for every yfinance-
     // sourced quote, only where trust tier changes the interpretation of
     // this score-derived number.
-    if (row.quote_source === "yfinance" && row.diluted_shares_gap) {
+    var hasMkt = row.quote_source === "yfinance" && row.diluted_shares_gap;
+    if (hasMkt) {
       appendBasisBadge(
         impliedTd, "mkt",
         "Share count from yfinance (market-vendor tier) — EDGAR diluted_shares " +
@@ -1234,26 +1250,55 @@
     // the requested horizon when a data gap forces the earliest usable
     // point much further back (e.g. NVDA's permanent capex absence). Only
     // shown when that note is actually present in the label.
-    if (row.delivered_growth_label && row.delivered_growth_label.indexOf("window:") !== -1) {
+    var hasWin = !!(row.delivered_growth_label && row.delivered_growth_label.indexOf("window:") !== -1);
+    if (hasWin) {
       appendBasisBadge(deliveredTd, "win", "Basis: " + row.delivered_growth_label);
+    }
+    // Mixed-base marker (moved here from the Gap column — badge-placement
+    // fix): REV qualifies DELIVERED's basis (a revenue-CAGR fallback, not
+    // FCF), not the gap itself. On every row currently carrying it the gap
+    // is n/a (no FCF history to solve a like-for-like comparison against),
+    // so badging the Gap cell was marking a number that doesn't exist.
+    // Tooltip is conditional: the common case today has no computed gap at
+    // all; the mixed-base-comparison wording only applies on the (currently
+    // untriggered) path where a gap IS computed despite the fallback.
+    var hasRev = !!(row.delivered_growth_label && row.delivered_growth_label.indexOf("revenue CAGR") === 0);
+    if (hasRev) {
+      var revTooltip = gated
+        ? "Delivered growth is a revenue-CAGR fallback (FCF history non-positive " +
+          "or unavailable), not FCF. No expectations gap is computed for this row."
+        : "Delivered growth is a revenue-CAGR fallback (FCF history non-positive " +
+          "or unavailable), not FCF. This Gap compares implied FCF growth " +
+          "against delivered REVENUE growth — not a like-for-like FCF gap.";
+      appendBasisBadge(deliveredTd, "rev", revTooltip);
     }
     tr.appendChild(deliveredTd);
     cellsByKey.delivered_fcf_growth = deliveredTd;
 
     var gapVal = gated ? null : row.expectations_gap;
     var gapTd = gapCell(gapVal, gated ? null : fmtSignedPct(row.expectations_gap));
-    // Mixed-base marker (Session B): delivered growth fell back to revenue
-    // CAGR (FCF history non-positive or unavailable), so this Gap compares
-    // implied FCF growth against delivered REVENUE growth — not a
-    // like-for-like FCF gap. The common case (clean FCF-vs-FCF) gets no
-    // marker.
-    if (row.delivered_growth_label && row.delivered_growth_label.indexOf("revenue CAGR") === 0) {
-      appendBasisBadge(
-        gapTd, "rev",
-        "Delivered growth is a revenue-CAGR fallback (FCF history non-positive " +
-          "or unavailable), not FCF. This Gap compares implied FCF growth " +
-          "against delivered REVENUE growth — not a like-for-like FCF gap."
-      );
+    // Inheritance marker: the Gap is implied minus delivered, so it
+    // silently inherits whichever upstream caveats apply to either
+    // component. Only shown when the Gap itself is a real, computed number
+    // — an n/a pill already discloses its own absence and has nothing to
+    // inherit into (this is why hasRev alone, on today's always-gated
+    // rows, never lights this up — only the untriggered REV-with-a-real-
+    // gap path would). Deliberately NOT a second full basis-badge: a small
+    // ring distinguishes "this value has an upstream caveat" from the
+    // direct disclosures already on Implied g/Delivered g themselves.
+    if (!gated) {
+      var inherited = [];
+      if (hasMkt) inherited.push("MKT (implied uses vendor-tier share count)");
+      if (hasWin) {
+        var winMatch = /window: (\d+)y actual vs (\d+)y requested/.exec(row.delivered_growth_label);
+        inherited.push(winMatch
+          ? "WIN (delivered window " + winMatch[1] + "y vs " + winMatch[2] + "y requested)"
+          : "WIN (delivered uses an extended CAGR window)");
+      }
+      if (hasRev) inherited.push("REV (delivered is revenue CAGR, not FCF)");
+      if (inherited.length) {
+        appendInheritDot(gapTd, inherited);
+      }
     }
     cellsByKey.expectations_gap = gapTd;
     tr.appendChild(appendRemoveControl(gapTd, row.ticker, tr, equitiesData, els.equitiesSection, els.equitiesBody));
