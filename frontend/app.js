@@ -138,14 +138,18 @@
   function gapCell(rawValue, displayValue) {
     var cell = document.createElement("td");
     cell.className = "gap-cell";
-    // Inherit-dot slot: reserved on EVERY gap cell (before the pill), empty
-    // when there's no upstream caveat. Reserving the slot unconditionally
-    // (rather than only inserting it when a dot is needed) keeps every
-    // pill's right edge aligned to the same column position whether or not
-    // this row has a dot — see appendInheritDot below, which populates this
-    // same slot instead of appending a separate node after the pill.
+    // Inherit-chip slot: reserved on EVERY gap cell (before the pill), with
+    // its "INH" text already in place but invisible (visibility:hidden --
+    // hidden from sighted users AND assistive tech, unlike opacity/color
+    // tricks) when there's no upstream caveat. Keeping the same text content
+    // in the DOM at all times (rather than inserting it only when needed)
+    // is what keeps every pill's right edge aligned to the same column
+    // regardless of whether this row ends up with a visible chip — see
+    // appendInheritChip below, which only toggles visibility/styling on
+    // this same node instead of appending a separate one after the pill.
     var slot = document.createElement("span");
     slot.className = "gap-inherit-slot";
+    slot.textContent = "INH";
     cell.appendChild(slot);
     var pill = document.createElement("span");
     if (rawValue === null || rawValue === undefined) {
@@ -180,17 +184,20 @@
     cell.appendChild(badge);
   }
 
-  // Gap-inheritance marker: a small ring (never a second full basis-badge)
-  // on the Gap cell, naming which upstream Implied g/Delivered g caveat(s)
-  // this specific computed gap value silently carries. Reuses .has-tooltip/
-  // .th-tooltip like appendBasisBadge above. Populates the slot gapCell()
-  // already reserved to the LEFT of the pill (rather than appending a new
-  // node after it) so the dot never collides with the hover-remove × that's
-  // absolutely positioned at the cell's own right edge, and so undotted
-  // rows' empty slot still occupies the identical width.
-  function appendInheritDot(cell, reasons) {
+  // Gap-inheritance marker: an "INH" text chip -- same .basis-badge visual
+  // vocabulary as the MKT/WIN/REV origin badges, but outline-only (no
+  // filled background) so it reads one step quieter, matching that
+  // inheritance is a lesser signal than a direct caveat. Reuses
+  // .has-tooltip/.th-tooltip like appendBasisBadge above. Toggles
+  // visibility/styling on the slot gapCell() already reserved (with the
+  // same "INH" text already in place, just hidden) to the LEFT of the
+  // pill -- rather than appending a new node after it -- so the chip never
+  // collides with the hover-remove × that's absolutely positioned at the
+  // cell's own right edge, and so uninherited rows' hidden slot still
+  // occupies the identical width.
+  function appendInheritChip(cell, reasons) {
     var slot = cell.querySelector(".gap-inherit-slot");
-    slot.classList.add("inherit-dot", "has-tooltip");
+    slot.classList.add("inherit-chip", "has-tooltip");
     slot.tabIndex = 0;
     var tip = document.createElement("div");
     tip.className = "th-tooltip";
@@ -1295,9 +1302,9 @@
     // — an n/a pill already discloses its own absence and has nothing to
     // inherit into (this is why hasRev alone, on today's always-gated
     // rows, never lights this up — only the untriggered REV-with-a-real-
-    // gap path would). Deliberately NOT a second full basis-badge: a small
-    // ring distinguishes "this value has an upstream caveat" from the
-    // direct disclosures already on Implied g/Delivered g themselves.
+    // gap path would). An outline-only "INH" chip, quieter than a filled
+    // basis-badge: "this value has an upstream caveat," one step down from
+    // the direct disclosures already on Implied g/Delivered g themselves.
     if (!gated) {
       var inherited = [];
       if (hasMkt) inherited.push("MKT (implied uses vendor-tier share count)");
@@ -1309,7 +1316,7 @@
       }
       if (hasRev) inherited.push("REV (delivered is revenue CAGR, not FCF)");
       if (inherited.length) {
-        appendInheritDot(gapTd, inherited);
+        appendInheritChip(gapTd, inherited);
       }
     }
     cellsByKey.expectations_gap = gapTd;
