@@ -60,14 +60,69 @@
       return cell;
     }
     cell.textContent = displayValue;
-    if (opts.tint) {
-      var rgb = opts.tint > 0 ? "200,54,47" : "29,125,84";
-      var color = opts.tint > 0 ? "var(--bad)" : "var(--good)";
-      var magnitude = Math.min(Math.abs(opts.tint), 0.30);
-      var alpha = 0.06 + (magnitude / 0.30) * 0.10;
-      cell.style.backgroundColor = "rgba(" + rgb + "," + alpha.toFixed(3) + ")";
-      cell.style.color = color;
+    return cell;
+  }
+
+  // Inline score-bar cell (the signature element) for the six 0-100
+  // universe-relative percentiles. `rawValue` (the actual number, or
+  // null/undefined) decides whether a bar exists AT ALL — absence-is-
+  // not-zero: a missing score renders through the exact same "n/a" path
+  // as td() above (no track element in the DOM whatsoever), while a
+  // genuine score of 0 still renders a real track with a zero-width fill,
+  // which is what makes "computed, zero" visually distinct from "never
+  // computed." `displayValue` is always fmtScore()'s output, unchanged —
+  // this function only ever adds a visual bar alongside a number that was
+  // already going to be shown; it never changes what number is shown.
+  function scoreCell(rawValue, displayValue, opts) {
+    opts = opts || {};
+    if (rawValue === null || rawValue === undefined) {
+      var naCell = document.createElement("td");
+      naCell.className = "na";
+      naCell.textContent = "n/a";
+      return naCell;
     }
+    var cell = document.createElement("td");
+    cell.className = "score-cell" + (opts.composite ? " score-composite" : "");
+    var num = document.createElement("span");
+    num.className = "score-num";
+    num.textContent = displayValue;
+    cell.appendChild(num);
+    var track = document.createElement("div");
+    track.className = "score-track";
+    var fill = document.createElement("div");
+    fill.className = "score-fill";
+    // Defensive clamp on the BAR's pixel width only — rawValue is already
+    // a 0-100 percentile by contract; this never touches displayValue,
+    // i.e. never changes the number shown, only guards the bar from
+    // overflowing its track if a value were ever out of range.
+    var pct = Math.max(0, Math.min(100, rawValue));
+    fill.style.width = pct + "%";
+    track.appendChild(fill);
+    cell.appendChild(track);
+    return cell;
+  }
+
+  // Directional Gap pill. Sign (never inferred by CSS — computed here,
+  // same as before) picks the fixed hue class; magnitude only scales the
+  // --gap-alpha custom property within that hue, preserving the same
+  // 0.06-0.16 alpha range the previous inline-style version used. A null
+  // gap renders a distinct neutral pill (not the plain italic "n/a" used
+  // elsewhere) — the brief's own call for this column specifically.
+  function gapCell(rawValue, displayValue) {
+    var cell = document.createElement("td");
+    cell.className = "gap-cell";
+    var pill = document.createElement("span");
+    if (rawValue === null || rawValue === undefined) {
+      pill.className = "gap-pill gap-pill-na";
+      pill.textContent = "n/a";
+    } else {
+      pill.className = "gap-pill " + (rawValue > 0 ? "gap-pill-pos" : "gap-pill-neg");
+      pill.textContent = displayValue;
+      var magnitude = Math.min(Math.abs(rawValue), 0.30);
+      var alpha = 0.06 + (magnitude / 0.30) * 0.10;
+      pill.style.setProperty("--gap-alpha", alpha.toFixed(3));
+    }
+    cell.appendChild(pill);
     return cell;
   }
 
@@ -224,11 +279,13 @@
 
   function updateSortArrows(tableId, state) {
     document.querySelectorAll("#" + tableId + " thead th[data-sort-key]").forEach(function (th) {
+      var isActive = !!(state.key && th.getAttribute("data-sort-key") === state.key);
+      // Visual "this column is driving the current order" signal — a
+      // class toggle only, no effect on sortRows()/sortState themselves.
+      th.classList.toggle("sorted", isActive);
       var arrow = th.querySelector(".sort-arrow");
       if (!arrow) return;
-      arrow.textContent = (state.key && th.getAttribute("data-sort-key") === state.key)
-        ? (state.dir === "asc" ? " ▲" : " ▼")
-        : "";
+      arrow.textContent = isActive ? (state.dir === "asc" ? " ▲" : " ▼") : "";
     });
   }
 
@@ -591,18 +648,18 @@
   function renderEquitiesRow(row) {
     var tr = document.createElement("tr");
     tr.appendChild(tickerCell(row.ticker, true));
-    tr.appendChild(td(fmtScore(row.composite)));
-    tr.appendChild(td(fmtScore(row.cat_reinvestment)));
-    tr.appendChild(td(fmtScore(row.cat_quality)));
-    tr.appendChild(td(fmtScore(row.cat_resilience)));
-    tr.appendChild(td(fmtScore(row.cat_discipline)));
-    tr.appendChild(td(fmtScore(row.cat_optionality)));
+    tr.appendChild(scoreCell(row.composite, fmtScore(row.composite), { composite: true }));
+    tr.appendChild(scoreCell(row.cat_reinvestment, fmtScore(row.cat_reinvestment)));
+    tr.appendChild(scoreCell(row.cat_quality, fmtScore(row.cat_quality)));
+    tr.appendChild(scoreCell(row.cat_resilience, fmtScore(row.cat_resilience)));
+    tr.appendChild(scoreCell(row.cat_discipline, fmtScore(row.cat_discipline)));
+    tr.appendChild(scoreCell(row.cat_optionality, fmtScore(row.cat_optionality)));
     var gated = !!row.implied_growth_note;
     tr.appendChild(td(gated ? null : fmtPct(row.implied_fcf_growth)));
     tr.appendChild(td(fmtPct(row.delivered_fcf_growth)));
     var gapVal = gated ? null : row.expectations_gap;
-    var gapCell = td(gated ? null : fmtSignedPct(row.expectations_gap), { tint: gapVal });
-    tr.appendChild(appendRemoveButton(gapCell, row.ticker));
+    var gapTd = gapCell(gapVal, gated ? null : fmtSignedPct(row.expectations_gap));
+    tr.appendChild(appendRemoveButton(gapTd, row.ticker));
     return makeExpandable(tr, row.ticker);
   }
 
