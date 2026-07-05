@@ -60,6 +60,34 @@ _DEFAULT_THRESHOLDS: dict[str, float] = {
     "stability_delta_threshold": 5.0, # composite-point swing that flags unstable
 }
 
+_DEFAULT_SCORE_BAND: dict[str, float] = {
+    "pessimistic_impute": 25.0,  # sub-score points (0-100 scale), not a decimal
+    "optimistic_impute": 75.0,
+}
+
+
+def _merge_strict(dur: dict, section_name: str, defaults: dict[str, float]) -> dict:
+    """
+    Merge one durability.<section_name> sub-dict onto its defaults, failing
+    loudly on any key the code doesn't consume (Session C Phase 1.5: closes
+    the class of bug where config.yaml's on-disk threshold/score_band keys
+    silently didn't match what _resolve_config's defaults expected, making
+    five of ten durability assumptions dead on disk while docs/assumptions.md
+    claimed they were live). A typo or stale key here must be loud, not a
+    silent no-op.
+    """
+    section = dur.get(section_name, {})
+    unknown = set(section) - set(defaults)
+    if unknown:
+        raise ValueError(
+            f"config.yaml durability.{section_name} has unrecognized key(s) "
+            f"{sorted(unknown)} — not consumed anywhere in engine/durability.py. "
+            f"Expected keys: {sorted(defaults)}."
+        )
+    merged = dict(defaults)
+    merged.update(section)
+    return merged
+
 
 def _resolve_config(cfg: dict) -> dict:
     """Merge user config with defaults; return fully populated durability config.
@@ -68,12 +96,14 @@ def _resolve_config(cfg: dict) -> dict:
     universe snapshots produce different hashes and are not silently compared.
     """
     dur = cfg.get("durability", {})
-    weights = dict(_DEFAULT_WEIGHTS)
-    weights.update(dur.get("weights", {}))
-    thresholds = dict(_DEFAULT_THRESHOLDS)
-    thresholds.update(dur.get("thresholds", {}))
+    weights = _merge_strict(dur, "weights", _DEFAULT_WEIGHTS)
+    thresholds = _merge_strict(dur, "thresholds", _DEFAULT_THRESHOLDS)
+    score_band = _merge_strict(dur, "score_band", _DEFAULT_SCORE_BAND)
     universe_version = cfg.get("universe", {}).get("version", "unversioned")
-    return {"weights": weights, "thresholds": thresholds, "universe_version": universe_version}
+    return {
+        "weights": weights, "thresholds": thresholds, "score_band": score_band,
+        "universe_version": universe_version,
+    }
 
 
 def _config_hash(resolved_cfg: dict) -> str:
@@ -284,7 +314,6 @@ def _score_reinvestment(
 
 def _score_quality(
     annual: dict[str, YearlyDerived],
-    coc: float,
     roic_threshold: float,
     universe_gross_margins: list[float],
 ) -> list[SubScore]:
@@ -588,10 +617,6 @@ def _score_optionality(
 # Composite assembly with renormalization (C1, C2)
 # ---------------------------------------------------------------------------
 
-_IMPUTE_PESSIMISTIC = 25.0
-_IMPUTE_OPTIMISTIC  = 75.0
-
-
 def _category_composite(sub_scores: list[SubScore]) -> float:
     if not sub_scores:
         return 50.0  # no data → neutral before renorm drops it
@@ -703,6 +728,7 @@ def score(
     cfg_hash = _config_hash(dcfg)
     weights = dcfg["weights"]
     thresholds = dcfg["thresholds"]
+    score_band = dcfg["score_band"]
     coc = thresholds["cost_of_capital"]
     roic_thresh = thresholds["roic_threshold"]
     stability_delta_thresh = thresholds["stability_delta_threshold"]
@@ -793,7 +819,7 @@ def score(
 
     cat_scores: dict[str, list[SubScore]] = {
         "reinvestment_engine": _score_reinvestment(annual, coc),
-        "quality_persistence": _score_quality(annual, coc, roic_thresh, uni_gm),
+        "quality_persistence": _score_quality(annual, roic_thresh, uni_gm),
         "balance_sheet_resilience": _score_resilience(annual),
         "capital_discipline": _score_capital_discipline(annual, diluted_series_for_scoring),
         "optionality_proxies": _score_optionality(annual, uni_cx, uni_rnd),
@@ -814,8 +840,8 @@ def score(
         )
 
     # Score band (C2) — impute pessimistic / optimistic for missing metrics
-    composite_low, _, _  = _compute_composite(cat_scores, weights, impute=_IMPUTE_PESSIMISTIC)
-    composite_high, _, _ = _compute_composite(cat_scores, weights, impute=_IMPUTE_OPTIMISTIC)
+    composite_low, _, _  = _compute_composite(cat_scores, weights, impute=score_band["pessimistic_impute"])
+    composite_high, _, _ = _compute_composite(cat_scores, weights, impute=score_band["optimistic_impute"])
 
     # Stability perturbation (C4): ±20% on reinvestment rate
     reinv_plus  = _score_reinvestment(annual, coc, reinv_perturb=+0.20)

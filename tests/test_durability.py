@@ -343,6 +343,68 @@ def test_config_hash_stable_same_weights():
 
 
 # ---------------------------------------------------------------------------
+# Strict-keys guard (Session C Phase 1.5) — closes the class of bug where
+# config.yaml's on-disk durability.thresholds/score_band keys silently didn't
+# match what _resolve_config's defaults expected, leaving five of ten
+# durability assumptions dead on disk while docs/assumptions.md claimed they
+# were live. A typo or stale key must fail loudly, not silently no-op.
+# ---------------------------------------------------------------------------
+
+def test_resolve_config_rejects_unknown_threshold_key():
+    cfg = {"durability": {"thresholds": {"roic_cost_of_capital": 0.08}}}
+    with pytest.raises(ValueError, match="roic_cost_of_capital"):
+        D._resolve_config(cfg)
+
+
+def test_resolve_config_rejects_unknown_score_band_key():
+    cfg = {"durability": {"score_band": {"pessimistic": 25.0}}}
+    with pytest.raises(ValueError, match="pessimistic"):
+        D._resolve_config(cfg)
+
+
+def test_resolve_config_rejects_unknown_weights_key():
+    cfg = {"durability": {"weights": {"reinvestmint_engine": 0.30}}}
+    with pytest.raises(ValueError, match="reinvestmint_engine"):
+        D._resolve_config(cfg)
+
+
+def test_resolve_config_accepts_known_keys_in_every_section():
+    cfg = {
+        "durability": {
+            "weights": {"reinvestment_engine": 0.35},
+            "thresholds": {"cost_of_capital": 0.07},
+            "score_band": {"pessimistic_impute": 20.0},
+        }
+    }
+    resolved = D._resolve_config(cfg)
+    assert resolved["weights"]["reinvestment_engine"] == 0.35
+    assert resolved["thresholds"]["cost_of_capital"] == 0.07
+    assert resolved["score_band"]["pessimistic_impute"] == 20.0
+
+
+def test_config_yaml_durability_keys_are_exactly_the_consumed_set():
+    """
+    Ledger accuracy: config.yaml's on-disk durability.weights/thresholds/
+    score_band keys must be a subset of (here: exactly) what
+    _resolve_config's defaults declare as consumed — the concrete
+    regression test for the dead-key bug Session C Phase 1.5 fixed.
+    """
+    import yaml
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parent.parent
+    with open(repo_root / "config.yaml") as f:
+        cfg = yaml.safe_load(f)
+
+    dur = cfg.get("durability", {})
+    assert set(dur.get("weights", {})) == set(D._DEFAULT_WEIGHTS)
+    assert set(dur.get("thresholds", {})) == set(D._DEFAULT_THRESHOLDS)
+    assert set(dur.get("score_band", {})) == set(D._DEFAULT_SCORE_BAND)
+    # And the strict guard itself must accept the real file without raising.
+    D._resolve_config(cfg)
+
+
+# ---------------------------------------------------------------------------
 # 9. derive_annual_series period consistency per year
 # ---------------------------------------------------------------------------
 

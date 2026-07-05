@@ -87,9 +87,9 @@ durability:
     capital_discipline: 0.15
     optionality_proxies: 0.10
   thresholds:
-    roic_cost_of_capital: 0.08
-    roic_above_threshold: 0.15
-    stability_flag_delta: 5.0
+    cost_of_capital: 0.08
+    roic_threshold: 0.15
+    stability_delta_threshold: 5.0
   score_band:
     pessimistic_impute: 25.0
     optimistic_impute: 75.0

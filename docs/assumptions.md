@@ -56,6 +56,28 @@ about what drives durable compounding changes.
 | `pessimistic_impute` | 25 pts | Below-median fill for missing metrics when computing the low-band |
 | `optimistic_impute` | 75 pts | Above-median fill for missing metrics when computing the high-band |
 
+**Ledger-accuracy note (2026-07-05, Session C Phase 1.5).** This table's key
+names were always correct — they document what `engine/durability.py`'s
+`_resolve_config()` actually reads. `config.yaml`'s on-disk keys, however,
+did not match: `thresholds` used `roic_cost_of_capital`/`roic_above_threshold`/
+`stability_flag_delta` instead of `cost_of_capital`/`roic_threshold`/
+`stability_delta_threshold`, and `score_band` was never read from config at
+all (two module-level constants, `_IMPUTE_PESSIMISTIC`/`_IMPUTE_OPTIMISTIC`,
+were used directly). Five of these ten values were dead on disk — editing
+them in `config.yaml` silently did nothing, in direct violation of "never
+hardcode assumptions in code; they belong in `config.yaml`." Values were
+numerically identical to the code's own defaults, so no score was ever
+affected by this bug; a Session C sensitivity audit surfaced it before any
+value was ever perturbed. Fixed by renaming the on-disk keys to match, wiring
+`score_band` through `_resolve_config` (replacing the two module constants),
+and adding a strict-keys guard so an unrecognized key under
+`durability.weights`/`thresholds`/`score_band` now raises instead of
+silently no-oping. Rescored the Session B.4 fourteen tickers before/after:
+composite, every category composite, every sub-score, and both score bands
+were byte-identical — only `config_hash` changed (expected: `score_band` is
+now part of the hashed resolved config, and the threshold section's keys
+changed name).
+
 ---
 
 ## Classification overrides (`config.yaml → classification.overrides`)
