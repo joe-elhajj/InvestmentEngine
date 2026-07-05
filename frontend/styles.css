@@ -539,34 +539,44 @@ td.gap-cell{text-align:right}
 }
 .basis-badge .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
 
-/* ---- Gap-inheritance marker (badge-placement + column-alignment fix): a
-   hollow ring, NOT a second full basis-badge, on the Gap cell when its
-   computed value silently inherits an Implied g/Delivered g caveat
-   (MKT/WIN/REV-with-a-computed-gap). Deliberately smaller/quieter than
-   .basis-badge — "this value has an upstream caveat," one visual step down
-   from "this IS the caveat." Border reuses --emphasis, the same amber
-   already verified at 10.89:1 against --surface in this file's contrast
-   table (well past the 3:1 WCAG 1.4.11 non-text-contrast minimum for a
-   graphical marker like this) — no new color pairing to verify.
+/* ---- Gap-inheritance marker (badge-placement + column-alignment fix,
+   ring->chip follow-up): an "INH" text chip, same .basis-badge vocabulary
+   (mono, uppercase, 3-letter, superscript) as the MKT/WIN/REV origin
+   badges above, on the Gap cell when its computed value silently inherits
+   an Implied g/Delivered g caveat (MKT/WIN/REV-with-a-computed-gap).
+   Deliberately OUTLINE-ONLY (no filled background, unlike .basis-badge's
+   14%-alpha fill) so it reads one step quieter — "this value has an
+   upstream caveat," one visual step down from "this IS the caveat." Text
+   color is full-strength --emphasis, not dimmed, so legibility rides on
+   the already-verified "emphasis on surface: 10.89:1" contrast-table entry
+   unchanged (removing the fill doesn't touch the text/background pairing
+   that number describes, since the cell behind it is still --surface);
+   quietness comes entirely from the missing fill + a lighter border alpha
+   than .basis-badge's 0.3, never from lowering the letters' own contrast.
 
    .gap-inherit-slot is reserved on EVERY gap cell, to the LEFT of the pill
-   (see gapCell() in app.js) — empty (no border/background, just its
-   footprint) on rows with no caveat, promoted to the visible ring via the
-   .inherit-dot class only when appendInheritDot() actually has something to
-   disclose. Reserving the same width unconditionally is what keeps every
-   row's pill right-edge aligned to the same column regardless of dot
-   presence; placing it before rather than after the pill is what keeps it
+   (see gapCell() in app.js), with its "INH" text already in the DOM but
+   visibility:hidden on rows with no caveat — hidden from sighted users AND
+   assistive tech, but still laid out, so its content-driven width (same
+   3-letter chip footprint as MKT/WIN/REV) is identical whether or not this
+   row ends up with a visible chip. The .inherit-chip class flips
+   visibility:visible and paints the outline; border-width stays 1px in
+   both states (only border-color changes) so toggling never reflows the
+   slot. Placing it before rather than after the pill is what keeps it
    clear of .row-remove-wrap, which is absolutely positioned at the cell's
-   own right:6px and would otherwise sit directly on top of a dot appended
+   own right:6px and would otherwise sit directly on top of a chip appended
    after the pill. */
 .gap-inherit-slot{
-  display:inline-block;width:7px;height:7px;margin-right:6px;
-  border-radius:50%;vertical-align:middle;
+  display:inline-block;margin-right:5px;padding:1px 5px;border-radius:5px;
+  font-family:var(--mono);font-size:0.625rem;font-weight:700;
+  letter-spacing:.02em;text-transform:uppercase;vertical-align:super;
+  border:1px solid transparent;cursor:default;visibility:hidden;
 }
-.gap-inherit-slot.inherit-dot{
-  border:1.5px solid var(--emphasis);background:transparent;cursor:default;
+.gap-inherit-slot.inherit-chip{
+  visibility:visible;color:var(--emphasis);
+  border-color:rgba(var(--emphasis-rgb),0.35);
 }
-.gap-inherit-slot.inherit-dot .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
+.gap-inherit-slot.inherit-chip .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
 
 /* ---- inline report accordion (clicking an equity/ETF row) ----
    .accordion-content (not the <tr>/<td> themselves — table rows don't
