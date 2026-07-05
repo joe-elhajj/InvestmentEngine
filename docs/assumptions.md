@@ -41,6 +41,39 @@ about what drives durable compounding changes.
 | `capital_discipline` | 15 % | Alignment: dilution and SBC erode per-share value |
 | `optionality_proxies` | 10 % | R&D and capex intensity signal future reinvestment |
 
+**Sensitivity (2026-07-05, Session C Phase 2/4, baseline config_hash
+`81dc10d28f028cad`) — all 5 weights: AFFIRMED.** Composite ranking robust
+under one-at-a-time ±5pp — no single-weight perturbation drops Kendall tau
+below +0.9429 vs baseline, and the top-5 SET is invariant (nothing outside
+{AMAT, V, NVDA, MSFT, COST} enters under any single-weight move — MSFT
+scored for this audit only, see the sensitivity-only note below). Two
+disclosed knife-edges within that set: AMAT/V (baseline #1/#2, separated by
+only 0.72 pts) swap rank-1 under `reinvestment_engine`−5pp and
+`optionality_proxies`+5pp; and MSFT/COST swap under those same two plus the
+equal-weights anchor. The equal-weights structural anchor
+(20/20/20/20/20) drops tau to +0.8857 and additionally swaps NVDA/COST —
+i.e. NVDA's edge over COST is weight-driven (from the reinvestment/quality
+over-weighting relative to equal), not structure-driven. Neither knife-edge
+involves a mispriced weight; both are low-confidence orderings the model
+should not be leaned on for those specific adjacent pairs.
+
+**Sensitivity (2026-07-05) — `optionality_proxies` (10 %): AFFIRMED +
+ANNOTATED.** Being the smallest weight, ±5pp is a ±50% *relative* change —
+the largest proportional stress any single weight receives in this sweep.
+Its composite swings concentrate in the low-durability, speculative names
+(RKLB ±1.83, BE ±2.22, AXON ±2.34) rather than the compounders (AMAT ±0.79,
+COST ±0.38, NVDA ±0.04) — the weight matters most exactly where the
+category composite itself is least trustworthy (thin sub-score coverage on
+newer/smaller names), not where the analyst relies on it most.
+
+**Sensitivity (2026-07-05) — `reinvestment_engine` (30 %): AFFIRMED +
+ANNOTATED.** Downside asymmetry: −5pp is among the softest rank-breaks in
+the sweep (tau +0.9429, tied with `optionality_proxies`+5pp) while +5pp
+holds rank exactly (tau +1.0000). This weight has the least headroom to
+reduce — cutting the primary-compounder weight is what actually moves
+rankings; increasing it does not disturb the order the other weights
+already agree on.
+
 ### Thresholds
 
 | Threshold | Value | Rationale |
@@ -49,12 +82,36 @@ about what drives durable compounding changes.
 | `roic_threshold` | 15 % | ROIC level that counts as "strong" for persistence scoring |
 | `stability_delta_threshold` | 5 pts | Composite swing under ±20 % reinvestment-rate perturbation that flags instability |
 
+**Sensitivity (2026-07-05, Session C Phase 2/4) — all 3 thresholds:
+AFFIRMED.** `cost_of_capital` and `roic_threshold` both hold exactly at
+their baseline value (delta 0.0000, tau +1.0000 for every ticker) — see the
+cliff-proximity backlog item below for `roic_threshold` specifically.
+`stability_delta_threshold` is provably inert on the composite at every
+tested value (4, 5, 6 — all delta 0.0000 for every ticker): by
+construction (`durability.py`'s `is_stable = stability_delta <=
+stability_delta_thresh`) it only ever gates the `is_stable` boolean flag,
+never the composite or any category/sub-score.
+
 ### Score band imputation
 
 | Parameter | Value | Rationale |
 |---|---|---|
 | `pessimistic_impute` | 25 pts | Below-median fill for missing metrics when computing the low-band |
 | `optimistic_impute` | 75 pts | Above-median fill for missing metrics when computing the high-band |
+
+**Sensitivity (2026-07-05, Session C Phase 2/4) — `pessimistic_impute` /
+`optimistic_impute`: NOT DISPOSITIONED — untestable on the audited set.**
+`_compute_composite`'s impute value only ever fires for a category with
+zero sub-scores, and none of the 15 audited tickers (the Session B.4
+fourteen plus MSFT) has one — `imputed_cats` is 0 and band width
+(`composite_high` − `composite_low`) is 0.0000 for every ticker, under
+every variant tested (20/80, 25/75, 30/70). This is a correct result, not
+low sensitivity, and not the same as AFFIRMED: there is no empirical
+evidence either way for these two values from this set. Practical exposure
+is low regardless — imputes affect only the low/high band, never the point
+composite, and no priority name currently triggers them. Testing this
+properly requires `--universe` (a sparse-coverage name with a genuinely
+missing category), not done as part of this disposition.
 
 **Ledger-accuracy note (2026-07-05, Session C Phase 1.5).** This table's key
 names were always correct — they document what `engine/durability.py`'s
@@ -77,6 +134,39 @@ composite, every category composite, every sub-score, and both score bands
 were byte-identical — only `config_hash` changed (expected: `score_band` is
 now part of the hashed resolved config, and the threshold section's keys
 changed name).
+
+### Session C findings not yet actioned
+
+Two items the Phase 2 sweep surfaced, filed as backlog — **not resolved
+here**. Neither is an assumption-value question; both concern how the
+existing curves and thresholds interact with real company data, which
+belongs in `engine/durability.py`'s scoring logic, not in this file's
+values.
+
+1. **`roic_threshold` cliff proximity.** NVDA, V, CAT, GOOGL, and AMZN each
+   have a fiscal year whose ROIC sits within ~1pp of the 0.15 counting bar
+   (min distance to threshold: NVDA 0.24pp, GOOGL 0.33pp, CAT 0.40pp, AMZN
+   0.57pp, V 0.58pp). Because `roic_years_above_threshold` counts years on
+   a strict binary (`ROIC >= roic_threshold`), these five names' durability
+   is knife-edge on this one assumption in a way the dashboard currently
+   never discloses — a small, real ROIC restatement or a future year's
+   result landing a hair below 15% flips that year's count with no visual
+   warning. Candidate: a disclosed dashboard marker (e.g. `CLIFF`),
+   analogous to the existing `REV`/`MKT`/`WIN` basis-disclosure badges from
+   Session B. Not implemented here.
+2. **Curve saturation.** 35.9% of sub-scores (84/234) are pinned at floor
+   or ceiling at baseline across the 15 audited tickers. The compounders
+   ceiling-saturate on multiple categories at once (META 7/17, NVDA 6/16,
+   COST 6/15, AMAT 6/17) — meaning the current curve shapes can't
+   discriminate further among already-excellent names on those specific
+   sub-scores. This doesn't affect current ranking (a saturated sub-score
+   still contributes its ceiling value correctly), but it matters for any
+   future use of the composite for position sizing rather than pure
+   ranking, where two "both ceiling" names would look identical despite a
+   real underlying difference the curve can no longer see. This is a
+   curve-shape concern living in `engine/durability.py`'s scoring
+   functions, not a `config.yaml` value — out of scope for a docs-only
+   disposition.
 
 ---
 
