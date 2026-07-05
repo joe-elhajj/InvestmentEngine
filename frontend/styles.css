@@ -2,19 +2,26 @@
    renderer (engine/screen.py), so this feels like one product. */
 
 :root{
-  --bg:#fafaf9;
+  /* zinc-100 — a clearly-visible neutral gray. #fafaf9 (round 1) composited
+     to within ~1-4 RGB units of pure white, which is why cards never read
+     as "lifted off" anything: there was nothing to lift off of. This has
+     to look distinctly grayer than --surface at a glance, not just differ
+     in the hex source. */
+  --bg:#f4f4f5;
   --surface:#ffffff;
   --hairline:rgba(0,0,0,0.07);
   --hairline-strong:rgba(0,0,0,0.13);
   /* Card-level border for the top-level containers (the three dashboard
-     tables + Data Diagnostics) — a touch more defined than the internal
-     --hairline used for row dividers/tooltip borders elsewhere, so the
-     outer container reads as a distinct card, not just another rule. */
-  --card-border:rgba(228,228,231,0.6);
-  /* Soft-lift shadow recipe for card containers: a hairline-close contact
-     shadow for grounding, plus a large-blur/low-opacity ambient shadow so
-     the card reads as lifted off the page background, not just outlined. */
-  --card-shadow:0 1px 2px rgba(0,0,0,0.03),0 20px 40px -12px rgba(0,0,0,0.07);
+     tables + Data Diagnostics). Now that --bg/--surface actually contrast,
+     the background difference does most of the separation work, so this
+     is deliberately faint — just enough to crisp the edge, not a second
+     source of visual weight competing with the shadow below. */
+  --card-border:rgba(0,0,0,0.04);
+  /* Soft-lift shadow recipe for card containers: a close, slightly firmer
+     contact shadow plus a wider, softer ambient one — round 1's version
+     (0.03/0.07 alpha, no positive spread) was real but too faint to read
+     as "lift" against a near-white page; this is deliberately more present. */
+  --card-shadow:0 4px 24px rgba(0,0,0,0.06),0 1px 3px rgba(0,0,0,0.08);
   --text-1:#1d1d1f;
   --text-2:#6e6e73;
   --text-3:#86868b;
@@ -30,8 +37,10 @@
   /* Dark chrome (app bar, table header rows, tooltips) — the light
      --bg/--surface tokens above stay the data-surface tier; Koyfin-style
      two-tone dashboards keep those on a darker ink so structure reads
-     before content does. */
-  --chrome-bg:#18181b;
+     before content does. slate-700: round 1's #18181b was, at rgb(24,24,27),
+     visually indistinguishable from black (#000) — this is a genuinely
+     softened, clearly-blue-gray slate instead. */
+  --chrome-bg:#334155;
   --chrome-bg-2:#23262e;
   --chrome-border:rgba(255,255,255,0.10);
   --chrome-text:#f2f3f5;
@@ -243,18 +252,19 @@ td.tk:hover .expand-hint{opacity:1}
 tr.row-expanded td.tk .expand-hint{opacity:1;transform:rotate(90deg)}
 td.na{color:var(--text-3);font-style:italic;font-weight:400;font-variant-numeric:normal}
 
-/* Directional Gap-pill pastel wash — the equities table's Gap column
-   (last <td> in the row; see app.js's td() gapCell/tint) sets its own
-   red/green background as an inline style, computed from the gap's sign
-   and magnitude. Rather than touch that computation, layer a translucent
-   white background-image on top: background-color and background-image
-   composite independently in CSS, so whatever hue is already inline reads
-   lighter/pastel without this rule ever needing to know (or override)
-   which color it is. [style] only matches cells where app.js actually set
-   a tint (a null/n/a gap never gets a style attribute at all). */
-#equities-table tbody tr > td:last-child[style]{
-  background-image:linear-gradient(rgba(255,255,255,0.55),rgba(255,255,255,0.55));
-}
+/* Directional Gap pill: app.js's td() sets its own red/green background as
+   an inline style (sign + magnitude), computed at 6-16% alpha. Round 1
+   layered a 55%-white wash on top via a [style] attribute selector to make
+   it "more pastel" — but washing white over an already-light 6-16% tint
+   nets to a shade barely different from plain white, i.e. LESS visible,
+   the opposite of the intended effect. Deliberately not re-adding a wash:
+   with the rest of the page now reading with real depth (card lift, a
+   genuinely darker header, visible bg/card contrast), the original
+   inline tint reads as an intentional soft pill rather than "too flat" —
+   it no longer needs correcting. Directionality (red positive / green
+   negative) and the exact alpha math are entirely app.js's, untouched.
+   The KPI "Expectations Gap" stat card (engine/report_html.py's
+   _fr_stat()) uses the identical mechanism and is left the same way. */
 
 /* ---- inline report accordion (clicking an equity/ETF row) ---- */
 tr.accordion-row > td{padding:0;background:var(--bg);white-space:normal;cursor:default}
@@ -283,14 +293,6 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-summary .stat-value{
   display:block;font-size:1.0625rem;font-weight:700;letter-spacing:-0.01em;
   font-variant-numeric:tabular-nums;color:var(--text-1);
-}
-
-/* Same pastel-wash trick as the equities table's Gap column, for the
-   "Expectations Gap" stat card — engine/report_html.py's _fr_stat() sets
-   the same kind of inline background-color tint; this is additive CSS
-   only, no Python touched. */
-.report-summary .stat[style]{
-  background-image:linear-gradient(rgba(255,255,255,0.55),rgba(255,255,255,0.55));
 }
 
 /* stat card tooltip (e.g. "DCF Base (Systematic)") — dotted underline on
@@ -328,13 +330,26 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-section .surface{border:none;box-shadow:none;border-radius:0;border-top:1px solid var(--hairline)}
 /* Zebra striping so the eye can track a metric name across to its value
    without losing the row in blank span — every accordion detail table has
-   a real <tbody> (engine/report_html.py's _fr_table()), so this is a plain
-   structural selector, no markup changes needed. A hidden .source-row
-   (revealed only by the "Sources" toggle) still occupies an nth-child slot
-   while hidden, which can shift the visible stripe pattern slightly when
-   toggled — an accepted, purely cosmetic trade-off, not a bug. */
-.report-section tbody tr:nth-child(even) td{background:var(--bg)}
-.report-section tbody tr:nth-child(even):hover td{background:rgba(0,0,0,0.032)}
+   a real <tbody> (engine/report_html.py's _fr_table()), so this is a
+   structural selector, no markup changes needed.
+   NOT plain :nth-child(even): Financial position and Latest quarter build
+   their rows with _fr_row_with_lineage(), which emits TWO <tr> per logical
+   row — the visible data row immediately followed by a hidden
+   <tr class="source-row"> (display:none by default, revealed only by the
+   "Sources" toggle). A hidden row still occupies an nth-child slot, so
+   plain :nth-child(even) lands on [data(1,odd), source(2,even),
+   data(3,odd), source(4,even), ...] — it tints the ALWAYS-HIDDEN rows and
+   never the visible ones, i.e. no visible stripe at all for exactly the
+   two sections named in the brief.
+   `:nth-child(An+B of S)` (CSS Selectors Level 4; current Chrome/Firefox/
+   Safari) counts position only among siblings matching S, so
+   ":not(.source-row)" as S means the count skips hidden lineage rows
+   entirely — the 2nd, 4th, 6th... VISIBLE row, regardless of how many
+   hidden siblings sit between them. Tables with no lineage rows at all
+   (Margins, Growth, ...) have no .source-row siblings to filter, so this
+   degrades to identical behavior to plain :nth-child(2n) there. */
+.report-section tbody tr:nth-child(2n of :not(.source-row)) td{background:var(--bg)}
+.report-section tbody tr:nth-child(2n of :not(.source-row)):hover td{background:rgba(0,0,0,0.032)}
 
 /* ---- per-figure lineage: "Sources" toggle (Task 4) ---- */
 .section-toolbar{display:flex;justify-content:flex-end;padding:0 14px 8px}
