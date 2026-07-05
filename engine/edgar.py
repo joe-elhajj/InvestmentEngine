@@ -375,8 +375,23 @@ class EdgarClient:
             raise
 
         cutoff_year = datetime.now().year - history_years
+
+        # Resolve revenue first (Session B.4): its period-ends are already
+        # duration-validated and become the fiscal-year-end anchor set that
+        # instant concepts below use to reject off-cycle footnote snapshots.
+        # This does not change revenue's own resolution in any way.
+        revenue_concept = CONCEPTS["revenue"]
+        revenue_facts = self._resolve(facts, revenue_concept, cutoff_year)
+        if revenue_facts:
+            cd.series["revenue"] = revenue_facts
+        else:
+            cd.unresolved.append("revenue")
+        valid_ends = self._valid_annual_ends([f.period_end for f in revenue_facts])
+
         for key, concept in CONCEPTS.items():
-            facts_for_key = self._resolve(facts, concept, cutoff_year)
+            if key == "revenue":
+                continue  # already resolved above
+            facts_for_key = self._resolve(facts, concept, cutoff_year, valid_ends)
             if facts_for_key:
                 cd.series[key] = facts_for_key
             else:
@@ -393,7 +408,9 @@ class EdgarClient:
         return self.get_company(ticker, history_years, include_quarterly=True)
 
     @staticmethod
-    def _dominant_currency_for_concept(gaap: dict, concept: Concept, cutoff_year: int) -> str:
+    def _dominant_currency_for_concept(
+        gaap: dict, concept: Concept, cutoff_year: int, valid_ends: Optional[set] = None
+    ) -> str:
         """
         Find the currency with the most annual points across all candidates.
         USD wins ties — domestic companies that also report in USD supplementally
@@ -409,14 +426,14 @@ class EdgarClient:
             for currency, units_list in node.get("units", {}).items():
                 if currency == "shares":
                     continue
-                pts = EdgarClient._annual_points(units_list, concept.flow, cutoff_year)
+                pts = EdgarClient._annual_points(units_list, concept.flow, cutoff_year, valid_ends)
                 counts[currency] = counts.get(currency, 0) + len(pts)
         if not counts:
             return "USD"
         return max(counts, key=lambda c: (counts[c], 1 if c == "USD" else 0))
 
     @staticmethod
-    def _resolve(facts: dict, concept: Concept, cutoff_year: int) -> list:
+    def _resolve(facts: dict, concept: Concept, cutoff_year: int, valid_ends: Optional[set] = None) -> list:
         """Resolve each fiscal year against the highest-priority candidate that has data.
 
         This stitches across tag changes over time. For a given period end, we prefer
@@ -430,7 +447,7 @@ class EdgarClient:
         gaap = facts.get("facts", {})
 
         # Pick the single reporting currency for this concept
-        unit = EdgarClient._dominant_currency_for_concept(gaap, concept, cutoff_year)
+        unit = EdgarClient._dominant_currency_for_concept(gaap, concept, cutoff_year, valid_ends)
 
         selected: dict[str, tuple[int, dict, str]] = {}
         for priority, (taxonomy, tag) in enumerate(concept.candidates):
@@ -440,7 +457,7 @@ class EdgarClient:
             units = node.get("units", {}).get(unit)
             if not units:
                 continue
-            points = EdgarClient._annual_points(units, concept.flow, cutoff_year)
+            points = EdgarClient._annual_points(units, concept.flow, cutoff_year, valid_ends)
             if not points:
                 continue
             concept_label = f"{taxonomy}:{tag}"
@@ -484,8 +501,58 @@ class EdgarClient:
                     )
                     del cd.series[key]
 
+    # Fiscal-year-end alignment tolerance for instant concepts (Session B.4).
+    # Real annual concepts (a flow and an instant for the SAME fiscal year, same
+    # 10-K) should describe the same reporting date, but SEC XBRL tagging
+    # occasionally introduces a filer-specific off-by-a-day-or-two drift between
+    # concepts. 3 days comfortably absorbs that while staying far short of the
+    # ~90-day gap to the nearest quarterly snapshot -- the actual thing this
+    # tolerance must NOT admit.
+    _FYE_TOLERANCE_DAYS = 3
+
     @staticmethod
-    def _annual_points(units: list, is_flow: bool, cutoff_year: int) -> list:
+    def _valid_annual_ends(revenue_period_ends: list) -> Optional[set]:
+        """
+        The set of TRUE annual fiscal-year-end dates, derived from the
+        already-validated revenue series (Session B.4).
+
+        Revenue is the natural spine: it exists for every operating company
+        and its period-ends are already trustworthy by construction (they
+        passed _annual_points' 350-380 day duration filter). Instant
+        (balance-sheet) concepts have no duration to filter on, so a footnote
+        table's off-cycle quarterly snapshot -- tagged under the very same
+        annual filing as the real fiscal-year-end -- is otherwise
+        indistinguishable from a real annual point (Session B.3: confirmed
+        for META's us-gaap:Assets at 2016-03-31/06-30/09-30, all from the
+        FY2016 10-K). This anchor set lets _annual_points reject those.
+
+        Returns None when revenue has no annual data at all (a shell company,
+        a new listing, or a company reporting under a candidate tag not yet
+        seen) -- signaling "alignment can't be determined," not "reject
+        everything." Callers must treat None as "admit instants unchanged."
+        """
+        if not revenue_period_ends:
+            return None
+        return set(revenue_period_ends)
+
+    @staticmethod
+    def _near_any_end(end: str, valid_ends: set, tolerance_days: int) -> bool:
+        """True if `end` falls within `tolerance_days` of any date in `valid_ends`."""
+        try:
+            end_date = date.fromisoformat(end)
+        except ValueError:
+            return False
+        for ve in valid_ends:
+            try:
+                ve_date = date.fromisoformat(ve)
+            except ValueError:
+                continue
+            if abs((end_date - ve_date).days) <= tolerance_days:
+                return True
+        return False
+
+    @staticmethod
+    def _annual_points(units: list, is_flow: bool, cutoff_year: int, valid_ends: Optional[set] = None) -> list:
         """
         Collect one annual data point per fiscal-year-end.
 
@@ -496,6 +563,16 @@ class EdgarClient:
 
         Accepted annual filing forms: 10-K (domestic), 20-F (FPI), 40-F (Canadian FPI).
         Quarterly forms (10-Q, 6-K) and registration statements are excluded.
+
+        `valid_ends` (Session B.4): for instant concepts only, the set of true
+        fiscal-year-end dates derived from the revenue series (see
+        _valid_annual_ends). An instant point whose `end` is not within
+        _FYE_TOLERANCE_DAYS of any anchor is rejected -- it is an off-cycle
+        snapshot, not a missing annual value, so it is dropped silently here
+        rather than surfaced as a gap. When valid_ends is None (no revenue
+        anchors available), instants are admitted exactly as before this
+        parameter existed. Ignored entirely for flow concepts, which are
+        already protected by the duration filter above.
         """
         by_end: dict[str, dict] = {}
         for u in units:
@@ -514,6 +591,9 @@ class EdgarClient:
                 except ValueError:
                     continue
                 if not (350 <= days <= 380):   # full-year duration only
+                    continue
+            elif valid_ends is not None:
+                if not EdgarClient._near_any_end(end, valid_ends, EdgarClient._FYE_TOLERANCE_DAYS):
                     continue
             if int(end[:4]) < cutoff_year:
                 continue
