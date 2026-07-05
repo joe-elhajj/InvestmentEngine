@@ -230,19 +230,31 @@ def _score_reinvestment(
                 years_covered=years_list,
             ))
 
-    # Reinvestment rate: ΔIC / NOPAT, smoothed across years
-    ic_vals = [(yd.year, yd.invested_capital) for yd in annual.values()
-               if yd.invested_capital is not None]
-    nopat_vals = {yd.year: yd.nopat for yd in annual.values() if yd.nopat is not None}
+    # Reinvestment rate: ΔIC / NOPAT, smoothed across years. Pair-gated per
+    # entry (Session B.4 PR-2) -- both invested_capital AND nopat must
+    # resolve on the SAME YearlyDerived entry to contribute, exactly like
+    # roic_vals above. This closes a dormant bug: previously ic_vals
+    # filtered only on invested_capital while nopat was looked up from a
+    # SEPARATE dict keyed by integer fiscal_year -- so a second entry
+    # sharing a `.year` label with a real entry (e.g. a tolerance-matched
+    # near-anchor instant, mislabeled to the following fiscal year --
+    # confirmed live for BE/AXON post-PR-1) could contribute its own
+    # invested_capital to a delta paired against the REAL entry's nopat,
+    # silently mixing two different periods under one year label. Filtering
+    # the pair list itself on both fields makes that structurally
+    # impossible: each list element is one YearlyDerived entry's own data.
+    ic_nopat_vals = [
+        (yd.year, yd.invested_capital, yd.nopat) for yd in annual.values()
+        if yd.invested_capital is not None and yd.nopat is not None
+    ]
     reinv_rates = []
     reinv_years = []
-    for i in range(1, len(ic_vals)):
-        y_prev, ic_prev = ic_vals[i - 1]
-        y_curr, ic_curr = ic_vals[i]
-        nopat = nopat_vals.get(y_curr)
-        if ic_prev > 0 and nopat and nopat > 0:
+    for i in range(1, len(ic_nopat_vals)):
+        _, ic_prev, _ = ic_nopat_vals[i - 1]
+        y_curr, ic_curr, nopat_curr = ic_nopat_vals[i]
+        if ic_prev > 0 and nopat_curr and nopat_curr > 0:
             delta_ic = ic_curr - ic_prev
-            rr = delta_ic / nopat
+            rr = delta_ic / nopat_curr
             reinv_rates.append(rr * (1.0 + reinv_perturb))
             reinv_years.append(y_curr)
 

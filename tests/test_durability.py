@@ -19,7 +19,7 @@ import pytest
 
 from engine.edgar import CompanyData, Fact
 from engine.market import Quote
-from engine.pipeline import derive, derive_annual_series
+from engine.pipeline import derive, derive_annual_series, YearlyDerived
 from engine import durability as D
 from engine.screen import ScreenRow, _is_etf, _has_fundamentals, _process_one
 
@@ -605,3 +605,91 @@ def test_score_keeps_real_subscore_when_series_is_clean():
     sub_names = [s.name for s in disc.sub_scores]
     assert "share_count_cagr" in sub_names
     assert not [g for g in ds.gaps if g.startswith("share_count_cagr:")]
+
+
+# ---------------------------------------------------------------------------
+# Reinvestment-rate pair-gating (Session B.4 PR-2)
+#
+# Dormant bug, closed here: _score_reinvestment's ic_vals filtered only on
+# invested_capital, while nopat was looked up from a SEPARATE dict keyed by
+# integer fiscal_year -- so a second YearlyDerived entry sharing a `.year`
+# label with a real entry (e.g. a tolerance-matched near-anchor instant from
+# engine/edgar.py, mislabeled to the following fiscal year -- Session B.4
+# PR-1 confirmed this duplicate-year condition now exists live for BE/AXON,
+# though their invested_capital happens to stay None) could contribute its
+# own invested_capital to a delta paired against the REAL entry's nopat,
+# silently mixing two different periods under one year label. This fixture
+# mirrors that exact shape: a real FY2017 and FY2018 entry, a near-anchor
+# instant entry at period_end="2019-01-01" (fiscal_year=2019, one year later
+# than the ~FY2018-end data it actually represents) with invested_capital
+# resolved but nopat=None (flow-starved, matching the real BE/AXON shape),
+# and a real FY2019 entry.
+# ---------------------------------------------------------------------------
+
+def _yd_min(period_end: str, year: int, invested_capital, nopat) -> YearlyDerived:
+    """Minimal YearlyDerived isolating _score_reinvestment's two inputs
+    (invested_capital, nopat) -- every other field is None, since
+    _score_reinvestment never reads them."""
+    return YearlyDerived(
+        period_end=period_end, year=year,
+        revenue=None, net_income=None, operating_income=None, gross_profit=None,
+        cfo=None, capex=None, dep_amort=None, interest_expense=None, sbc=None, rnd=None,
+        total_assets=None, total_equity=None, total_debt=None, liquid_assets=None, cash=None,
+        current_assets=None, current_liabilities=None,
+        fcf=None, invested_capital=invested_capital, nopat=nopat,
+        net_debt=None, ebit=None, ebitda=None, capital_employed=None,
+        gross_margin=None, operating_margin=None,
+    )
+
+
+def _reinvestment_pairing_fixture() -> dict[str, YearlyDerived]:
+    return {
+        "2017-12-31": _yd_min("2017-12-31", 2017, invested_capital=100.0, nopat=20.0),
+        "2018-12-31": _yd_min("2018-12-31", 2018, invested_capital=120.0, nopat=24.0),
+        # Near-anchor instant: ~1 day after 2018-12-31, mislabeled fiscal_year=2019,
+        # invested_capital resolved (instant fields populated), nopat=None (flow fields None).
+        "2019-01-01": _yd_min("2019-01-01", 2019, invested_capital=121.0, nopat=None),
+        "2019-12-31": _yd_min("2019-12-31", 2019, invested_capital=150.0, nopat=30.0),
+    }
+
+
+def test_reinvestment_rate_not_contaminated_by_duplicate_year_entry():
+    """The dormant bug's exact firing condition. On buggy code this produces
+    3 transitions (2018, 2019, 2019) with mean_rr=0.61111, pairing the
+    near-anchor instant's IC against the real FY2019's NOPAT. Fixed, it must
+    produce exactly 2 transitions (2018, 2019) with mean_rr=0.91667 -- one
+    per real year-over-year transition, matching hand computation."""
+    annual = _reinvestment_pairing_fixture()
+    sub = D._score_reinvestment(annual, coc=0.08)
+    rr = next(s for s in sub if s.name == "reinvestment_rate")
+    assert rr.years_covered == [2018, 2019], (
+        "must be exactly one transition per real year, not 3 (a duplicate "
+        "2019 means the near-anchor instant contaminated the pairing)"
+    )
+    assert abs(rr.raw - 0.9167) < 0.0001
+
+
+def test_reinvestment_rate_fails_on_pre_fix_logic():
+    """Verifies this fixture actually captures the dormant bug -- replays the
+    PRE-FIX pairing logic (ic_vals filtered on invested_capital alone, nopat
+    looked up from a year-keyed dict) directly against the same fixture and
+    asserts it produces the contaminated 3-transition result. This is the
+    fail-then-pass proof: this test encodes what main's code did before
+    Session B.4 PR-2, confirmed here to differ from the fixed behavior above."""
+    annual = _reinvestment_pairing_fixture()
+    ic_vals = [(yd.year, yd.invested_capital) for yd in annual.values() if yd.invested_capital is not None]
+    nopat_vals = {yd.year: yd.nopat for yd in annual.values() if yd.nopat is not None}
+    reinv_rates, reinv_years = [], []
+    for i in range(1, len(ic_vals)):
+        y_prev, ic_prev = ic_vals[i - 1]
+        y_curr, ic_curr = ic_vals[i]
+        nopat = nopat_vals.get(y_curr)
+        if ic_prev > 0 and nopat and nopat > 0:
+            reinv_rates.append((ic_curr - ic_prev) / nopat)
+            reinv_years.append(y_curr)
+    assert reinv_years == [2018, 2019, 2019]
+    mean_rr = sum(reinv_rates) / len(reinv_rates)
+    assert abs(mean_rr - 0.61111) < 0.0001
+    # And the fixed function must NOT reproduce this contaminated result:
+    fixed_rr = next(s for s in D._score_reinvestment(annual, coc=0.08) if s.name == "reinvestment_rate")
+    assert fixed_rr.raw != round(mean_rr, 4)
