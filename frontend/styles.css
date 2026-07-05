@@ -1,19 +1,30 @@
 /* Security Analysis Dashboard — design system.
-   Palette: --paper/--surface/--ink/--muted/--signal/--emphasis. Brand/UI
-   accent (signal, emphasis) is kept strictly separate from data semantics
-   (good/bad) — a palette change can never accidentally flip what "red"
-   means in the data. Legacy token names (--bg, --text-1/2, --accent) are
-   aliased to the palette below so the whole stylesheet inherits the
-   system without a line-by-line rewrite; new component rules reference
-   the named palette directly. */
+   Palette: --canvas/--paper/--surface/--ink/--muted/--signal/--emphasis.
+   Brand/UI accent (signal, emphasis) is kept strictly separate from data
+   semantics (good/bad) — a palette change can never accidentally flip
+   what "red" means in the data. Legacy token names (--bg, --text-1/2,
+   --accent) are aliased to the palette below so the whole stylesheet
+   inherits the system without a line-by-line rewrite; new component
+   rules reference the named palette directly.
+
+   WCAG AA contrast, computed and verified (see PR description for the
+   full table): ink-on-white/paper/accordion-tint all sit at 17-19:1.
+   --signal (#0ea5a0) is decorative-only (bars, ticks, dots, borders,
+   dark-chrome text) — at ~3:1 on white it clears the 3:1 non-text/
+   graphical threshold but NOT 4.5:1 for text, so every place the accent
+   renders as actual text or a button fill on a LIGHT background uses the
+   darkened --signal-text (#0f766e, 5.47:1) instead. --text-3 was
+   darkened from its previous value (3.10:1, an actual AA fail) to 4.83:1. */
 
 :root{
   /* ---- palette ---- */
-  --paper:#f1f3f5;      /* page background — cool-neutral, not warm cream */
+  --canvas:#f6f7f9;     /* body texture's lighter stop */
+  --paper:#f1f3f6;      /* page background base / zebra tint / accordion inset */
   --surface:#ffffff;    /* card / table background */
-  --ink:#0b0e14;        /* primary text */
-  --muted:#5b6472;      /* secondary text / labels (~5.5:1 on white) */
-  --signal:#0ea5a0;     /* primary accent — a considered teal, not generic SaaS-indigo */
+  --ink:#0b0e14;        /* primary text — 19:1 on white, 17-19:1 on every tint below */
+  --muted:#5b6472;      /* secondary text / labels — 5.98:1 on white */
+  --signal:#0ea5a0;     /* primary accent, decorative (bars/ticks/dots/borders) */
+  --signal-text:#0f766e;/* primary accent, AA-safe for TEXT on a light background (5.47:1) */
   --emphasis:#d97706;   /* secondary accent — warm amber, spent on ONE headline moment only */
   --signal-rgb:14,165,160;
   --emphasis-rgb:217,119,6;
@@ -22,7 +33,7 @@
   --bg:var(--paper);
   --text-1:var(--ink);
   --text-2:var(--muted);
-  --text-3:#8b93a0;
+  --text-3:#6b7280;     /* darkened from #8b93a0 (3.10:1 — an actual AA fail) to 4.83:1 */
   --accent:var(--signal);
 
   --hairline:rgba(11,14,20,0.07);
@@ -47,22 +58,34 @@
   --mono:"SF Mono","Cascadia Code",ui-monospace,Menlo,monospace;
 
   /* ---- dark chrome (header, tooltips, modal) ---- */
-  --chrome-bg:#12151c;
-  --chrome-bg-2:#1a1f29;
-  --chrome-header-gradient:linear-gradient(180deg,#171b24 0%,#12151c 100%);
+  --chrome-bg:#0b1220;
+  --chrome-bg-2:#161f30;
+  --chrome-header-gradient:linear-gradient(180deg,#141b2c 0%,#0b1220 100%);
   --chrome-border:rgba(255,255,255,0.10);
   --chrome-text:#f2f3f5;
   --chrome-text-dim:#9aa3b2;
 
   --topnav-h:56px;
+
+  /* ---- motion (see the reduced-motion override below) ---- */
+  --ease-out:cubic-bezier(0.16,1,0.3,1);
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{
-  background:var(--paper);color:var(--ink);
+  color:var(--ink);
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif;
   font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  /* Barely-perceptible dot-grid canvas (Linear-esque) instead of a flat
+     near-white fill — this is the actual fix for "blank white void": a
+     page bg that's nearly indistinguishable from a white card gives the
+     margins nothing to read as intentional. A tiling radial-gradient
+     dot avoids any banding on a long scrolling page (unlike a vertical
+     gradient, which would visibly repeat/cut off). */
+  background-color:var(--canvas);
+  background-image:radial-gradient(circle, rgba(11,14,20,0.05) 1px, transparent 1px);
+  background-size:22px 22px;
 }
 
 @media (prefers-reduced-motion: reduce){
@@ -79,13 +102,19 @@ body{
   display:flex;align-items:center;gap:24px;min-height:var(--topnav-h);
   padding:0 24px;background:var(--chrome-header-gradient);
   border-bottom:1px solid var(--chrome-border);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);
+  /* Bottom hairline glow: a soft teal-tinted line under the top edge
+     highlight, plus a slightly stronger inset top highlight for depth —
+     "rich, deliberate," not a flat bar. */
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 0 rgba(var(--signal-rgb),0.18);
   position:sticky;top:0;z-index:10;
 }
 .wordmark{
   display:flex;align-items:center;gap:8px;
   font-size:1rem;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;color:var(--chrome-text);
 }
+/* System-live status dot — a plain solid dot, no glow ring (a prior pass
+   tried a box-shadow halo here; it read as a status-light pulse, not
+   "calm, confident," and was removed). */
 .wordmark::before{
   content:"";width:7px;height:7px;border-radius:50%;flex:none;
   background:var(--signal);
@@ -97,17 +126,23 @@ body{
 .search-box input{
   flex:1;font:inherit;font-size:0.8125rem;color:var(--chrome-text);
   background:rgba(255,255,255,0.06);border:1px solid var(--chrome-border);border-radius:999px;
-  padding:7px 14px;outline:none;transition:border-color .15s ease,background .15s ease;
+  padding:7px 14px;outline:none;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.25);
+  transition:border-color .15s ease,background .15s ease,box-shadow .15s ease;
 }
 .search-box input::placeholder{color:var(--chrome-text-dim)}
-.search-box input:focus{border-color:var(--signal);background:rgba(255,255,255,0.09)}
+.search-box input:focus{
+  border-color:var(--signal);background:rgba(255,255,255,0.09);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.25),0 0 0 3px rgba(var(--signal-rgb),0.22);
+}
 .search-status{font-size:0.9375rem;width:1.2em;text-align:center;color:var(--chrome-text-dim)}
 .search-status.found{color:var(--good)}
 .search-status.not-found{color:var(--bad)}
 
 .topnav-actions{display:flex;align-items:center;gap:8px}
 .topnav-actions .btn{color:var(--chrome-text-dim);border-color:var(--chrome-border)}
-.topnav-actions .btn:hover{color:var(--signal);border-color:var(--signal)}
+.topnav-actions .btn:hover{color:var(--signal);border-color:var(--signal);background:rgba(255,255,255,0.05)}
+.topnav-actions .btn:hover svg{transform:translateX(1px)}
 
 .search-confirm{
   position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);
@@ -130,32 +165,43 @@ body{
   padding:6px 14px;cursor:pointer;white-space:nowrap;
   transition:color .15s ease,border-color .15s ease,background .15s ease;
 }
-.btn:hover{color:var(--signal);border-color:var(--signal)}
-.btn-primary{color:#fff;background:var(--signal);border-color:var(--signal)}
+.btn:hover{color:var(--signal-text);border-color:var(--signal-text);background:rgba(var(--signal-rgb),0.06)}
+.btn-primary{color:#fff;background:var(--signal-text);border-color:var(--signal-text)}
 .btn-primary:hover{color:#fff;opacity:0.9}
 .btn-danger{color:#fff;background:var(--bad);border-color:var(--bad)}
 .btn-danger:hover{color:#fff;opacity:0.9}
 
-/* Ghost/outline utility buttons with an inline SVG icon before the label. */
-.btn-icon{display:inline-flex;align-items:center;gap:6px}
-.btn-icon svg{width:13px;height:13px;flex:none;stroke:currentColor}
+/* Ghost/outline utility buttons with an inline SVG icon before the label —
+   consistent height, and the icon itself nudges right on hover (paired
+   with the topnav-scoped hover rule above) as a small, clean affordance. */
+.btn-icon{display:inline-flex;align-items:center;gap:6px;height:28px}
+.btn-icon svg{width:13px;height:13px;flex:none;stroke:currentColor;transition:transform .15s ease}
 
 /* ---- main content ---- */
-.wrap{max-width:1520px;margin:0 auto;padding:40px 24px 80px}
+.wrap{max-width:1440px;margin:0 auto;padding:32px 24px 64px}
 
 .status-banner{
   font-size:0.8125rem;color:var(--muted);background:var(--surface);
   border:1px solid var(--hairline);border-radius:var(--radius-md);
-  padding:14px 18px;margin-bottom:32px;
+  padding:14px 18px;margin-bottom:24px;
 }
 .status-banner.error{color:var(--bad)}
 
+/* ---- empty states (watchlist, and any table with zero rows) ---- */
 .empty-state{
   text-align:center;color:var(--text-3);font-size:0.875rem;
   padding:64px 24px;
 }
+.empty-state-icon{
+  width:32px;height:32px;margin:0 auto 12px;color:var(--text-3);opacity:0.7;
+}
+.table-empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:10px;padding:40px 24px;color:var(--text-3);font-size:0.8125rem;text-align:center;
+}
+.table-empty svg{width:26px;height:26px;color:var(--text-3);opacity:0.6}
 
-.table-section{margin-bottom:56px}
+.table-section{margin-bottom:40px}
 .table-section:last-of-type{margin-bottom:0}
 .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 /* Section eyebrow: a small signal-colored tick before the label, in place
@@ -184,11 +230,10 @@ thead th{
 }
 thead th.l{text-align:left}
 thead th[data-sort-key]{cursor:pointer}
-/* Active sort column: a signal-colored label rather than relying on the
-   small arrow glyph alone to carry the whole "this is the active column"
-   signal. */
-thead th.sorted{color:var(--signal)}
-thead th.sorted .sort-arrow{color:var(--signal)}
+/* Active sort column: AA-safe signal text (not the decorative-only
+   lighter --signal) on the header, PLUS a filled directional caret. */
+thead th.sorted{color:var(--signal-text)}
+thead th.sorted .sort-arrow{color:var(--signal-text)}
 
 /* Dark chrome header rows — scoped to the three top-level dashboard
    tables' OWN header row only, via a direct-child combinator (>). The
@@ -201,18 +246,34 @@ thead th.sorted .sort-arrow{color:var(--signal)}
    outer table, so nested fragment tables keep the light styling from
    the generic rule above.
    These stay FLAT (--chrome-bg, not the header's gradient) — a gradient
-   repeated on every sticky header row would read as wallpaper, not a
-   deliberate hero moment. Sticky, offset below the sticky top nav so it
-   parks just beneath it rather than fighting for the same slot on scroll. */
+   repeated on every header row would read as wallpaper, not a deliberate
+   hero moment.
+   NOT sticky. A previous pass made these `position:sticky`, which renders
+   as a detached header floating mid-card (reported: the ETF header
+   appearing between the QQQ and SPY rows) — root cause: .surface has
+   overflow:hidden (needed so table content respects the card's rounded
+   corners) and .scroll has overflow-x:auto (needed for horizontal scroll
+   on narrow viewports); EITHER one alone establishes the sticky
+   containing block per spec, and neither is the page's own scroll
+   container. The thead ends up "stuck" relative to a box that isn't
+   what's actually scrolling, then gets clipped the moment it would need
+   to escape that box to keep tracking the viewport — exactly the
+   floating/overlapping artifact reported. Making it correct would require
+   removing overflow:hidden from .surface (breaks the rounded-card
+   clipping, a design decision worth more than this) and overflow-x:auto
+   from .scroll (breaks responsive horizontal scroll on a 10-column
+   table) — too expensive for a watchlist of realistically a few dozen
+   rows, where losing sight of the header while scrolling is a minor
+   inconvenience, not a real usability problem. Removed cleanly rather
+   than kept half-working. */
 #equities-table > thead th,
 #etf-table > thead th,
 #excluded-table > thead th,
 #diagnostics-table > thead th{
   color:var(--chrome-text-dim);background:var(--chrome-bg);
   border-bottom:1px solid var(--chrome-border);
-  position:sticky;top:var(--topnav-h);z-index:5;
 }
-.sort-arrow{margin-left:4px;font-size:0.7em;color:var(--signal)}
+.sort-arrow{margin-left:4px;font-size:0.7em;color:var(--signal-text)}
 td.mono{font-family:var(--mono);font-size:0.75rem}
 
 /* ---- Data Diagnostics (collapsed-by-default <details>, below Excluded) ---- */
@@ -281,78 +342,118 @@ thead th.has-tooltip:focus-visible::before{opacity:1}
 thead th:first-child .th-tooltip{left:0;transform:none}
 thead th:last-child .th-tooltip{left:auto;right:0;transform:none}
 
+/* ---- table body: the hero. Zebra striping is deliberately OFF here (the
+   score bars already give the eye a rhythm to track); ON inside accordion
+   detail tables below, where rows are label-value pairs with nothing else
+   to anchor scanning. Row hover is a faint ACCENT wash (not gray) at
+   120ms, and cursor:pointer signals the whole row is clickable (not just
+   the ticker cell) on the two expandable tables. ---- */
 tbody td{
   padding:13px 20px;border-bottom:1px solid var(--hairline);
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
-  font-size:0.8125rem;font-weight:450;color:var(--ink);
+  font-size:0.8125rem;font-weight:500;color:var(--ink);
   text-align:right;white-space:nowrap;position:relative;
+  transition:background-color .12s ease;
 }
 tbody tr:last-child td{border-bottom:none}
-tbody tr:hover td{background:rgba(11,14,20,0.03)}
+tbody tr:hover td{background:rgba(var(--signal-rgb),0.05)}
+#equities-table tbody tr,
+#etf-table tbody tr{cursor:pointer}
 td.l{text-align:left;white-space:normal}
-/* Ticker: the primary key — left-aligned, semibold, data face. */
+/* Sorted column: a ~2% signal tint on every cell so it's visually obvious
+   what's ordering the table, not just the header. Sits below the hover
+   wash in the cascade so hover still reads clearly on top of it. */
+td.col-sorted{background:rgba(var(--signal-rgb),0.02)}
+
+/* Ticker: the primary key — left-aligned, semibold, data face, with a
+   left accent tick that fades in on row hover so identity anchors left. */
 td.tk{
-  text-align:left;font-weight:600;cursor:pointer;
-  font-family:var(--mono);letter-spacing:-0.01em;
+  text-align:left;font-weight:700;font-size:0.875rem;cursor:pointer;
+  font-family:var(--mono);letter-spacing:-0.01em;padding-left:24px;
 }
-td.tk:hover{color:var(--signal)}
+td.tk::before{
+  content:"";position:absolute;left:10px;top:50%;transform:translateY(-50%);
+  width:3px;height:14px;border-radius:2px;background:var(--signal);
+  opacity:0;transition:opacity .12s ease;
+}
+tbody tr:hover td.tk::before{opacity:1}
+td.tk:hover{color:var(--signal-text)}
 td.tk .expand-hint{
   display:inline-block;opacity:0;font-size:0.7em;margin-left:6px;color:var(--text-3);
   transition:opacity .15s ease,transform .15s ease;
 }
-td.tk:hover .expand-hint{opacity:1}
+tbody tr:hover td.tk .expand-hint{opacity:1}
 tr.row-expanded td.tk .expand-hint{opacity:1;transform:rotate(90deg)}
 td.na{color:var(--text-3);font-style:italic;font-weight:400;font-variant-numeric:normal}
 
 /* Every plain numeric cell (percentages, AUM, etc.) gets the data face too
    — not just scores/tickers — so decimal points stack with true
    fixed-width digits throughout the row, not just in the signature
-   columns. */
-tbody td:not(.l):not(.na){font-family:var(--mono);font-size:0.75rem}
+   columns. Full-opacity ink, not muted — muted is reserved for labels/
+   units/n/a only (td.na above is the one exception, and it deliberately
+   overrides text-align:normal weight — n/a must never read as a real
+   value). */
+tbody td:not(.l):not(.na){font-family:var(--mono);font-size:0.8125rem;color:var(--ink)}
 
 /* ---- Inline score bars (the signature element). DURABILITY, REINV,
    QUALITY, RESILIENCE, DISCIPLINE, OPTIONALITY are 0-100 universe-relative
-   percentiles — a bar under the numeral makes a whole row scannable by
-   fill length, without reading ten numbers in sequence. Single accent
-   (--signal) for every column: a rainbow-per-metric would undercut the
-   exact scannability this exists to create. The composite (DURABILITY)
-   gets a taller bar in --emphasis instead — the one headline number, the
-   one moment the secondary accent earns its keep.
+   percentiles — a thin bar under the numeral makes a whole row scannable
+   by fill length, without reading ten numbers in sequence. Single accent
+   (--signal) for every sub-score column: a rainbow-per-metric would
+   undercut the exact scannability this exists to create. The composite
+   (DURABILITY) is banded instead — below 40 amber (a genuine concern
+   worth flagging), above 70 teal (comfortably durable), the default
+   signal teal in between — since it's the one headline, aggregate score,
+   not a peer of the six it's built from.
    ABSENCE-IS-NOT-ZERO: .score-track only ever exists in the DOM when
-   app.js had a real number to draw (see td.js's scoreCell()) — a missing
+   app.js had a real number to draw (see app.js's scoreCell()) — a missing
    score renders bare "n/a" text via the existing .na path, no track
    element at all. A genuine score of 0 still renders a real (empty)
    track, which is what visually distinguishes "computed, zero" from
-   "never computed." */
+   "never computed." Fill width animates ONCE on first render only (see
+   app.js) — 400ms ease-out, staggered per row; sorting/re-rendering after
+   that first paint never replays it. */
 td.score-cell{padding-top:11px;padding-bottom:9px}
 .score-num{display:block;font-variant-numeric:tabular-nums}
 .score-track{
-  height:3px;margin-top:6px;border-radius:2px;overflow:hidden;
-  background:rgba(11,14,20,0.08);
+  height:3px;margin-top:6px;border-radius:999px;overflow:hidden;
+  background:rgba(11,14,20,0.07);
 }
-.score-fill{height:100%;border-radius:2px;background:var(--signal)}
+.score-fill{height:100%;border-radius:999px;background:var(--signal);transition:width 400ms var(--ease-out)}
 td.score-cell.score-composite .score-num{font-weight:700;color:var(--ink)}
 td.score-cell.score-composite .score-track{height:4px}
 td.score-cell.score-composite .score-fill{background:var(--emphasis)}
+td.score-cell.score-composite .score-fill.score-fill-band-high{background:var(--signal)}
+td.score-cell.score-composite .score-fill.score-fill-band-low{background:var(--emphasis)}
 
 /* ---- Gap pills: compact badges instead of a full-cell tint. Directional
    sign controls which fixed hue applies (never inferred by CSS from an
    inline value — app.js still owns the sign check); magnitude only
    scales the --gap-alpha custom property within that hue, so directional
-   meaning and its intensity are visually separable. */
+   meaning and its intensity are visually separable. Tightened padding,
+   bolder text, and the translucent background sits at a saturation
+   (0.10-0.20 alpha) that reads clearly against white without needing to
+   darken the text further — good/bad already clear 5:1+ on white. */
 td.gap-cell{text-align:right}
 .gap-pill{
-  display:inline-block;padding:3px 10px;border-radius:999px;
-  font-family:var(--mono);font-size:0.75rem;font-weight:700;
+  display:inline-block;padding:3px 9px;border-radius:999px;
+  font-family:var(--mono);font-size:0.75rem;font-weight:800;
   font-variant-numeric:tabular-nums;letter-spacing:-0.01em;
 }
-.gap-pill-neg{color:var(--good);background:rgba(var(--gap-green-rgb),var(--gap-alpha,0.14))}
-.gap-pill-pos{color:var(--bad);background:rgba(var(--gap-red-rgb),var(--gap-alpha,0.14))}
+.gap-pill-neg{color:var(--good);background:rgba(var(--gap-green-rgb),var(--gap-alpha,0.16))}
+.gap-pill-pos{color:var(--bad);background:rgba(var(--gap-red-rgb),var(--gap-alpha,0.16))}
 .gap-pill-na{color:var(--text-3);background:rgba(11,14,20,0.05);font-weight:600;font-style:normal}
 
-/* ---- inline report accordion (clicking an equity/ETF row) ---- */
+/* ---- inline report accordion (clicking an equity/ETF row) ----
+   .accordion-content (not the <tr>/<td> themselves — table rows don't
+   animate height reliably under the table layout algorithm) is what
+   app.js actually height-animates: max-height 0 -> scrollHeight, opacity
+   0 -> 1, on open; reversed on close before the row is removed. ≤200ms
+   ease-out, the only two-way animated moment besides the score-bar
+   fill-in. */
 tr.accordion-row > td{padding:0;background:var(--paper);white-space:normal;cursor:default}
 tr.accordion-row:hover > td{background:var(--paper)}
+.accordion-content{overflow:hidden;transition:max-height 200ms var(--ease-out),opacity 200ms var(--ease-out)}
 .accordion-loading{padding:24px;text-align:center;color:var(--text-3);font-size:0.8125rem;font-style:italic}
 
 /* ---- report fragment (engine/report_html.py render_fragment output) ---- */
@@ -364,20 +465,34 @@ tr.accordion-row:hover > td{background:var(--paper)}
    explicitly override text-align renders right-aligned. Numeric value
    cells are unaffected: they carry their own direct `tbody td` rule, which
    always wins over an inherited value regardless of this reset. */
-.report-fragment{padding:20px 24px 28px;text-align:left}
+.report-fragment{padding:20px 24px 28px;text-align:left;background:var(--paper)}
 .report-summary{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
+/* KPI stat cards: real presence — 8px-grid padding, larger mono value.
+   The FIRST card only (Price) gets a hairline teal top accent — a single,
+   deliberate moment, not a rule applied to all of them. */
 .report-summary .stat{
-  flex:1;min-width:120px;background:var(--surface);border:1px solid var(--hairline);
-  border-radius:var(--radius-lg);padding:20px;
+  position:relative;flex:1;min-width:130px;background:var(--surface);
+  border:1px solid var(--hairline);border-radius:var(--radius-lg);padding:16px;
+}
+.report-summary .stat:first-child::before{
+  content:"";position:absolute;top:0;left:16px;right:16px;height:2px;
+  background:var(--signal);border-radius:0 0 2px 2px;
 }
 .report-summary .stat-label{
-  display:block;font-size:0.625rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--muted);margin-bottom:4px;
+  display:block;font-size:0.625rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);margin-bottom:6px;
 }
 .report-summary .stat-value{
-  display:block;font-size:1.0625rem;font-weight:700;letter-spacing:-0.01em;
+  display:block;font-size:1.375rem;font-weight:700;letter-spacing:-0.01em;
   font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);
 }
+/* Any stat's n/a state (engine/report_html.py's _fr_stat tags the value
+   span with this class whenever the text is literally "n/a") — includes
+   the Expectations Gap card specifically, which ALSO never gets a
+   background tint for this case (tint is None -> _fr_stat's `style`
+   branch never runs). Neutral gray, normal weight — absence must never
+   read as a real (if oddly dark/bold) value, colored or otherwise. */
+.report-summary .stat-value-na{color:var(--text-3);font-weight:600}
 
 /* stat card tooltip (e.g. "DCF Base (Systematic)") — dotted underline on
    the label only, popup anchored below-left of the card rather than the
@@ -390,28 +505,37 @@ tr.accordion-row:hover > td{background:var(--paper)}
 .report-summary .stat.has-tooltip:focus-visible .stat-label{border-color:var(--text-3)}
 .report-summary .stat .th-tooltip{top:calc(100% + 8px);left:0;transform:none}
 
+/* Custom disclosure header: thin two-line chevron (border-corner trick,
+   not a solid triangle) rotating 90° at 150ms — replaces the default
+   <details> marker entirely (already hidden via ::-webkit-details-marker/
+   list-style:none). Content area sits on a faint tint inset so it reads
+   as a distinct panel within the card, hairline separators between
+   sections via each .report-section's own margin/border. */
 .report-section{
   background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius-md);
   box-shadow:0 2px 10px rgba(11,14,20,0.04);margin-bottom:10px;overflow:hidden;
 }
 .report-section:last-child{margin-bottom:0}
 .report-section summary{
-  cursor:pointer;padding:10px 14px 10px 26px;font-size:0.6875rem;font-weight:600;letter-spacing:.06em;
+  cursor:pointer;padding:11px 14px 11px 30px;font-size:0.75rem;font-weight:700;letter-spacing:.08em;
   text-transform:uppercase;color:var(--muted);list-style:none;position:relative;
   text-align:left;
 }
 .report-section summary::-webkit-details-marker{display:none}
 .report-section summary::before{
-  content:"";position:absolute;left:12px;top:50%;width:0;height:0;
-  border-style:solid;border-width:4px 0 4px 6px;
-  border-color:transparent transparent transparent var(--text-3);
-  transform:translateY(-50%);transition:transform .15s ease;
+  content:"";position:absolute;left:13px;top:50%;width:6px;height:6px;
+  border-right:1.5px solid var(--text-3);border-bottom:1.5px solid var(--text-3);
+  transform:translateY(-65%) rotate(-45deg);transition:transform 150ms var(--ease-out);
 }
-.report-section[open] summary::before{transform:translateY(-50%) rotate(90deg)}
+.report-section[open] summary::before{transform:translateY(-35%) rotate(45deg)}
 .report-section table{margin:0}
 .report-section thead th{font-size:0.625rem;padding:8px 14px}
-.report-section tbody td{font-size:0.75rem;padding:8px 14px;cursor:default}
-.report-section .surface{border:none;box-shadow:none;border-radius:0;border-top:1px solid var(--hairline)}
+.report-section tbody td{font-size:0.8125rem;padding:8px 14px;cursor:default;font-weight:500;color:var(--ink)}
+.report-section .surface{
+  border:none;box-shadow:none;border-radius:var(--radius-sm);
+  border-top:1px solid var(--hairline);background:var(--paper);margin:0 10px 10px;
+  overflow:hidden;
+}
 /* Zebra striping so the eye can track a metric name across to its value
    without losing the row in blank span — every accordion detail table has
    a real <tbody> (engine/report_html.py's _fr_table()), so this is a
@@ -432,8 +556,17 @@ tr.accordion-row:hover > td{background:var(--paper)}
    hidden siblings sit between them. Tables with no lineage rows at all
    (Margins, Growth, ...) have no .source-row siblings to filter, so this
    degrades to identical behavior to plain :nth-child(2n) there. */
-.report-section tbody tr:nth-child(2n of :not(.source-row)) td{background:var(--paper)}
-.report-section tbody tr:nth-child(2n of :not(.source-row)):hover td{background:rgba(11,14,20,0.045)}
+.report-section tbody tr:nth-child(2n of :not(.source-row)) td{background:var(--surface)}
+.report-section tbody tr:nth-child(2n of :not(.source-row)):hover td{background:rgba(11,14,20,0.03)}
+
+/* Valuation & Sensitivity's WACC x g grid: a two-axis heat tint (deeper =
+   higher fair value within THIS grid) layered via a --heat custom
+   property engine/report_html.py stamps per cell (0-1, absent entirely
+   for a None cell — no tint, matching the score bars' absence rule).
+   Tint only: text stays the same full-ink, fully legible value as every
+   other cell, at the standard font — the color is the only thing
+   encoding the second axis. */
+.sens-cell[style]{background:rgba(var(--signal-rgb), calc(0.03 + var(--heat, 0) * 0.17))}
 
 /* ---- per-figure lineage: "Sources" toggle (Task 4) ---- */
 .section-toolbar{display:flex;justify-content:flex-end;padding:0 14px 8px}
@@ -443,8 +576,8 @@ tr.accordion-row:hover > td{background:var(--paper)}
   border-radius:999px;padding:3px 10px;cursor:pointer;
   transition:color .15s ease,border-color .15s ease,background .15s ease;
 }
-.sources-toggle:hover{color:var(--signal);border-color:var(--signal)}
-.sources-toggle.active{color:var(--signal);border-color:var(--signal);background:rgba(var(--signal-rgb),0.10)}
+.sources-toggle:hover{color:var(--signal-text);border-color:var(--signal-text)}
+.sources-toggle.active{color:var(--signal-text);border-color:var(--signal-text);background:rgba(var(--signal-rgb),0.10)}
 .source-row{display:none}
 .report-section.sources-on .source-row{display:table-row}
 .source-cell{
@@ -457,9 +590,18 @@ tr.accordion-row:hover > td{background:var(--paper)}
   padding:10px 14px 0;
 }
 
+/* Data Gaps: rendered as small amber diagnostic chips — these ARE
+   diagnostics, not prose, so they should look like it. Same markup as
+   before (a plain <ul class="gaps-list"><li>) — purely a CSS restyle
+   from a bulleted list into a wrapped chip row, no engine/ change. */
 .gaps-list{
-  text-align:left;list-style:disc;padding:8px 14px 14px 30px;
-  font-size:0.75rem;color:var(--ink);line-height:1.6;
+  text-align:left;list-style:none;padding:8px 14px 14px;margin:0;
+  display:flex;flex-wrap:wrap;gap:8px;
+}
+.gaps-list li{
+  font-size:0.75rem;font-weight:600;color:var(--warn);line-height:1.4;
+  background:rgba(166,106,0,0.09);border:1px solid rgba(166,106,0,0.18);
+  border-radius:var(--radius-sm);padding:6px 10px;
 }
 
 .report-error{padding:16px 24px;color:var(--bad);font-size:0.8125rem}
@@ -497,7 +639,7 @@ tr.accordion-row:hover > td{background:var(--paper)}
   font-size:0.6875rem;color:var(--text-3);letter-spacing:.02em;
   padding:12px 0 0;border-top:1px solid var(--hairline);margin-top:4px;
 }
-.flags-provenance a{color:var(--signal);text-decoration:none}
+.flags-provenance a{color:var(--signal-text);text-decoration:none}
 .flags-provenance a:hover{text-decoration:underline}
 
 /* ---- Flags: "not yet extracted" placeholder + spend controls ---- */
@@ -513,34 +655,61 @@ tr.accordion-row:hover > td{background:var(--paper)}
   border-radius:999px;padding:3px 10px;cursor:pointer;
   transition:color .15s ease,border-color .15s ease,background .15s ease;
 }
-.flags-reextract-btn:hover{color:var(--signal);border-color:var(--signal)}
+.flags-reextract-btn:hover{color:var(--signal-text);border-color:var(--signal-text)}
 .flags-reextract-btn:disabled{opacity:0.5;cursor:default}
 .flags-pricing-unknown{
   font-size:0.6875rem;color:var(--warn);letter-spacing:.01em;
   padding:8px 14px 0;
 }
 
+/* ---- remove-from-watchlist: inline, not a viewport-bottom bar ----
+   The trigger (×) is hover-gated per row, same as before. Once clicked,
+   .row-remove-wrap's content is swapped for a compact "Remove? ✓ / ✕"
+   chip that stays fully visible regardless of hover — the user is
+   mid-interaction, not just passing over the row — anchored at the exact
+   point the intent was expressed instead of a bar at the bottom of the
+   viewport disconnected from the row it refers to. */
+.row-remove-wrap{position:absolute;right:6px;top:50%;transform:translateY(-50%)}
 .row-remove{
-  position:absolute;right:6px;top:50%;transform:translateY(-50%);
+  display:inline-flex;align-items:center;justify-content:center;
   width:20px;height:20px;border-radius:50%;border:1px solid var(--hairline-strong);
-  background:var(--surface);color:var(--text-3);font-size:11px;line-height:18px;text-align:center;
+  background:var(--surface);color:var(--text-3);font-size:11px;
   cursor:pointer;opacity:0;transition:opacity .15s ease;
 }
 tbody tr:hover .row-remove{opacity:1}
 .row-remove:hover{color:var(--bad);border-color:var(--bad)}
 
-.meta-line{font-size:0.6875rem;color:var(--text-3);margin-top:32px;letter-spacing:.02em}
-
-/* ---- remove confirmation (no browser alert()) ---- */
-.remove-confirm{
-  position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
-  display:flex;align-items:center;gap:12px;
-  background:var(--ink);color:#fff;border-radius:var(--radius-md);
-  padding:12px 18px;box-shadow:0 8px 24px rgba(11,14,20,0.24);z-index:20;
+.row-remove-confirm{
+  display:flex;align-items:center;gap:6px;
+  background:var(--surface);border:1px solid var(--hairline-strong);border-radius:999px;
+  padding:3px 4px 3px 10px;box-shadow:0 4px 12px rgba(11,14,20,0.14);
+  white-space:nowrap;
 }
-.remove-confirm p{font-size:0.8125rem}
-.remove-confirm .btn{border-color:rgba(255,255,255,0.3);color:#fff}
-.remove-confirm .btn:hover{border-color:#fff}
+.row-remove-label{font-size:0.6875rem;color:var(--muted);font-weight:600}
+.row-remove-yes,.row-remove-no{
+  font:inherit;width:20px;height:20px;border-radius:50%;border:none;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;
+  transition:background .15s ease,color .15s ease;
+}
+.row-remove-yes{background:rgba(var(--gap-red-rgb),0.12);color:var(--bad)}
+.row-remove-yes:hover{background:var(--bad);color:#fff}
+.row-remove-no{background:rgba(11,14,20,0.05);color:var(--muted)}
+.row-remove-no:hover{background:var(--hairline-strong);color:var(--ink)}
+.row-remove-yes:disabled,.row-remove-no:disabled{opacity:0.5;cursor:default}
+
+/* ---- footer / provenance line — a proper system-status footer: mono,
+   small, muted but legible, config hash as a copyable code chip. ---- */
+.meta-line{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  font-family:var(--mono);font-size:0.6875rem;color:var(--muted);margin-top:24px;letter-spacing:.01em;
+}
+.meta-chip{
+  font-family:var(--mono);font-size:0.6875rem;color:var(--muted);
+  background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-sm);
+  padding:2px 8px;cursor:pointer;transition:color .15s ease,border-color .15s ease;
+}
+.meta-chip:hover{color:var(--signal-text);border-color:var(--signal-text)}
+.meta-chip.copied{color:var(--good);border-color:var(--good)}
 
 /* ---- Usage modal (Tier 2 spend visibility) — dark chrome, matching topnav ---- */
 .modal-overlay{
@@ -597,7 +766,7 @@ tbody tr:hover .row-remove{opacity:1}
 @media print{
   @page{size:A4 landscape;margin:12mm}
   body{background:#fff;color:#000}
-  .topnav,.status-banner,.empty-state,.remove-confirm,.row-remove,
+  .topnav,.status-banner,.empty-state,.row-remove-wrap,
   .sort-caption,.sort-arrow,.accordion-row,.expand-hint,.th-tooltip,
   .modal-overlay{display:none !important}
   .wrap{max-width:100%;padding:0}
@@ -606,7 +775,7 @@ tbody tr:hover .row-remove{opacity:1}
   #equities-table > thead th,
   #etf-table > thead th,
   #excluded-table > thead th,
-  #diagnostics-table > thead th{background:#fff !important;color:#000 !important;position:static}
+  #diagnostics-table > thead th{background:#fff !important;color:#000 !important}
   .diag-section summary{background:#fff !important;color:#000 !important}
   .score-track{display:none}
   tr{page-break-inside:avoid}

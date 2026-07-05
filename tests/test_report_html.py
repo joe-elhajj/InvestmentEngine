@@ -100,8 +100,11 @@ class TestLightFragmentRenderer:
         assert "DCF Base (Systematic)" in frag
 
     def test_durability_composite_none_shows_na_not_zero(self):
+        """stat-value-na is a styling hook only (renders n/a in neutral
+        gray instead of the bold near-ink used for a real value) — the
+        displayed text is still exactly "n/a", never a fabricated 0."""
         frag = RH.render_fragment(_company_result(), durability_composite=None)
-        assert '<span class="stat-value">n/a</span>' in frag
+        assert '<span class="stat-value stat-value-na">n/a</span>' in frag
 
     def test_dcf_stat_has_tooltip(self):
         """Task 5: DCF card relabeled with a tooltip explaining the systematic,
