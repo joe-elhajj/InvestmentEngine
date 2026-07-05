@@ -29,11 +29,11 @@ import anthropic
 import yaml
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import usage, watchlist
+from app import pdf as PDF, usage, watchlist
 from engine.analysis import run_single_ticker
 from engine import council as COUNCIL
 from engine import durability as D
@@ -42,6 +42,7 @@ from engine.etf import fetch_etf_profile, FUND_QUOTE_TYPES
 from engine import flags as FLAGS
 from engine.filings import FilingsClient
 from engine.market import get_quote
+from engine import report_council as RC
 from engine.pipeline import AnalysisResult
 from engine import report_html as RH
 from engine.screen import _classify as _engine_classify
@@ -903,6 +904,124 @@ async def convene_council(ticker: str, convene: bool = False, refresh: bool = Fa
     payload["state"] = "ok"
     payload["cache_status"] = "live" if call_info else "from_cache"
     return payload
+
+
+# ---------------------------------------------------------------------------
+# Council report — HTML/PDF rendering of an already-convened CouncilResult
+# (engine/report_council.py). Zero new LLM calls anywhere here: this reads
+# the SAME on-disk council cache the endpoints above write, plus Tier 1's
+# already-cached analysis (for a current quote/company name) and Tier 2's
+# already-cached flags (for the evidence-status line) — never triggers a
+# convene, an extraction, or a fresh EDGAR/yfinance fetch beyond what
+# _get_analysis_result's own TTL cache already does elsewhere in this app.
+# Report HTML/PDF are themselves cached, keyed identically to the council
+# result they were generated from (engine.report_council's cache helpers
+# reuse engine.council's own _cache_key) — generated once, served from
+# cache on every subsequent request.
+# ---------------------------------------------------------------------------
+
+_COUNCIL_REPORTS_CACHE_DIR = REPO_ROOT / ".cache" / "council_reports"
+
+
+async def _load_council_result_or_404(tk: str):
+    """Shared by both report endpoints below. Raises 404 with a clean
+    message if no council result has ever been convened for this ticker —
+    a report can only ever be built from a real, already-cached
+    CouncilResult, never generated on the fly from nothing."""
+    filing_sections, flags_cached, flags_model, flags_prompt_version = await _council_preflight(tk)
+    council_prompt_version = app.state.cfg.get("council", {}).get("prompt_version", "v1")
+    cached = COUNCIL.is_cached(_COUNCIL_CACHE_DIR, filing_sections.accession, _THESIS_TAG, council_prompt_version, flags_model)
+    if not cached:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No council result for {tk} yet. Convene first: POST /api/council/{tk}?convene=true.",
+        )
+    result = COUNCIL.load_cached(_COUNCIL_CACHE_DIR, filing_sections.accession, _THESIS_TAG, council_prompt_version, flags_model)
+    return result, filing_sections, council_prompt_version, flags_model, flags_prompt_version
+
+
+async def _render_council_report_html(tk: str, result, filing_sections, flags_model: str, flags_prompt_version: str) -> str:
+    """Gathers the report's optional context (current quote, company name,
+    flags evidence status) from Tier 1/2's own EXISTING caches — never a
+    new extraction or council call — then calls the pure
+    engine.report_council.render().
+
+    Reads the flags cache via FLAGS.get_flags() with client=None and
+    force_refresh=False — the exact same safe pattern
+    _assemble_council_bundle() above already relies on: get_flags() only
+    reaches its model-call branch on a cache MISS, and this endpoint is
+    only ever reached after _load_council_result_or_404 has already
+    confirmed a council result exists, which itself requires flags to have
+    been cached at convene time — so this is always a cache hit in
+    practice, and client=None makes a cache miss fail loudly rather than
+    silently attempt a call with no client."""
+    quote = None
+    company_name = None
+    try:
+        res = await _get_analysis_result(tk)
+        quote = res.quote
+        company_name = res.company.name
+    except Exception:
+        pass  # quote/company name are optional masthead context, not required to render a report
+
+    filing_ref = FLAGS.FilingRef(
+        form=filing_sections.form, accession=filing_sections.accession,
+        period_ending=filing_sections.period_ending, filed=filing_sections.filed,
+        url=filing_sections.url,
+    )
+    loop = asyncio.get_running_loop()
+    try:
+        flags_result = await loop.run_in_executor(
+            None, FLAGS.get_flags, tk, filing_sections.sections, filing_ref,
+            app.state.cfg, None, _FLAGS_CACHE_DIR, False, None,
+        )
+        flags_status = {
+            "cached": True,
+            "form": flags_result.filing.form,
+            "accession": flags_result.filing.accession,
+            "period_ending": flags_result.filing.period_ending,
+            "filed": flags_result.filing.filed,
+            "count": len(flags_result.flags),
+        }
+    except Exception:
+        flags_status = {"cached": False}
+    return RC.render(result, quote=quote, config=app.state.cfg, company_name=company_name, flags_status=flags_status)
+
+
+async def _get_or_render_report_html(tk: str) -> str:
+    result, filing_sections, council_prompt_version, flags_model, flags_prompt_version = await _load_council_result_or_404(tk)
+    cached_html = RC.load_cached_html(_COUNCIL_REPORTS_CACHE_DIR, filing_sections.accession, _THESIS_TAG, council_prompt_version, flags_model)
+    if cached_html is not None:
+        return cached_html
+    html = await _render_council_report_html(tk, result, filing_sections, flags_model, flags_prompt_version)
+    RC.save_cached_html(_COUNCIL_REPORTS_CACHE_DIR, filing_sections.accession, _THESIS_TAG, council_prompt_version, flags_model, html)
+    return html
+
+
+@app.get("/api/council/{ticker}/report.html", response_class=HTMLResponse)
+async def council_report_html(ticker: str):
+    tk = ticker.strip().upper()
+    html = await _get_or_render_report_html(tk)
+    return HTMLResponse(html)
+
+
+@app.get("/api/council/{ticker}/report.pdf")
+async def council_report_pdf(ticker: str):
+    tk = ticker.strip().upper()
+    result, filing_sections, council_prompt_version, flags_model, flags_prompt_version = await _load_council_result_or_404(tk)
+
+    cached_pdf = RC.load_cached_pdf(_COUNCIL_REPORTS_CACHE_DIR, filing_sections.accession, _THESIS_TAG, council_prompt_version, flags_model)
+    if cached_pdf is not None:
+        return Response(content=cached_pdf, media_type="application/pdf")
+
+    html = await _get_or_render_report_html(tk)
+    loop = asyncio.get_running_loop()
+    try:
+        pdf_bytes = await loop.run_in_executor(None, PDF.html_to_pdf, html)
+    except PDF.PdfGenerationError as e:
+        raise HTTPException(status_code=502, detail=f"PDF generation failed: {e}")
+    RC.save_cached_pdf(_COUNCIL_REPORTS_CACHE_DIR, filing_sections.accession, _THESIS_TAG, council_prompt_version, flags_model, pdf_bytes)
+    return Response(content=pdf_bytes, media_type="application/pdf")
 
 
 # ---------------------------------------------------------------------------

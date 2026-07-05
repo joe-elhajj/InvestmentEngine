@@ -849,9 +849,35 @@
       + " &middot; Convened: " + escapeHtml(meta.convened_at || "n/a")
       + "</p>";
 
-    body.querySelector(".council-toolbar").appendChild(
-      consultControl(details.dataset.ticker, details, true, true)
-    );
+    var toolbar = body.querySelector(".council-toolbar");
+    toolbar.appendChild(reportLinks(details.dataset.ticker));
+    toolbar.appendChild(consultControl(details.dataset.ticker, details, true, true));
+  }
+
+  // "View report" / "Download PDF" — cache-only reads (engine/report_council.py
+  // + app/pdf.py): never trigger a council convene or a Tier 2 extraction,
+  // so these are plain links, not gated behind any confirm. Same
+  // ghost-button family as Consult/Re-consult/Extract/Re-extract.
+  function reportLinks(ticker) {
+    var wrap = document.createElement("div");
+    wrap.className = "council-report-links";
+
+    var viewLink = document.createElement("a");
+    viewLink.className = "btn council-report-link";
+    viewLink.textContent = "View report";
+    viewLink.href = "/api/council/" + encodeURIComponent(ticker) + "/report.html";
+    viewLink.target = "_blank";
+    viewLink.rel = "noopener";
+
+    var pdfLink = document.createElement("a");
+    pdfLink.className = "btn council-report-link";
+    pdfLink.textContent = "Download PDF";
+    pdfLink.href = "/api/council/" + encodeURIComponent(ticker) + "/report.pdf";
+    pdfLink.download = ticker + "-council-review.pdf";
+
+    wrap.appendChild(viewLink);
+    wrap.appendChild(pdfLink);
+    return wrap;
   }
 
   function renderCouncilBody(body, details, data) {
