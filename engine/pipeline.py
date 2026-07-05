@@ -117,13 +117,18 @@ def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> Year
     gaps: list[str] = []
     dl: dict[str, str] = {}
 
-    def _fv(key: str) -> Optional[float]:
-        """Get any item at this period_end without gap logging (flows, or known-present)."""
-        f = cd.value_for_period(key, period_end)
-        return f.value if f else None
-
-    def _bs(key: str) -> Optional[float]:
-        """Balance-sheet item: period-match with gap logging when series exists elsewhere."""
+    def _pv(key: str) -> Optional[float]:
+        """Period-matched value with staleness gap-logging. Returns the
+        Fact's value for this exact period_end; when no exact match exists,
+        logs a gap naming the latest period that DOES exist elsewhere in
+        the series (when there is one) and returns None. Used uniformly
+        for flow and balance-sheet concepts alike -- a flow concept (e.g.
+        interest_expense) that only resolves for a stale period is exactly
+        as real a degradation as a stale balance-sheet item, and must
+        disclose the same way. Previously two separate functions (_fv:
+        flows, silent; _bs: balance-sheet, logged) that differed only in
+        this logging -- consolidated since giving _fv the same disclosure
+        makes them behaviorally identical."""
         f = cd.value_for_period(key, period_end)
         if f is None:
             lat = cd.latest(key)
@@ -135,19 +140,21 @@ def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> Year
         return f.value if f else None
 
     # Flow items
-    rev = _fv("revenue")
-    ni = _fv("net_income")
-    oi = _fv("operating_income")
-    gp = _fv("gross_profit")
-    cfo_val = _fv("cfo")
-    capex_val = _fv("capex")
-    da = _fv("dep_amort")
-    interest = _fv("interest_expense")
-    sbc_val = _fv("sbc")
-    rnd_val = _fv("rnd")
+    rev = _pv("revenue")
+    ni = _pv("net_income")
+    oi = _pv("operating_income")
+    gp = _pv("gross_profit")
+    cfo_val = _pv("cfo")
+    capex_val = _pv("capex")
+    da = _pv("dep_amort")
+    interest = _pv("interest_expense")
+    sbc_val = _pv("sbc")
+    rnd_val = _pv("rnd")
 
-    # total_assets: always present (period_end comes from its series)
-    total_assets = _fv("total_assets")
+    # total_assets: always present (period_end comes from its own series,
+    # so this can never hit the missing branch above) — kept on _pv for
+    # consistency, not because it needs the gap-logging path.
+    total_assets = _pv("total_assets")
 
     # Liquid assets — each component period-matched with gap logging
     cash_fact = cd.value_for_period("cash", period_end)
@@ -191,11 +198,11 @@ def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> Year
     total_debt = (ltd_val + std_val) if (ltd_fact or std_fact) else None
 
     # Total equity — period-matched with gap logging
-    equity = _bs("total_equity")
+    equity = _pv("total_equity")
 
     # Current assets / liabilities
-    cur_assets = _bs("current_assets")
-    cur_liab = _bs("current_liabilities")
+    cur_assets = _pv("current_assets")
+    cur_liab = _pv("current_liabilities")
 
     # Gross profit fallback: revenue - cost_of_revenue when GrossProfit tag absent
     if gp is None:
