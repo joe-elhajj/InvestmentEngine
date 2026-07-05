@@ -511,6 +511,28 @@ class TestAnalyzeFragmentEndpoint:
         assert resp.status_code == 200
         assert '<span class="stat-value stat-value-na">n/a</span>' in resp.text
 
+    def test_council_section_present_after_flags_via_the_real_endpoint(self, client):
+        """End-to-end regression guard (dark-instrument-redesign branch,
+        live-browser review finding #3): the equity fragment served through
+        the REAL /api/analyze/{ticker}/fragment route — not just the
+        engine.report_html.render_fragment() unit test in
+        test_report_html.py — must still carry the Council section after
+        Flags. Diagnosed at the time: this branch's merge-base with main
+        already included PR #29 (Council access section) and
+        render_fragment() had not dropped the markup; the reported gap
+        could not be reproduced against this exact code with a real
+        browser. Kept here as a route-level guard regardless — a future
+        change to how this endpoint calls the renderer (or a refactor that
+        drops a section) would be caught here even if the unit test above
+        somehow weren't."""
+        with patch("app.main.run_single_ticker", return_value=_real_analysis_result()):
+            resp = client.get("/api/analyze/AAPL/fragment")
+        assert resp.status_code == 200
+        flags_idx = resp.text.index('class="report-section flags-section"')
+        council_idx = resp.text.index('class="report-section council-section"')
+        assert flags_idx < council_idx
+        assert "<summary>Council</summary>" in resp.text
+
     def test_failure_returns_inline_error_fragment_not_full_page(self, client):
         with patch(
             "app.main.run_single_ticker",
