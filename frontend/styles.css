@@ -1,53 +1,109 @@
 /* Security Analysis Dashboard — design system.
-   Palette: --canvas/--paper/--surface/--ink/--muted/--signal/--emphasis.
-   Brand/UI accent (signal, emphasis) is kept strictly separate from data
-   semantics (good/bad) — a palette change can never accidentally flip
-   what "red" means in the data. Legacy token names (--bg, --text-1/2,
-   --accent) are aliased to the palette below so the whole stylesheet
-   inherits the system without a line-by-line rewrite; new component
-   rules reference the named palette directly.
 
-   WCAG AA contrast, computed and verified (see PR description for the
-   full table): ink-on-white/paper/accordion-tint all sit at 17-19:1.
-   --signal (#0ea5a0) is decorative-only (bars, ticks, dots, borders,
-   dark-chrome text) — at ~3:1 on white it clears the 3:1 non-text/
-   graphical threshold but NOT 4.5:1 for text, so every place the accent
-   renders as actual text or a button fill on a LIGHT background uses the
-   darkened --signal-text (#0f766e, 5.47:1) instead. --text-3 was
-   darkened from its previous value (3.10:1, an actual AA fail) to 4.83:1. */
+   ---- DARK INSTRUMENT MANIFESTO (10 lines) ----
+   1. Canvas: near-black #0a0a0f, an ultra-subtle dot-grid (~3% white),
+      never pure black — texture, not void.
+   2. Elevation is LIGHT, not shadow: canvas #0a0a0f < paper #121218
+      (accordion inset) < surface #17171f (cards) < surface-2 #1f1f29
+      (nested/inner content) — each step up reads as "closer," no card
+      relies on a heavy drop-shadow to separate from the page.
+   3. Type: one mono face for every data value and tabular-numeral column;
+      near-white ink for data, muted gray (>=6.4:1) for labels, a dimmer
+      but still-AA text-3 (>=4.5:1) for n/a/footnotes — biased brighter
+      than a typical dark-theme default on purpose (see contrast table).
+   4. Spacing/radius carried over unchanged: 4px-based rhythm, radius
+      sm/md/lg 8/12/16px — this is a redesign of light and color, not of
+      layout rhythm.
+   5. Color semantics stay strictly separate from brand: --signal (teal)
+      is decorative-only; --signal-text is the AA-safe teal for text/
+      fills; gap red/green never borrow the brand hue.
+   6. Motion budget: accordion height ease <=200ms, hover <=120ms,
+      score-bar fill once on first paint (400ms, 20ms stagger);
+      prefers-reduced-motion kills all of it.
+   7. One hero moment: the header's gradient + hairline teal edge-glow —
+      every other dark surface (table headers, modal, diagnostics) stays
+      flat so the gradient doesn't repeat into wallpaper.
+   8. Score bars: track at low-opacity white, fill in the teal scale
+      (Durability keeps its amber-below-40/teal-above-70 banding) — must
+      read clearly against near-black, not just "technically visible."
+   9. Print is the deliberate exception: PDF export stays light-on-white
+      regardless of the screen theme (see @media print below) — an
+      instrument you trade from, not a report you archive in.
+   10. Critique: the laziest choice in this system is the row-hover
+       affordance — "background lightens a little" is what every dark
+       data table does, with zero personality. Replaced: the ticker's
+       left accent tick (td.tk::before) is a vertical teal-to-transparent
+       fade instead of a flat solid tick — a small, considered detail
+       that reads as "instrument," not "generic dashboard template."
+
+   WCAG AA contrast, computed and verified (relative-luminance formula,
+   not eyeballed):
+     ink        on surface    16.55:1   (data on card)
+     ink        on surface-2  15.22:1   (data inside accordion inner surfaces)
+     muted      on surface     6.99:1   (labels on card)
+     muted      on surface-2   6.42:1
+     text-3(na) on surface     5.65:1   (n/a / footnotes)
+     text-3(na) on surface-2   5.20:1
+     chrome-text     on chrome-bg  17.58:1  (header wordmark/text)
+     chrome-text-dim on chrome-bg   8.77:1  (header secondary text)
+     signal-text on surface    12.29:1  (teal as text/links/fills)
+     emphasis    on surface    10.89:1  (amber as text — flags chips)
+     good        on surface     9.46:1  (gap-negative text)
+     bad         on surface     6.57:1  (gap-positive text)
+     gap-pill good text-on-tint 7.01:1  (16% green tint over surface)
+     gap-pill bad  text-on-tint 5.21:1  (16% red tint over surface)
+   Every pairing clears 4.5:1 with margin; --text-3 in particular was
+   deliberately brightened rather than left at a "just barely passes"
+   value — dark themes fail most often on muted text.
+
+   Solid-fill controls (btn-primary, confirm-yes, etc.) use --on-accent
+   (a near-black, #08110f) as their text color, not white — white-on-teal/
+   white-on-red both fail badly on these BRIGHT, dark-mode-tuned accent
+   fills (2.5:1 / 2.8:1); near-black clears 6.9-12.9:1 against every one
+   of them.
+
+   Legacy token names (--bg, --text-1/2, --accent) are aliased to the
+   palette below so the whole stylesheet inherits the system without a
+   line-by-line rewrite; new component rules reference the named palette
+   directly. */
 
 :root{
-  /* ---- palette ---- */
-  --canvas:#f6f7f9;     /* body texture's lighter stop */
-  --paper:#f1f3f6;      /* page background base / zebra tint / accordion inset */
-  --surface:#ffffff;    /* card / table background */
-  --ink:#0b0e14;        /* primary text — 19:1 on white, 17-19:1 on every tint below */
-  --muted:#5b6472;      /* secondary text / labels — 5.98:1 on white */
-  --signal:#0ea5a0;     /* primary accent, decorative (bars/ticks/dots/borders) */
-  --signal-text:#0f766e;/* primary accent, AA-safe for TEXT on a light background (5.47:1) */
-  --emphasis:#d97706;   /* secondary accent — warm amber, spent on ONE headline moment only */
-  --signal-rgb:14,165,160;
-  --emphasis-rgb:217,119,6;
+  /* ---- palette (dark instrument) ---- */
+  --canvas:#0a0a0f;     /* page background, near-black */
+  --paper:#121218;      /* accordion/report-fragment inset — one step up from canvas */
+  --surface:#17171f;    /* card / table background */
+  --surface-2:#1f1f29;  /* nested/inner surfaces: accordion sub-tables, zebra stripe */
+  --ink:#f4f4f6;        /* primary text — 15-17:1 on every surface below */
+  --muted:#9aa1ac;      /* secondary text / labels — 6.4-7:1 */
+  --signal:#14b8a6;     /* primary accent, decorative (bars/ticks/dots/borders) */
+  --signal-text:#5eead4;/* primary accent, AA-safe for TEXT on dark (12.3:1+) */
+  --emphasis:#fbbf24;   /* secondary accent — amber, spent on flags + one headline moment */
+  --on-accent:#08110f;  /* near-black text for solid accent-filled buttons/chips */
+  --signal-rgb:20,184,166;
+  --emphasis-rgb:251,191,36;
 
   /* legacy aliases */
   --bg:var(--paper);
   --text-1:var(--ink);
   --text-2:var(--muted);
-  --text-3:#6b7280;     /* darkened from #8b93a0 (3.10:1 — an actual AA fail) to 4.83:1 */
+  --text-3:#8790a0;     /* dimmer than --muted but still 5.2-5.7:1 — legible n/a, never a fabricated near-black */
   --accent:var(--signal);
 
-  --hairline:rgba(11,14,20,0.07);
-  --hairline-strong:rgba(11,14,20,0.14);
-  /* Card border stays faint — --paper/--surface contrast does the
+  --hairline:rgba(255,255,255,0.07);
+  --hairline-strong:rgba(255,255,255,0.14);
+  /* Card border stays faint — the surface/canvas LIGHTNESS step does the
      separation work; the border just crisps the edge. */
-  --card-border:rgba(11,14,20,0.05);
-  --card-shadow:0 4px 24px rgba(11,14,20,0.07),0 1px 3px rgba(11,14,20,0.09);
+  --card-border:rgba(255,255,255,0.05);
+  /* Elevation via lighter surfaces, not shadow (manifesto #2) — this stays
+     deliberately subtle; on a near-black canvas a heavy shadow barely
+     registers anyway, so it's a crisping detail, not the mechanism. */
+  --card-shadow:0 4px 20px rgba(0,0,0,0.35),0 1px 2px rgba(0,0,0,0.5);
 
-  --good:#1d7d54;
-  --bad:#c8362f;
-  --warn:#a66a00;
-  --gap-green-rgb:29,125,84;
-  --gap-red-rgb:200,54,47;
+  --good:#34d399;
+  --bad:#f87171;
+  --warn:#fbbf24;
+  --gap-green-rgb:52,211,153;
+  --gap-red-rgb:248,113,113;
 
   --radius-sm:8px;
   --radius-md:12px;
@@ -57,13 +113,16 @@
      cells specifically — true fixed-width digits, no webfont/CDN load. */
   --mono:"SF Mono","Cascadia Code",ui-monospace,Menlo,monospace;
 
-  /* ---- dark chrome (header, tooltips, modal) ---- */
-  --chrome-bg:#0b1220;
-  --chrome-bg-2:#161f30;
-  --chrome-header-gradient:linear-gradient(180deg,#141b2c 0%,#0b1220 100%);
+  /* ---- dark chrome (header, tooltips, modal) — already dark in the
+     light theme; kept close in value to --canvas/--surface on purpose,
+     since the header is distinguished by its hairline + teal edge-glow
+     (manifesto #7), not by a big color jump. ---- */
+  --chrome-bg:#07090f;
+  --chrome-bg-2:#10131c;
+  --chrome-header-gradient:linear-gradient(180deg,#12141e 0%,#07090f 100%);
   --chrome-border:rgba(255,255,255,0.10);
-  --chrome-text:#f2f3f5;
-  --chrome-text-dim:#9aa3b2;
+  --chrome-text:#f4f4f6;
+  --chrome-text-dim:#a7afc0;
 
   --topnav-h:56px;
 
@@ -77,14 +136,13 @@ body{
   color:var(--ink);
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif;
   font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
-  /* Barely-perceptible dot-grid canvas (Linear-esque) instead of a flat
-     near-white fill — this is the actual fix for "blank white void": a
-     page bg that's nearly indistinguishable from a white card gives the
-     margins nothing to read as intentional. A tiling radial-gradient
-     dot avoids any banding on a long scrolling page (unlike a vertical
-     gradient, which would visibly repeat/cut off). */
+  /* Ultra-subtle dot-grid canvas — ~3% white on near-black, barely
+     perceptible, just enough that the margins read as an intentional
+     canvas rather than a void. A tiling radial-gradient dot avoids any
+     banding on a long scrolling page (unlike a vertical gradient, which
+     would visibly repeat/cut off). */
   background-color:var(--canvas);
-  background-image:radial-gradient(circle, rgba(11,14,20,0.05) 1px, transparent 1px);
+  background-image:radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
   background-size:22px 22px;
 }
 
@@ -105,7 +163,7 @@ body{
   /* Bottom hairline glow: a soft teal-tinted line under the top edge
      highlight, plus a slightly stronger inset top highlight for depth —
      "rich, deliberate," not a flat bar. */
-  box-shadow:inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 0 rgba(var(--signal-rgb),0.18);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.04), 0 2px 10px rgba(var(--signal-rgb),0.22);
   position:sticky;top:0;z-index:10;
 }
 .wordmark{
@@ -127,13 +185,13 @@ body{
   flex:1;font:inherit;font-size:0.8125rem;color:var(--chrome-text);
   background:rgba(255,255,255,0.06);border:1px solid var(--chrome-border);border-radius:999px;
   padding:7px 14px;outline:none;
-  box-shadow:inset 0 1px 2px rgba(0,0,0,0.25);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.4);
   transition:border-color .15s ease,background .15s ease,box-shadow .15s ease;
 }
 .search-box input::placeholder{color:var(--chrome-text-dim)}
 .search-box input:focus{
   border-color:var(--signal);background:rgba(255,255,255,0.09);
-  box-shadow:inset 0 1px 2px rgba(0,0,0,0.25),0 0 0 3px rgba(var(--signal-rgb),0.22);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,0.4),0 0 0 3px rgba(var(--signal-rgb),0.28);
 }
 .search-status{font-size:0.9375rem;width:1.2em;text-align:center;color:var(--chrome-text-dim)}
 .search-status.found{color:var(--good)}
@@ -141,14 +199,14 @@ body{
 
 .topnav-actions{display:flex;align-items:center;gap:8px}
 .topnav-actions .btn{color:var(--chrome-text-dim);border-color:var(--chrome-border)}
-.topnav-actions .btn:hover{color:var(--signal);border-color:var(--signal);background:rgba(255,255,255,0.05)}
+.topnav-actions .btn:hover{color:var(--signal-text);border-color:var(--signal-text);background:rgba(255,255,255,0.06)}
 .topnav-actions .btn:hover svg{transform:translateX(1px)}
 
 .search-confirm{
   position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
-  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius-md);
-  box-shadow:0 4px 16px rgba(11,14,20,0.10);padding:12px 16px;max-width:480px;z-index:11;
+  background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-md);
+  box-shadow:0 12px 32px rgba(0,0,0,0.5);padding:12px 16px;max-width:480px;z-index:11;
 }
 .search-confirm-text{font-size:0.8125rem;color:var(--muted);white-space:nowrap}
 
@@ -165,11 +223,15 @@ body{
   padding:6px 14px;cursor:pointer;white-space:nowrap;
   transition:color .15s ease,border-color .15s ease,background .15s ease;
 }
-.btn:hover{color:var(--signal-text);border-color:var(--signal-text);background:rgba(var(--signal-rgb),0.06)}
-.btn-primary{color:#fff;background:var(--signal-text);border-color:var(--signal-text)}
-.btn-primary:hover{color:#fff;opacity:0.9}
-.btn-danger{color:#fff;background:var(--bad);border-color:var(--bad)}
-.btn-danger:hover{color:#fff;opacity:0.9}
+.btn:hover{color:var(--signal-text);border-color:var(--signal-text);background:rgba(var(--signal-rgb),0.10)}
+/* Solid-fill buttons: near-black text (--on-accent), not white — see the
+   manifesto's contrast note. These fills are BRIGHT, dark-mode-tuned
+   accents; white text on them fails (2.5:1 / 2.8:1), near-black clears
+   6.9-12.9:1. */
+.btn-primary{color:var(--on-accent);background:var(--signal-text);border-color:var(--signal-text)}
+.btn-primary:hover{color:var(--on-accent);opacity:0.88}
+.btn-danger{color:var(--on-accent);background:var(--bad);border-color:var(--bad)}
+.btn-danger:hover{color:var(--on-accent);opacity:0.88}
 
 /* Ghost/outline utility buttons with an inline SVG icon before the label —
    consistent height, and the icon itself nudges right on hover (paired
@@ -243,29 +305,18 @@ thead th.sorted .sort-arrow{color:var(--signal-text)}
    down inside a <td> — a plain descendant selector would match those
    too, since they're technically inside #equities-table in the DOM.
    The child combinator excludes anything not a direct <thead> of the
-   outer table, so nested fragment tables keep the light styling from
-   the generic rule above.
+   outer table, so nested fragment tables keep the (differently, still
+   dark) styling from the generic rule above rather than this one.
    These stay FLAT (--chrome-bg, not the header's gradient) — a gradient
    repeated on every header row would read as wallpaper, not a deliberate
    hero moment.
-   NOT sticky. A previous pass made these `position:sticky`, which renders
-   as a detached header floating mid-card (reported: the ETF header
-   appearing between the QQQ and SPY rows) — root cause: .surface has
-   overflow:hidden (needed so table content respects the card's rounded
-   corners) and .scroll has overflow-x:auto (needed for horizontal scroll
-   on narrow viewports); EITHER one alone establishes the sticky
-   containing block per spec, and neither is the page's own scroll
-   container. The thead ends up "stuck" relative to a box that isn't
-   what's actually scrolling, then gets clipped the moment it would need
-   to escape that box to keep tracking the viewport — exactly the
-   floating/overlapping artifact reported. Making it correct would require
-   removing overflow:hidden from .surface (breaks the rounded-card
-   clipping, a design decision worth more than this) and overflow-x:auto
-   from .scroll (breaks responsive horizontal scroll on a 10-column
-   table) — too expensive for a watchlist of realistically a few dozen
-   rows, where losing sight of the header while scrolling is a minor
-   inconvenience, not a real usability problem. Removed cleanly rather
-   than kept half-working. */
+   NOT sticky (Phase 1 invariant, carried forward unchanged): .surface has
+   overflow:hidden (rounded-card clipping) and .scroll has overflow-x:auto
+   (responsive horizontal scroll) — either alone establishes the sticky
+   containing block, and neither is the page's own scroll container, so a
+   `position:sticky` header here renders detached/floating mid-card. Removed
+   cleanly rather than kept half-working; unrelated to and unaffected by
+   this dark reskin. */
 #equities-table > thead th,
 #etf-table > thead th,
 #excluded-table > thead th,
@@ -313,7 +364,7 @@ td.mono{font-family:var(--mono);font-size:0.75rem}
 .th-tooltip{
   position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
   background:var(--chrome-bg-2);color:var(--chrome-text);border:1px solid var(--chrome-border);
-  border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.35);
+  border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,0.55);
   padding:10px 12px;max-width:280px;width:max-content;
   font-size:0.75rem;font-weight:400;font-style:normal;letter-spacing:normal;
   text-transform:none;text-align:left;white-space:normal;line-height:1.5;
@@ -356,24 +407,29 @@ tbody td{
   transition:background-color .12s ease;
 }
 tbody tr:last-child td{border-bottom:none}
-tbody tr:hover td{background:rgba(var(--signal-rgb),0.05)}
+tbody tr:hover td{background:rgba(var(--signal-rgb),0.08)}
 #equities-table tbody tr,
 #etf-table tbody tr{cursor:pointer}
 td.l{text-align:left;white-space:normal}
-/* Sorted column: a ~2% signal tint on every cell so it's visually obvious
-   what's ordering the table, not just the header. Sits below the hover
-   wash in the cascade so hover still reads clearly on top of it. */
-td.col-sorted{background:rgba(var(--signal-rgb),0.02)}
+/* Sorted column: a faint signal tint on every cell so it's visually
+   obvious what's ordering the table, not just the header. Sits below the
+   hover wash in the cascade so hover still reads clearly on top of it. */
+td.col-sorted{background:rgba(var(--signal-rgb),0.05)}
 
 /* Ticker: the primary key — left-aligned, semibold, data face, with a
-   left accent tick that fades in on row hover so identity anchors left. */
+   left accent tick that fades in on row hover so identity anchors left.
+   The tick itself is a vertical teal-to-transparent gradient rather than
+   a flat solid fill (manifesto #10) — the one deliberately-replaced
+   generic choice in this pass. */
 td.tk{
   text-align:left;font-weight:700;font-size:0.875rem;cursor:pointer;
   font-family:var(--mono);letter-spacing:-0.01em;padding-left:24px;
+  color:var(--ink);
 }
 td.tk::before{
   content:"";position:absolute;left:10px;top:50%;transform:translateY(-50%);
-  width:3px;height:14px;border-radius:2px;background:var(--signal);
+  width:3px;height:14px;border-radius:2px;
+  background:linear-gradient(180deg, var(--signal) 0%, rgba(var(--signal-rgb),0.25) 100%);
   opacity:0;transition:opacity .12s ease;
 }
 tbody tr:hover td.tk::before{opacity:1}
@@ -404,7 +460,9 @@ tbody td:not(.l):not(.na){font-family:var(--mono);font-size:0.8125rem;color:var(
    (DURABILITY) is banded instead — below 40 amber (a genuine concern
    worth flagging), above 70 teal (comfortably durable), the default
    signal teal in between — since it's the one headline, aggregate score,
-   not a peer of the six it's built from.
+   not a peer of the six it's built from. Track is low-opacity WHITE
+   (manifesto #8) so it reads as a real track against near-black, not a
+   near-invisible dark-on-dark sliver.
    ABSENCE-IS-NOT-ZERO: .score-track only ever exists in the DOM when
    app.js had a real number to draw (see app.js's scoreCell()) — a missing
    score renders bare "n/a" text via the existing .na path, no track
@@ -417,7 +475,7 @@ td.score-cell{padding-top:11px;padding-bottom:9px}
 .score-num{display:block;font-variant-numeric:tabular-nums}
 .score-track{
   height:3px;margin-top:6px;border-radius:999px;overflow:hidden;
-  background:rgba(11,14,20,0.07);
+  background:rgba(255,255,255,0.10);
 }
 .score-fill{height:100%;border-radius:999px;background:var(--signal);transition:width 400ms var(--ease-out)}
 td.score-cell.score-composite .score-num{font-weight:700;color:var(--ink)}
@@ -428,12 +486,12 @@ td.score-cell.score-composite .score-fill.score-fill-band-low{background:var(--e
 
 /* ---- Gap pills: compact badges instead of a full-cell tint. Directional
    sign controls which fixed hue applies (never inferred by CSS from an
-   inline value — app.js still owns the sign check); magnitude only
+   inline value — app.js still owns the sign check, and gapCell()'s
+   three-branch null guard is untouched by this pass); magnitude only
    scales the --gap-alpha custom property within that hue, so directional
-   meaning and its intensity are visually separable. Tightened padding,
-   bolder text, and the translucent background sits at a saturation
-   (0.10-0.20 alpha) that reads clearly against white without needing to
-   darken the text further — good/bad already clear 5:1+ on white. */
+   meaning and its intensity are visually separable. Tint alpha (0.10-0.20)
+   tuned for dark: good/bad text still clears 5.2-7:1 against their own
+   tinted pill background (see contrast table at the top of this file). */
 td.gap-cell{text-align:right}
 .gap-pill{
   display:inline-block;padding:3px 9px;border-radius:999px;
@@ -442,7 +500,7 @@ td.gap-cell{text-align:right}
 }
 .gap-pill-neg{color:var(--good);background:rgba(var(--gap-green-rgb),var(--gap-alpha,0.16))}
 .gap-pill-pos{color:var(--bad);background:rgba(var(--gap-red-rgb),var(--gap-alpha,0.16))}
-.gap-pill-na{color:var(--text-3);background:rgba(11,14,20,0.05);font-weight:600;font-style:normal}
+.gap-pill-na{color:var(--text-3);background:rgba(255,255,255,0.08);font-weight:600;font-style:normal}
 
 /* ---- inline report accordion (clicking an equity/ETF row) ----
    .accordion-content (not the <tr>/<td> themselves — table rows don't
@@ -450,7 +508,11 @@ td.gap-cell{text-align:right}
    app.js actually height-animates: max-height 0 -> scrollHeight, opacity
    0 -> 1, on open; reversed on close before the row is removed. ≤200ms
    ease-out, the only two-way animated moment besides the score-bar
-   fill-in. */
+   fill-in. Phase 1 fix (carried forward unchanged by this reskin):
+   app.js releases max-height to "none" once the open transition ends, so
+   this row's table layout height always tracks its actual current
+   content instead of a pixel value frozen at open time — see
+   expandAccordionContent()/collapseAccordionRow(). */
 tr.accordion-row > td{padding:0;background:var(--paper);white-space:normal;cursor:default}
 tr.accordion-row:hover > td{background:var(--paper)}
 .accordion-content{overflow:hidden;transition:max-height 200ms var(--ease-out),opacity 200ms var(--ease-out)}
@@ -491,7 +553,7 @@ tr.accordion-row:hover > td{background:var(--paper)}
    the Expectations Gap card specifically, which ALSO never gets a
    background tint for this case (tint is None -> _fr_stat's `style`
    branch never runs). Neutral gray, normal weight — absence must never
-   read as a real (if oddly dark/bold) value, colored or otherwise. */
+   read as a real (if oddly bright/bold) value, colored or otherwise. */
 .report-summary .stat-value-na{color:var(--text-3);font-weight:600}
 
 /* stat card tooltip (e.g. "DCF Base (Systematic)") — dotted underline on
@@ -513,7 +575,7 @@ tr.accordion-row:hover > td{background:var(--paper)}
    sections via each .report-section's own margin/border. */
 .report-section{
   background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius-md);
-  box-shadow:0 2px 10px rgba(11,14,20,0.04);margin-bottom:10px;overflow:hidden;
+  box-shadow:0 2px 8px rgba(0,0,0,0.3);margin-bottom:10px;overflow:hidden;
 }
 .report-section:last-child{margin-bottom:0}
 .report-section summary{
@@ -531,15 +593,22 @@ tr.accordion-row:hover > td{background:var(--paper)}
 .report-section table{margin:0}
 .report-section thead th{font-size:0.625rem;padding:8px 14px}
 .report-section tbody td{font-size:0.8125rem;padding:8px 14px;cursor:default;font-weight:500;color:var(--ink)}
+/* Nested inset panel (e.g. Latest quarter's margin-ratios sub-table) —
+   ONE STEP LIGHTER than the card it sits inside (--surface-2), not
+   darker: on this near-black canvas, "lighter = closer to the viewer"
+   is the more legible nesting cue than the light theme's recessed-inset
+   metaphor. */
 .report-section .surface{
   border:none;box-shadow:none;border-radius:var(--radius-sm);
-  border-top:1px solid var(--hairline);background:var(--paper);margin:0 10px 10px;
+  border-top:1px solid var(--hairline);background:var(--surface-2);margin:0 10px 10px;
   overflow:hidden;
 }
 /* Zebra striping so the eye can track a metric name across to its value
    without losing the row in blank span — every accordion detail table has
    a real <tbody> (engine/report_html.py's _fr_table()), so this is a
-   structural selector, no markup changes needed.
+   structural selector, no markup changes needed. Stripe uses --surface-2
+   (a genuinely distinct, lighter step from the card's own --surface base)
+   so the alternation is actually visible, not two identical tones.
    NOT plain :nth-child(even): Financial position and Latest quarter build
    their rows with _fr_row_with_lineage(), which emits TWO <tr> per logical
    row — the visible data row immediately followed by a hidden
@@ -556,8 +625,8 @@ tr.accordion-row:hover > td{background:var(--paper)}
    hidden siblings sit between them. Tables with no lineage rows at all
    (Margins, Growth, ...) have no .source-row siblings to filter, so this
    degrades to identical behavior to plain :nth-child(2n) there. */
-.report-section tbody tr:nth-child(2n of :not(.source-row)) td{background:var(--surface)}
-.report-section tbody tr:nth-child(2n of :not(.source-row)):hover td{background:rgba(11,14,20,0.03)}
+.report-section tbody tr:nth-child(2n of :not(.source-row)) td{background:var(--surface-2)}
+.report-section tbody tr:nth-child(2n of :not(.source-row)):hover td{background:rgba(var(--signal-rgb),0.06)}
 
 /* Valuation & Sensitivity's WACC x g grid: a two-axis heat tint (deeper =
    higher fair value within THIS grid) layered via a --heat custom
@@ -565,8 +634,10 @@ tr.accordion-row:hover > td{background:var(--paper)}
    for a None cell — no tint, matching the score bars' absence rule).
    Tint only: text stays the same full-ink, fully legible value as every
    other cell, at the standard font — the color is the only thing
-   encoding the second axis. */
-.sens-cell[style]{background:rgba(var(--signal-rgb), calc(0.03 + var(--heat, 0) * 0.17))}
+   encoding the second axis. Base/range bumped slightly for this dark
+   pass so the teal is genuinely visible against near-black at the low
+   end of the scale, not just at the high end. */
+.sens-cell[style]{background:rgba(var(--signal-rgb), calc(0.05 + var(--heat, 0) * 0.22))}
 
 /* ---- per-figure lineage: "Sources" toggle (Task 4) ---- */
 .section-toolbar{display:flex;justify-content:flex-end;padding:0 14px 8px}
@@ -577,9 +648,11 @@ tr.accordion-row:hover > td{background:var(--paper)}
   transition:color .15s ease,border-color .15s ease,background .15s ease;
 }
 .sources-toggle:hover{color:var(--signal-text);border-color:var(--signal-text)}
-.sources-toggle.active{color:var(--signal-text);border-color:var(--signal-text);background:rgba(var(--signal-rgb),0.10)}
+.sources-toggle.active{color:var(--signal-text);border-color:var(--signal-text);background:rgba(var(--signal-rgb),0.14)}
 .source-row{display:none}
 .report-section.sources-on .source-row{display:table-row}
+/* Lineage text is the product here — it must stay fully readable on
+   dark, not fade into a barely-there gray. */
 .source-cell{
   font-family:var(--mono) !important;font-size:0.6875rem !important;color:var(--text-3) !important;
   padding:2px 14px 8px !important;background:var(--paper);white-space:normal !important;
@@ -590,7 +663,7 @@ tr.accordion-row:hover > td{background:var(--paper)}
   padding:10px 14px 0;
 }
 
-/* Data Gaps: rendered as small amber diagnostic chips — these ARE
+/* Data Gaps: rendered as small neutral diagnostic chips — these ARE
    diagnostics, not prose, so they should look like it. Same markup as
    before (a plain <ul class="gaps-list"><li>) — purely a CSS restyle
    from a bulleted list into a wrapped chip row, no engine/ change. */
@@ -599,8 +672,8 @@ tr.accordion-row:hover > td{background:var(--paper)}
   display:flex;flex-wrap:wrap;gap:8px;
 }
 .gaps-list li{
-  font-size:0.75rem;font-weight:600;color:var(--warn);line-height:1.4;
-  background:rgba(166,106,0,0.09);border:1px solid rgba(166,106,0,0.18);
+  font-size:0.75rem;font-weight:600;color:var(--text-3);line-height:1.4;
+  background:rgba(255,255,255,0.06);border:1px solid var(--hairline-strong);
   border-radius:var(--radius-sm);padding:6px 10px;
 }
 
@@ -608,14 +681,23 @@ tr.accordion-row:hover > td{background:var(--paper)}
 .report-error .report-caption{color:var(--text-3);padding:4px 0 0}
 
 /* ---- Flags (Tier 2, engine/flags.py) — lazy-loaded on first expand,
-   see app.js's "toggle" listener on .flags-section ---- */
+   see app.js's "toggle" listener on .flags-section. Entries render as
+   amber chips on dark (severity dot keeps its red/yellow/green meaning;
+   the label/snippet chrome around it is the amber "diagnostic" treatment
+   matching Data Gaps). ---- */
 .flags-body{padding:4px 14px 14px}
-.flags-list{list-style:none;padding:10px 0 0;margin:0}
+.flags-list{list-style:none;padding:10px 0 0;margin:0;display:flex;flex-direction:column;gap:8px}
+/* Each entry as a discrete amber-washed chip/card (not a bordered list
+   row) — the same "diagnostic, not prose" family as Data Gaps' chips,
+   in amber instead of neutral so the two read as related but distinct.
+   The severity dot keeps its own red/yellow/green meaning regardless of
+   this chip wash — severity is the primary signal, amber is the
+   "this is a flag" chrome around it. */
 .flag-item{
   display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;
-  padding:10px 0;border-bottom:1px solid var(--hairline);
+  padding:10px 12px;border-radius:var(--radius-sm);
+  background:rgba(var(--emphasis-rgb),0.08);border:1px solid rgba(var(--emphasis-rgb),0.16);
 }
-.flag-item:last-child{border-bottom:none}
 .flag-dot{
   width:8px;height:8px;border-radius:50%;flex:none;
   align-self:center;
@@ -631,9 +713,9 @@ tr.accordion-row:hover > td{background:var(--paper)}
   padding:1px 8px;
 }
 .flag-snippet{
-  flex-basis:100%;margin:2px 0 0;padding:8px 12px;border-left:3px solid var(--hairline-strong);
+  flex-basis:100%;margin:2px 0 0;padding:8px 12px;border-left:3px solid rgba(var(--emphasis-rgb),0.3);
   font-size:0.8125rem;font-style:italic;color:var(--muted);line-height:1.6;
-  background:var(--paper);border-radius:0 6px 6px 0;
+  background:var(--surface-2);border-radius:0 6px 6px 0;
 }
 .flags-provenance{
   font-size:0.6875rem;color:var(--text-3);letter-spacing:.02em;
@@ -664,7 +746,9 @@ tr.accordion-row:hover > td{background:var(--paper)}
 
 /* ---- Council (Tier 3, engine/council.py) — same lazy-loaded, spend-gated
    shape as Flags above. The readiness checklist and inline consult confirm
-   are the two pieces unique to this section. ---- */
+   are the two pieces unique to this section; restyled only — the actual
+   spend-gate mechanism (app.js consultControl()/loadCouncil()) is
+   untouched by this pass. ---- */
 .council-body{padding:4px 14px 14px}
 .council-access{padding:10px 0 4px}
 
@@ -679,8 +763,10 @@ tr.accordion-row:hover > td{background:var(--paper)}
   display:inline-flex;align-items:center;justify-content:center;
   font-size:10px;font-weight:700;
 }
-.council-readiness-item.ok .council-check{background:rgba(29,125,84,0.14);color:var(--good)}
-.council-readiness-item.missing .council-check{background:rgba(11,14,20,0.06);color:var(--text-3)}
+/* ✓ teal / ✗ muted, per the brief — clear at a glance, no reliance on
+   color alone (the glyph itself carries the meaning too). */
+.council-readiness-item.ok .council-check{background:rgba(var(--gap-green-rgb),0.18);color:var(--good)}
+.council-readiness-item.missing .council-check{background:rgba(255,255,255,0.08);color:var(--text-3)}
 .council-readiness-label{font-weight:600;color:var(--ink)}
 .council-readiness-note{font-size:0.75rem;color:var(--text-3);margin-left:auto}
 
@@ -688,7 +774,8 @@ tr.accordion-row:hover > td{background:var(--paper)}
 
 /* ---- Council: inline spend confirm — same pattern as remove-row's
    confirm chip (no viewport-bottom bar), adapted for a section body
-   instead of an absolutely-positioned row control. ---- */
+   instead of an absolutely-positioned row control. Ghost-button system,
+   same family as Consult/Re-consult/Extract/Re-extract. ---- */
 .council-consult-wrap{display:flex;justify-content:flex-start}
 .council-reconsult-btn{
   font:inherit;font-size:0.6875rem;font-weight:600;letter-spacing:.02em;
@@ -698,8 +785,8 @@ tr.accordion-row:hover > td{background:var(--paper)}
 }
 .council-reconsult-btn:hover{color:var(--signal-text);border-color:var(--signal-text)}
 .council-confirm{
-  background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-md);
-  box-shadow:0 4px 12px rgba(11,14,20,0.14);padding:12px 14px;max-width:420px;
+  background:var(--surface-2);border:1px solid var(--hairline-strong);border-radius:var(--radius-md);
+  box-shadow:0 12px 32px rgba(0,0,0,0.5);padding:12px 14px;max-width:420px;
 }
 .council-confirm-label{font-size:0.8125rem;color:var(--ink);line-height:1.5;margin:0 0 10px}
 .council-confirm-actions{display:flex;gap:8px}
@@ -707,9 +794,9 @@ tr.accordion-row:hover > td{background:var(--paper)}
   font:inherit;font-size:0.75rem;font-weight:600;border:none;border-radius:999px;
   padding:6px 14px;cursor:pointer;transition:background .15s ease,color .15s ease;
 }
-.council-confirm-yes{background:var(--signal-text);color:#fff}
-.council-confirm-yes:hover{background:#0c5c56}
-.council-confirm-no{background:rgba(11,14,20,0.05);color:var(--muted)}
+.council-confirm-yes{background:var(--signal-text);color:var(--on-accent)}
+.council-confirm-yes:hover{background:#8bf2df}
+.council-confirm-no{background:rgba(255,255,255,0.06);color:var(--muted)}
 .council-confirm-no:hover{background:var(--hairline-strong);color:var(--ink)}
 .council-confirm-yes:disabled,.council-confirm-no:disabled{opacity:0.5;cursor:default}
 
@@ -742,7 +829,8 @@ tr.accordion-row:hover > td{background:var(--paper)}
    chip that stays fully visible regardless of hover — the user is
    mid-interaction, not just passing over the row — anchored at the exact
    point the intent was expressed instead of a bar at the bottom of the
-   viewport disconnected from the row it refers to. */
+   viewport disconnected from the row it refers to. Restyled for dark
+   only — removeControl()'s DOM/fetch logic in app.js is untouched. ---- */
 .row-remove-wrap{position:absolute;right:6px;top:50%;transform:translateY(-50%)}
 .row-remove{
   display:inline-flex;align-items:center;justify-content:center;
@@ -755,8 +843,8 @@ tbody tr:hover .row-remove{opacity:1}
 
 .row-remove-confirm{
   display:flex;align-items:center;gap:6px;
-  background:var(--surface);border:1px solid var(--hairline-strong);border-radius:999px;
-  padding:3px 4px 3px 10px;box-shadow:0 4px 12px rgba(11,14,20,0.14);
+  background:var(--surface-2);border:1px solid var(--hairline-strong);border-radius:999px;
+  padding:3px 4px 3px 10px;box-shadow:0 8px 24px rgba(0,0,0,0.5);
   white-space:nowrap;
 }
 .row-remove-label{font-size:0.6875rem;color:var(--muted);font-weight:600}
@@ -765,9 +853,9 @@ tbody tr:hover .row-remove{opacity:1}
   display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;
   transition:background .15s ease,color .15s ease;
 }
-.row-remove-yes{background:rgba(var(--gap-red-rgb),0.12);color:var(--bad)}
-.row-remove-yes:hover{background:var(--bad);color:#fff}
-.row-remove-no{background:rgba(11,14,20,0.05);color:var(--muted)}
+.row-remove-yes{background:rgba(var(--gap-red-rgb),0.16);color:var(--bad)}
+.row-remove-yes:hover{background:var(--bad);color:var(--on-accent)}
+.row-remove-no{background:rgba(255,255,255,0.06);color:var(--muted)}
 .row-remove-no:hover{background:var(--hairline-strong);color:var(--ink)}
 .row-remove-yes:disabled,.row-remove-no:disabled{opacity:0.5;cursor:default}
 
@@ -787,12 +875,12 @@ tbody tr:hover .row-remove{opacity:1}
 
 /* ---- Usage modal (Tier 2 spend visibility) — dark chrome, matching topnav ---- */
 .modal-overlay{
-  position:fixed;inset:0;background:rgba(11,14,20,0.5);
+  position:fixed;inset:0;background:rgba(0,0,0,0.65);
   display:flex;align-items:center;justify-content:center;z-index:30;padding:24px;
 }
 .modal{
   background:var(--chrome-bg);color:var(--chrome-text);border:1px solid var(--chrome-border);
-  border-radius:var(--radius-lg);box-shadow:0 16px 48px rgba(0,0,0,0.4);
+  border-radius:var(--radius-lg);box-shadow:0 16px 48px rgba(0,0,0,0.5);
   width:100%;max-width:560px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;
 }
 .modal-head{
@@ -836,8 +924,41 @@ tbody tr:hover .row-remove{opacity:1}
 
 .hidden{display:none !important}
 
-/* ---- print (Save as PDF -> window.print()) ---- */
+/* ---- print (Save as PDF -> window.print()) — DELIBERATE EXCEPTION to the
+   dark theme (manifesto #9): every screen token above is redefined back
+   to the original light-theme palette here, so every component (score
+   bars, gap pills, flags, council, KPI cards, ...) that references a
+   palette variable automatically renders light-on-white with NO further
+   per-component override needed — the print styles below only need to
+   handle STRUCTURAL differences (hiding chrome, disabling shadows/scroll),
+   not re-fight color on a per-rule basis. This is what "Save as PDF
+   doesn't emit a black page" means concretely: the variables themselves
+   flip, not just a couple of hand-picked elements. ---- */
 @media print{
+  :root{
+    --canvas:#f6f7f9;
+    --paper:#f1f3f6;
+    --surface:#ffffff;
+    --surface-2:#f1f3f6;
+    --ink:#0b0e14;
+    --muted:#5b6472;
+    --text-3:#6b7280;
+    --signal:#0ea5a0;
+    --signal-text:#0f766e;
+    --emphasis:#d97706;
+    --on-accent:#ffffff;
+    --signal-rgb:14,165,160;
+    --emphasis-rgb:217,119,6;
+    --hairline:rgba(11,14,20,0.07);
+    --hairline-strong:rgba(11,14,20,0.14);
+    --card-border:rgba(11,14,20,0.05);
+    --card-shadow:none;
+    --good:#1d7d54;
+    --bad:#c8362f;
+    --warn:#a66a00;
+    --gap-green-rgb:29,125,84;
+    --gap-red-rgb:200,54,47;
+  }
   @page{size:A4 landscape;margin:12mm}
   body{background:#fff;color:#000}
   .topnav,.status-banner,.empty-state,.row-remove-wrap,
