@@ -376,6 +376,38 @@ def test_stale_equity_gap():
     assert res.ratios["roe"].value is None, "ROE must be None when equity is absent"
 
 
+# --- 7b. Stale flow concept must log a gap too (previously silent) ---
+def test_stale_flow_concept_gap():
+    """A flow concept (e.g. interest_expense) that only resolves for an
+    earlier period must not be used for the current anchor year AND must
+    log a gap, exactly like a stale balance-sheet item already does
+    (test_stale_equity_gap above). Before this fix, _fv() already declined
+    to use the stale value (absence-is-not-zero was never violated) but
+    logged nothing -- this is the regression test for the missing
+    disclosure, not for a value change."""
+    def make_flow(metric, year, val, concept="us-gaap:Test"):
+        return Fact(metric, val, f"{year}-12-31", year, concept, "10-K", f"{year + 1}-02-15")
+
+    def make_instant(period_end, val):
+        return Fact("test", val, period_end, int(period_end[:4]), "us-gaap:Test", "10-K", "2027-02-15")
+
+    cd = CompanyData(ticker="STALEFLOW", cik="0000000021", name="Stale Flow Co",
+                     sic="7372", sic_description="Prepackaged Software")
+    cd.series = {
+        "total_assets": [make_instant("2026-12-31", 1000.0)],       # anchor = 2026-12-31
+        "interest_expense": [make_flow("interest_expense", 2025, 5.0)],  # only 2025 -> stale
+    }
+
+    quote = Quote("STALEFLOW", price=10.0, shares_outstanding=10.0, market_cap=100.0, source="test")
+    cfg = {"valuation": {"assumed_tax_rate": 0.21}}
+    res = derive(cd, quote, cfg)
+
+    anchor_year = res.annual_series["2026-12-31"]
+    assert anchor_year.interest_expense is None, "stale interest_expense must not be used for the anchor year"
+    assert any("interest_expense" in g and "2026-12-31" in g for g in res.gaps), \
+        "gap must be logged for the stale flow concept, referencing the anchor period"
+
+
 # --- 8. Gross profit fallback from revenue - cost_of_revenue (item 6) ---
 def test_gross_profit_fallback():
     """When gross_profit absent, derive it from revenue - cost_of_revenue; lineage recorded."""
