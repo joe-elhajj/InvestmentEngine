@@ -157,40 +157,77 @@ sub-score instead of crediting real buyback behavior. Resolving this
 requires an owned split/corporate-actions table (a future session), not a
 heuristic guess at the adjustment factor.
 
-**Open investigation, not yet fixed — "B.3" (read-only, queued before
-Session C).** The Phase 3 sweep reconfirmed that META carries a genuine
-`None`-year, which is why its `gross_profit` gap correctly stays present
-(see the PR-B item below) — but this sweep did not re-derive the underlying
-cause; that diagnosis (specific phantom dates, which XBRL concept, which
-filing) was established in an earlier session and has not been re-verified
-here. The suspected mechanism, not yet re-confirmed in this session: unlike
-flow concepts, which `_annual_points()` filters by duration (350–380 days),
-instant (balance-sheet) concepts have no duration to filter on and currently
-have no fiscal-year-end *alignment* check in its place, so an off-cycle
-instant snapshot embedded in a filing's footnote tables could be accepted as
-if it were a real fiscal year-end. The fix shape, if the diagnosis holds: derive
-the true annual period-ends from validated flow concepts and accept only
-instants whose date matches one of them, rejecting off-cycle snapshots.
-Because instant concepts feed invested capital (ROIC → reinvestment,
-quality) and net debt/liquid assets/coverage (resilience), the blast radius
-is potentially three of five durability categories on META — severity not
-yet established. Full diagnosis (exact dates, exact concept, whether the
-scoring functions actually ingest the phantom year or filter it out) is the
-subject of the queued read-only B.3 session, not settled here.
+**Phantom period-ends — RESOLVED (Session B.3 diagnosis + Session B.4
+fix, 2026-07-05).** Confirmed by B.3 (read-only) against raw `companyfacts`
+JSON: unlike flow concepts, which `_annual_points()` filters by duration
+(350–380 days), instant (balance-sheet) concepts had no fiscal-year-end
+*alignment* check at all — an off-cycle quarterly snapshot embedded in a
+filing's footnote tables (confirmed for META: `us-gaap:Assets` tagged at
+2016-03-31/06-30/09-30, all from the FY2016 10-K, alongside the real
+2016-12-31 point) was accepted as if it were a real fiscal year-end,
+producing phantom entries in `res.annual_series`. B.3 also traced the
+severity directly: the phantom entries' flow-derived fields (`nopat`,
+`gross_margin`, etc.) are always `None` — no flow concept ever gets an
+off-cycle annual point, since the duration filter is unconditional — so
+`_score_reinvestment`/`_score_quality`/`_score_resilience` never ingested
+them; a strip-and-rescore comparison confirmed composite and every category
+byte-identical with and without the phantoms, for META, BE, and AXON (the
+three affected tickers found in a 12-ticker scope check).
 
-**gross_profit false-gap reconciliation (Session B.2 S3, PR-B).**
-`engine/pipeline.py`'s gap-accounting snapshotted `res.gaps` before the
-per-year fallback computation ran, so a `gross_profit` gap could survive in
-the reported gap list even when every year's fallback actually resolved a
-value. The fix clears the gap only when every year in `annual_series` has a
-non-`None` `gross_profit` after the fallback runs. The Phase 3 sweep found
-this fires for CAT, GOOGL, and AMZN — not only the originally-diagnosed CAT
-— because the condition is general, not CAT-specific. META's `gross_profit`
-gap correctly stays present: it has a genuine `None` year from the B.3
-phantom-period-end issue above, so the fallback cannot resolve every year,
-and the gap is real, not a false positive. No composite or discipline score
-changed for any of these tickers — this fix only removes a spurious entry
-from the disclosed gap list.
+Session B.4 fixed this structurally (PR-1): derives the true fiscal-year-end
+anchor set from the already duration-validated `revenue` series and rejects
+instant points whose `end` isn't within 3 days of an anchor (absorbing
+52/53-week calendar drift without admitting a ~90-day-off quarterly
+snapshot). Falls back to unfiltered admission when revenue has no history
+(shell/new listing). META's `annual_series` went from 18 to 15 entries
+(the three 2016 phantoms removed); BE from 17 to 11; AXON from 19 to 17;
+every other ticker unchanged. PR-2 additionally hardened
+`_score_reinvestment`'s reinvestment-rate arithmetic to pair-gate
+`invested_capital` and `nopat` on the *same* `YearlyDerived` entry (matching
+`roic_vals`'s existing pattern) — closing a dormant bug where a duplicate-
+year entry could contribute its own `invested_capital` to a delta paired
+against a *different* real entry's `nopat` via a year-keyed lookup. This was
+never observed firing (no phantom or near-anchor entry in the current
+universe has `invested_capital` resolved), but it is no longer possible by
+construction.
+
+The Session B.4 verification sweep (14 tickers: the 12 above plus COST and
+AMAT) confirmed zero composite/category movement, zero change to
+`delivered_growth`/its label/`normalized_fcf`/`expectations_gap`, for every
+ticker — including COST and AMAT, which have no off-cycle instants at all.
+
+**Known limitation (backlog, not fixed).** PR-1's 3-day tolerance
+correctly re-admits genuine near-fiscal-year-end instants (e.g. a "beginning
+of year" snapshot tagged one day after the prior year's close), but those
+survivors still take their `fiscal_year` label from `int(end[:4])` — the
+instant's own year, not the fiscal year it actually represents. Confirmed
+live: BE (`2019-01-01`, `2020-01-01`) and AXON (`2018-01-01`, `2019-01-01`)
+each retain one such near-anchor entry per affected year, mislabeled one
+year later than the FYE it represents, coexisting with the real entry for
+that fiscal year — a duplicate-year condition (harmless today only because
+these particular entries lack `invested_capital`; PR-2 makes the arithmetic
+safe regardless). The structural cure is for a tolerance-matched instant's
+`fiscal_year` to come from the *matched anchor's* fiscal year, not from its
+own `end` date — not implemented here; flagged for a future session.
+
+**gross_profit false-gap reconciliation (Session B.2 S3, PR-B) — corrected
+2026-07-05.** `engine/pipeline.py`'s gap-accounting snapshotted `res.gaps`
+before the per-year fallback computation ran, so a `gross_profit` gap could
+survive in the reported gap list even when every year's fallback actually
+resolved a value. The fix clears the gap only when every year in
+`annual_series` has a non-`None` `gross_profit` after the fallback runs.
+The Session B.2 Phase 3 sweep found this fired for CAT, GOOGL, and AMZN —
+not only the originally-diagnosed CAT — and reported that META's gap
+correctly stayed present, reasoning it had "a genuine `None` year" and
+"the gap is real, not a false positive." **That reasoning no longer holds.**
+Session B.4 (PR-1) proved the `None`-year was phantom-manufactured: once
+the three off-cycle 2016 entries are removed, every one of META's *real*
+years resolves `gross_profit` via the fallback, and the gap clears — exactly
+like CAT, GOOGL, and AMZN. There was never a genuine gap; the phantom
+entries were the only thing keeping PR-B's `all(...)` condition from being
+satisfied. No composite or discipline score changed for any of these
+tickers — this fix, and PR-1's downstream effect on it, only affect the
+disclosed gap list.
 
 ---
 
