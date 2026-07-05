@@ -546,6 +546,22 @@ def _flags_section(ticker: str) -> str:
     )
 
 
+def _council_section(ticker: str) -> str:
+    """
+    Tier 3 (engine/council.py) — same non-deterministic, separately-cached
+    pattern as _flags_section above: content is fetched client-side from
+    /api/council/{ticker} on first expand, never server-rendered here.
+    Equity-only (a fund has no 10-K, so it never has flags for a council to
+    read either); closed by default, same as every other section.
+    """
+    return (
+        f'<details class="report-section council-section" data-ticker="{escape(ticker)}">'
+        "<summary>Council</summary>"
+        '<div class="council-body"><p class="report-caption">Loading council…</p></div>'
+        "</details>"
+    )
+
+
 def _fr_details_with_sources(title: str, content: str, open_: bool = False) -> str:
     """
     Same as _fr_details, plus a "Sources" toggle button in a small toolbar
@@ -752,6 +768,7 @@ def render_fragment(
     gaps_section = _fr_details("Data gaps", gaps_html)
 
     flags_section = _flags_section(res.company.ticker)
+    council_section = _council_section(res.company.ticker)
 
     return (
         '<div class="report-fragment">'
@@ -763,6 +780,7 @@ def render_fragment(
         + valuation_html
         + gaps_section
         + flags_section
+        + council_section
         + "</div>"
     )
 

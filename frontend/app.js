@@ -679,6 +679,218 @@
     loadFlags(details, "refresh=true");
   });
 
+  // ---- Council (Tier 3) — spend-gated, reuses the exact same pattern as
+  // Flags above: expanding the "Council" <details>
+  // (engine/report_html.py's _council_section()) always does a FREE check
+  // against GET /api/council/{ticker} — that endpoint never makes a paid
+  // model call on its own. Three renderable states come back:
+  //   state: "blocked_no_flags" -> Tier 2 flags aren't extracted yet for
+  //     this filing. The readiness checklist still renders (quant may
+  //     still be available), and Consult Council still works — the
+  //     inline confirm below is what tells the analyst the run will be
+  //     "test mode" (quant only, no qualitative flags).
+  //   state: "not_cached"       -> readiness checklist + a call/cost
+  //     estimate + Consult Council, which is the ONLY thing that ever
+  //     fires ?convene=true.
+  //   state: "ok"               -> the cached council record (or one just
+  //     convened), plus a Re-consult control that fires
+  //     ?convene=true&refresh=true after an inline confirm.
+  // Unlike Flags' re-extract (a window.confirm()), the spend confirmation
+  // here is inline — matching the remove-row pattern (no viewport-bottom
+  // bars) — since a council convene is a heavier, more consequential
+  // action worth a proper explanatory chip, not a one-line browser dialog.
+
+  function renderCouncilReadiness(data) {
+    var status = data.evidence_status || {};
+    var quantOk = status.quant === "ok";
+    var flagsOk = status.flags === "cached";
+    var rows = [
+      { ok: quantOk, label: "Quantitative analysis", note: quantOk ? null : "not available" },
+      { ok: flagsOk, label: "Qualitative flags", note: flagsOk ? null : "not extracted" },
+      { ok: false, label: "Thesis", note: "no thesis on file (not yet built)" },
+    ];
+    var html = '<ul class="council-readiness">';
+    rows.forEach(function (r) {
+      html += '<li class="council-readiness-item ' + (r.ok ? "ok" : "missing") + '">'
+        + '<span class="council-check">' + (r.ok ? "✓" : "✗") + "</span>"
+        + '<span class="council-readiness-label">' + escapeHtml(r.label) + "</span>"
+        + (r.note ? '<span class="council-readiness-note">' + escapeHtml(r.note) + "</span>" : "")
+        + "</li>";
+    });
+    html += "</ul>";
+    return { html: html, flagsOk: flagsOk };
+  }
+
+  var closeOpenCouncilConfirm = null; // currently-open inline confirm's own reset fn, or null
+
+  document.addEventListener("click", function (ev) {
+    if (closeOpenCouncilConfirm && !ev.target.closest(".council-consult-wrap")) {
+      closeOpenCouncilConfirm();
+    }
+  });
+
+  // Builds the trigger button + inline confirm chip. flagsAvailable controls
+  // the confirm copy ("test mode" caveat when Tier 2 flags aren't cached);
+  // isReconsult controls the button label and whether ?refresh=true is
+  // appended to the eventual POST.
+  function consultControl(ticker, details, flagsAvailable, isReconsult) {
+    var wrap = document.createElement("div");
+    wrap.className = "council-consult-wrap";
+
+    var trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = isReconsult ? "btn council-reconsult-btn" : "btn btn-primary council-consult-btn";
+    trigger.textContent = isReconsult ? "Re-consult council" : "Consult council";
+    wrap.appendChild(trigger);
+
+    function showTrigger() {
+      if (closeOpenCouncilConfirm === showTrigger) closeOpenCouncilConfirm = null;
+      wrap.innerHTML = "";
+      wrap.appendChild(trigger);
+    }
+
+    function showConfirm() {
+      if (closeOpenCouncilConfirm) closeOpenCouncilConfirm();
+      wrap.innerHTML = "";
+
+      var confirmWrap = document.createElement("div");
+      confirmWrap.className = "council-confirm";
+
+      var label = document.createElement("p");
+      label.className = "council-confirm-label";
+      label.textContent = flagsAvailable
+        ? "This runs a multi-call, paid council convene for " + ticker + " using the quantitative analysis and cached qualitative flags."
+        : "Qualitative flags are not extracted for " + ticker + " yet — the council will run in test mode, using quantitative analysis only. Still a multi-call, paid operation.";
+
+      var actions = document.createElement("div");
+      actions.className = "council-confirm-actions";
+
+      var yes = document.createElement("button");
+      yes.type = "button";
+      yes.className = "council-confirm-yes";
+      yes.textContent = "Confirm & consult";
+
+      var no = document.createElement("button");
+      no.type = "button";
+      no.className = "council-confirm-no";
+      no.textContent = "Cancel";
+
+      actions.appendChild(yes);
+      actions.appendChild(no);
+      confirmWrap.appendChild(label);
+      confirmWrap.appendChild(actions);
+      wrap.appendChild(confirmWrap);
+
+      yes.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        yes.disabled = true;
+        no.disabled = true;
+        yes.textContent = "Consulting…";
+        loadCouncil(details, isReconsult ? "convene=true&refresh=true" : "convene=true");
+      });
+      no.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        showTrigger();
+      });
+
+      closeOpenCouncilConfirm = showTrigger;
+    }
+
+    trigger.addEventListener("click", function (ev) {
+      ev.stopPropagation();
+      showConfirm();
+    });
+
+    return wrap;
+  }
+
+  function renderCouncilAccess(body, details, data) {
+    var readiness = renderCouncilReadiness(data);
+    var costLine = data.estimated_cost_usd !== undefined
+      ? '<p class="council-estimate">Estimated cost: ' + escapeHtml(fmtEstimatedCost(data.estimated_cost_usd)) + " (" + data.calls + " calls)</p>"
+      : "";
+    var message = data.state === "blocked_no_flags" && data.message
+      ? '<p class="report-caption">' + escapeHtml(data.message) + "</p>"
+      : "";
+    body.innerHTML =
+      '<div class="council-access">' + readiness.html + message + costLine + '<div class="council-action"></div></div>';
+    body.querySelector(".council-action").appendChild(
+      consultControl(details.dataset.ticker, details, readiness.flagsOk, false)
+    );
+  }
+
+  function renderOkCouncil(body, details, data) {
+    var meta = data.meta || {};
+    var chairman = data.chairman || {};
+    var advisors = data.advisors || [];
+
+    var advisorsHtml = advisors.length
+      ? '<ul class="council-advisors">' + advisors.map(function (a) {
+          return '<li class="council-advisor-item">'
+            + '<span class="council-advisor-name">' + escapeHtml(a.name) + "</span>"
+            + '<span class="council-advisor-position">' + escapeHtml(a.position || "unparsed") + "</span>"
+            + "</li>";
+        }).join("") + "</ul>"
+      : "";
+
+    var flagsHtml = (meta.status_flags || []).length
+      ? '<p class="council-status-flags">' + meta.status_flags.map(escapeHtml).join(", ") + "</p>"
+      : "";
+
+    body.innerHTML =
+      '<div class="council-toolbar"></div>'
+      + '<div class="council-verdict">'
+      + '<span class="council-verdict-label">' + escapeHtml(chairman.verdict || "n/a") + "</span>"
+      + "</div>"
+      + flagsHtml
+      + advisorsHtml
+      + '<p class="council-provenance">'
+      + "Model: " + escapeHtml(meta.model || "n/a") + " &middot; Prompt: " + escapeHtml(meta.prompt_version || "n/a")
+      + " &middot; Convened: " + escapeHtml(meta.convened_at || "n/a")
+      + "</p>";
+
+    body.querySelector(".council-toolbar").appendChild(
+      consultControl(details.dataset.ticker, details, true, true)
+    );
+  }
+
+  function renderCouncilBody(body, details, data) {
+    if (data.state === "ok") {
+      renderOkCouncil(body, details, data);
+    } else {
+      renderCouncilAccess(body, details, data);
+    }
+  }
+
+  function loadCouncil(details, query) {
+    var ticker = details.dataset.ticker;
+    var body = details.querySelector(".council-body");
+    var isConsult = !!query && query.indexOf("convene=true") !== -1;
+    var url = "/api/council/" + encodeURIComponent(ticker) + (query ? "?" + query : "");
+    (isConsult ? fetch(url, { method: "POST" }) : fetch(url))
+      .then(function (r) {
+        if (!r.ok) {
+          return r.json().catch(function () { return {}; }).then(function (b) {
+            throw new Error(extractErrorMessage(b.detail, "HTTP " + r.status));
+          });
+        }
+        return r.json();
+      })
+      .then(function (data) { renderCouncilBody(body, details, data); })
+      .catch(function (e) {
+        body.innerHTML = '<p class="report-caption">Council unavailable: ' + escapeHtml(e.message) + "</p>";
+      });
+  }
+
+  // Same non-bubbling-"toggle"-event workaround as Flags above.
+  document.addEventListener("toggle", function (ev) {
+    var details = ev.target;
+    if (!details.classList || !details.classList.contains("council-section")) return;
+    if (!details.open || details.dataset.loaded === "true") return;
+    details.dataset.loaded = "true";
+    loadCouncil(details);
+  }, true);
+
   // ---- remove from watchlist: inline confirm, immediate removal ----
   //
   // Bug (reported): click × -> a confirm bar at the bottom of the
