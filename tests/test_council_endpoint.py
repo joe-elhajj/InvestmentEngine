@@ -134,10 +134,28 @@ class TestGetCouncil:
         fastapi_app.state.anthropic_client = MagicMock()
         with patch("app.main._FLAGS_CACHE_DIR", tmp_path / "flags"), \
              patch("app.main._COUNCIL_CACHE_DIR", tmp_path / "council"), \
-             patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs):
+             patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("app.main._get_analysis_result", return_value=_analysis_result()):
             resp = client.get("/api/council/NVDA")
         assert resp.status_code == 200
         assert resp.json()["state"] == "blocked_no_flags"
+        assert resp.json()["evidence_status"] == {"quant": "ok", "flags": "not_extracted", "thesis": "pre_thesis"}
+        fastapi_app.state.anthropic_client.messages.create.assert_not_called()
+
+    def test_flags_not_cached_and_quant_unavailable_reports_both_missing(self, client, tmp_path):
+        """The readiness checklist (Quant / Flags / Thesis) must be
+        server-computed independently — a ticker with no analysis on file
+        yet AND no flags extracted reports both rows missing, not just
+        the one the code happened to check first."""
+        fs = _filing_sections()
+        fastapi_app.state.anthropic_client = MagicMock()
+        with patch("app.main._FLAGS_CACHE_DIR", tmp_path / "flags"), \
+             patch("app.main._COUNCIL_CACHE_DIR", tmp_path / "council"), \
+             patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("app.main._get_analysis_result", side_effect=RuntimeError("no analysis cached")):
+            resp = client.get("/api/council/NVDA")
+        assert resp.status_code == 200
+        assert resp.json()["evidence_status"] == {"quant": "error", "flags": "not_extracted", "thesis": "pre_thesis"}
         fastapi_app.state.anthropic_client.messages.create.assert_not_called()
 
     def test_cache_miss_with_flags_cached_returns_estimate_no_model_call(self, client, tmp_path):
@@ -200,6 +218,23 @@ class TestConveneCouncil:
              patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs):
             resp = client.post("/api/council/NVDA?convene=true")
         assert resp.status_code == 409
+        fastapi_app.state.anthropic_client.messages.create.assert_not_called()
+
+    def test_refuses_when_quant_unavailable_no_model_call(self, client, tmp_path):
+        """Flags cached but Tier 1 analysis errors out (e.g. EDGAR/yfinance
+        failure) — bundle assembly must fail BEFORE the model-call block
+        below it in convene_council(), so nothing gets spent even though
+        this isn't a clean 4xx today."""
+        fs = _filing_sections()
+        flags_cache = tmp_path / "flags"
+        _seed_flags_cache(flags_cache)
+        fastapi_app.state.anthropic_client = MagicMock()
+        with patch("app.main._FLAGS_CACHE_DIR", flags_cache), \
+             patch("app.main._COUNCIL_CACHE_DIR", tmp_path / "council"), \
+             patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("app.main._get_analysis_result", side_effect=RuntimeError("EDGAR unavailable")), \
+             pytest.raises(RuntimeError):
+            client.post("/api/council/NVDA?convene=true")
         fastapi_app.state.anthropic_client.messages.create.assert_not_called()
 
     def test_no_api_key_returns_503(self, client, tmp_path):

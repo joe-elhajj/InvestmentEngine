@@ -662,6 +662,80 @@ tr.accordion-row:hover > td{background:var(--paper)}
   padding:8px 14px 0;
 }
 
+/* ---- Council (Tier 3, engine/council.py) — same lazy-loaded, spend-gated
+   shape as Flags above. The readiness checklist and inline consult confirm
+   are the two pieces unique to this section. ---- */
+.council-body{padding:4px 14px 14px}
+.council-access{padding:10px 0 4px}
+
+.council-readiness{list-style:none;padding:0;margin:0 0 10px}
+.council-readiness-item{
+  display:flex;align-items:center;gap:8px;padding:6px 0;
+  border-bottom:1px solid var(--hairline);font-size:0.8125rem;
+}
+.council-readiness-item:last-child{border-bottom:none}
+.council-check{
+  width:16px;height:16px;border-radius:50%;flex:none;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;
+}
+.council-readiness-item.ok .council-check{background:rgba(29,125,84,0.14);color:var(--good)}
+.council-readiness-item.missing .council-check{background:rgba(11,14,20,0.06);color:var(--text-3)}
+.council-readiness-label{font-weight:600;color:var(--ink)}
+.council-readiness-note{font-size:0.75rem;color:var(--text-3);margin-left:auto}
+
+.council-estimate{font-size:0.75rem;color:var(--muted);margin:0 0 12px}
+
+/* ---- Council: inline spend confirm — same pattern as remove-row's
+   confirm chip (no viewport-bottom bar), adapted for a section body
+   instead of an absolutely-positioned row control. ---- */
+.council-consult-wrap{display:flex;justify-content:flex-start}
+.council-reconsult-btn{
+  font:inherit;font-size:0.6875rem;font-weight:600;letter-spacing:.02em;
+  color:var(--text-3);background:transparent;border:1px solid var(--hairline-strong);
+  border-radius:999px;padding:5px 12px;cursor:pointer;
+  transition:color .15s ease,border-color .15s ease;
+}
+.council-reconsult-btn:hover{color:var(--signal-text);border-color:var(--signal-text)}
+.council-confirm{
+  background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-md);
+  box-shadow:0 4px 12px rgba(11,14,20,0.14);padding:12px 14px;max-width:420px;
+}
+.council-confirm-label{font-size:0.8125rem;color:var(--ink);line-height:1.5;margin:0 0 10px}
+.council-confirm-actions{display:flex;gap:8px}
+.council-confirm-yes,.council-confirm-no{
+  font:inherit;font-size:0.75rem;font-weight:600;border:none;border-radius:999px;
+  padding:6px 14px;cursor:pointer;transition:background .15s ease,color .15s ease;
+}
+.council-confirm-yes{background:var(--signal-text);color:#fff}
+.council-confirm-yes:hover{background:#0c5c56}
+.council-confirm-no{background:rgba(11,14,20,0.05);color:var(--muted)}
+.council-confirm-no:hover{background:var(--hairline-strong);color:var(--ink)}
+.council-confirm-yes:disabled,.council-confirm-no:disabled{opacity:0.5;cursor:default}
+
+.council-toolbar{display:flex;justify-content:flex-end;padding:0 0 8px}
+.council-verdict{padding:4px 0 10px}
+.council-verdict-label{
+  font-family:var(--mono);font-size:1rem;font-weight:700;color:var(--ink);
+  text-transform:uppercase;letter-spacing:.02em;
+}
+.council-status-flags{font-size:0.75rem;color:var(--warn);margin:0 0 8px}
+.council-advisors{list-style:none;padding:0;margin:0 0 10px}
+.council-advisor-item{
+  display:flex;justify-content:space-between;gap:12px;padding:6px 0;
+  border-bottom:1px solid var(--hairline);font-size:0.8125rem;
+}
+.council-advisor-item:last-child{border-bottom:none}
+.council-advisor-name{color:var(--muted);font-weight:600}
+.council-advisor-position{
+  font-family:var(--mono);font-size:0.75rem;color:var(--ink);
+  text-transform:uppercase;letter-spacing:.02em;
+}
+.council-provenance{
+  font-size:0.6875rem;color:var(--text-3);letter-spacing:.02em;
+  padding:12px 0 0;border-top:1px solid var(--hairline);margin-top:4px;
+}
+
 /* ---- remove-from-watchlist: inline, not a viewport-bottom bar ----
    The trigger (×) is hover-gated per row, same as before. Once clicked,
    .row-remove-wrap's content is swapped for a compact "Remove? ✓ / ✕"

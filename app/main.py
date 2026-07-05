@@ -804,9 +804,22 @@ async def get_council(ticker: str):
     filing_sections, flags_cached, flags_model, flags_prompt_version = await _council_preflight(tk)
 
     if not flags_cached:
+        # _get_analysis_result is Tier 1's deterministic EDGAR/yfinance path
+        # (cached per-ticker already, since the fragment this checklist
+        # renders inside couldn't exist without a successful analysis) — safe
+        # to call here even though flags aren't cached, unlike
+        # _assemble_council_bundle below, which must never run before
+        # flags_cached is confirmed True (it would trigger a real extraction
+        # via FLAGS.get_flags on a cache miss).
+        quant_status = "ok"
+        try:
+            await _get_analysis_result(tk)
+        except Exception:
+            quant_status = "error"
         return {
             "state": "blocked_no_flags",
             "message": f"Flags not extracted for {tk} yet. Extract them first: GET /api/flags/{tk}?extract=true.",
+            "evidence_status": {"quant": quant_status, "flags": "not_extracted", "thesis": "pre_thesis"},
         }
 
     council_prompt_version = app.state.cfg.get("council", {}).get("prompt_version", "v1")

@@ -213,6 +213,38 @@ class TestFlagsSection:
         assert "<summary>Flags</summary>" not in frag
 
 
+class TestCouncilSection:
+    """Tier 3 (engine/council.py) access section — mirrors TestFlagsSection
+    above exactly: equity-only, closed by default, client-populated
+    placeholder (app.js fetches /api/council/{ticker} on first expand)."""
+
+    def test_council_section_present_on_equity_fragment(self):
+        frag = RH.render_fragment(_company_result())
+        assert 'class="report-section council-section"' in frag
+        assert "<summary>Council</summary>" in frag
+
+    def test_council_section_carries_the_correct_ticker(self):
+        frag = RH.render_fragment(_company_result())
+        assert 'data-ticker="RPT"' in frag
+
+    def test_council_section_is_closed_by_default(self):
+        frag = RH.render_fragment(_company_result())
+        match = re.search(r'<details class="report-section council-section"[^>]*>', frag)
+        assert match
+        assert " open" not in match.group(0)
+
+    def test_council_section_comes_after_flags_section(self):
+        frag = RH.render_fragment(_company_result())
+        assert frag.index('class="report-section flags-section"') < frag.index('class="report-section council-section"')
+
+    def test_council_section_absent_from_etf_fragment(self):
+        from engine.etf import EtfProfile
+        profile = EtfProfile(ticker="QQQ", name="Invesco QQQ Trust", quote_type="ETF")
+        frag = RH.render_etf_fragment(profile, price=500.0, evidence="ETF/Fund — fund forms observed", overlap_matches=[])
+        assert "council-section" not in frag
+        assert "<summary>Council</summary>" not in frag
+
+
 class TestSharedBuildersProduceConsistentData:
     """The dark and light renderers must show the SAME figures — only the
     layout differs. This is the regression test for 'do not fork the report
