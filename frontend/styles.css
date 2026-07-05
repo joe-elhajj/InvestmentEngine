@@ -522,6 +522,23 @@ td.gap-cell{text-align:right}
 .gap-pill-pos{color:var(--bad);background:rgba(var(--gap-red-rgb),var(--gap-alpha,0.16))}
 .gap-pill-na{color:var(--text-3);background:rgba(255,255,255,0.08);font-weight:600;font-style:normal}
 
+/* ---- Basis-disclosure badge (Session B): a small superscript marker on
+   Implied g / Delivered g / Gap cells declaring that a number's basis is
+   non-default (a market-vendor-tier input, a stale CAGR window, or a
+   revenue-not-FCF fallback). Amber-washed like .flag-item — "this is a
+   disclosure," same visual family as the Data Gaps/flags chips — but
+   compact and inline since it rides alongside a cell's existing value
+   rather than occupying its own row. Reuses .has-tooltip/.th-tooltip
+   verbatim for the hover/focus popup. */
+.basis-badge{
+  display:inline-block;margin-left:5px;padding:1px 5px;border-radius:5px;
+  font-family:var(--mono);font-size:0.625rem;font-weight:700;
+  letter-spacing:.02em;text-transform:uppercase;vertical-align:super;
+  color:var(--emphasis);background:rgba(var(--emphasis-rgb),0.14);
+  border:1px solid rgba(var(--emphasis-rgb),0.3);cursor:default;
+}
+.basis-badge .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
+
 /* ---- inline report accordion (clicking an equity/ETF row) ----
    .accordion-content (not the <tr>/<td> themselves — table rows don't
    animate height reliably under the table layout algorithm) is what

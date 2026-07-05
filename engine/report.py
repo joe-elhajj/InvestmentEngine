@@ -155,7 +155,8 @@ def render(res: AnalysisResult, peer_table: list | None = None) -> str:
             star = " *" if m.note else ""
             return _pct(m.value) + star
         w(f"| {label} | {cell(5)} | {cell(10)} | {cell(15)} |")
-    w("\n*\\* limited history; see notes.*")
+    w("\n*\\* non-standard window (too little or too much history for the "
+      "requested horizon) — see the underlying metric's note.*")
     w("")
 
     # --- Margins & returns --------------------------------------------------
