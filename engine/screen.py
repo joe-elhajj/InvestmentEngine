@@ -133,6 +133,20 @@ class ScreenRow:
     quality_value_score: Optional[float]     # composite_pct − gap_pct; None if gap unavailable
     flag: str                                # "" | classification evidence | "error:<msg>"
     excluded: bool = False
+    # Basis-disclosure signals (Session B): computed upstream, previously
+    # dropped before reaching the UI. delivered_growth_label distinguishes
+    # the clean FCF-CAGR path from the revenue-CAGR fallback (a mixed-base
+    # comparison against implied_fcf_growth) and, since Session B's cagr_over
+    # extension, may also carry a stale-window note (e.g. NVDA's permanent
+    # capex absence forcing a 14y-vs-5y-requested window). quote_source and
+    # diluted_shares_gap together identify the "Visa condition": a
+    # market-vendor-tier (yfinance) share count feeding a headline number
+    # because EDGAR's diluted_shares extraction failed — not every
+    # yfinance-sourced quote, only the ones where trust tier actually
+    # changes a score-derived number's interpretation.
+    delivered_growth_label: str = ""
+    quote_source: str = ""
+    diluted_shares_gap: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -418,6 +432,9 @@ def _process_one(
         implied_growth_note=ig_note,
         quality_value_score=None,   # filled in batch step
         flag=flag,
+        delivered_growth_label=res.delivered_growth_label,
+        quote_source=quote.source,
+        diluted_shares_gap="diluted_shares" in res.gaps,
     ), None
 
 

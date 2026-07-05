@@ -278,6 +278,33 @@ def _gaps_list(res: AnalysisResult) -> list[str]:
     return list(res.gaps)
 
 
+def _basis_disclosure_tooltip(res: AnalysisResult) -> str:
+    """
+    Session B: the Expectations Gap number is implied-growth minus
+    delivered-growth, but neither of those two components' basis is
+    surfaced anywhere else on this fragment. Combine whichever basis
+    caveats actually apply into one tooltip, attached to the one stat that
+    exists here whose interpretation depends on them — empty string (no
+    tooltip) in the common case where neither applies.
+    """
+    parts: list[str] = []
+    label = res.delivered_growth_label
+    if label.startswith("revenue CAGR"):
+        parts.append(
+            "Delivered growth is a revenue-CAGR fallback (FCF history non-positive "
+            "or unavailable), not FCF — this Gap compares implied FCF growth "
+            "against delivered REVENUE growth, not a like-for-like FCF gap."
+        )
+    if "window:" in label:
+        parts.append(f"Delivered growth basis: {label}.")
+    if res.quote.source == "yfinance" and "diluted_shares" in res.gaps:
+        parts.append(
+            "Implied growth's share count is from yfinance (market-vendor tier) — "
+            "EDGAR diluted_shares was unavailable for this ticker."
+        )
+    return " ".join(parts)
+
+
 def _summary(
     res: AnalysisResult,
     durability_composite: Optional[float] = None,
@@ -299,6 +326,7 @@ def _summary(
         "durability_composite": f"{durability_composite:.1f}" if durability_composite is not None else "n/a",
         "expectations_gap": _fmt_signed_pct(res.expectations_gap) if res.expectations_gap is not None else "n/a",
         "expectations_gap_raw": res.expectations_gap,
+        "expectations_gap_tooltip": _basis_disclosure_tooltip(res),
         "dcf_upside": _fmt_pct(upside) if upside is not None else "n/a",
         "dcf_upside_raw": upside,
     }
@@ -633,7 +661,10 @@ def render_fragment(
         + _fr_stat("Price", summary["price"])
         + _fr_stat("Market Cap", summary["market_cap"])
         + _fr_stat("Durability", summary["durability_composite"])
-        + _fr_stat("Expectations Gap", summary["expectations_gap"], tint=summary["expectations_gap_raw"])
+        + _fr_stat(
+            "Expectations Gap", summary["expectations_gap"], tint=summary["expectations_gap_raw"],
+            tooltip=summary["expectations_gap_tooltip"] or None,
+        )
         + _fr_stat(
             "DCF Base (Systematic)", summary["dcf_upside"],
             tooltip=(

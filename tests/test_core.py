@@ -204,6 +204,25 @@ def test_metrics():
     assert M.interest_coverage(100, 0).value is None, "interest coverage handles 0 -> None"
 
 
+def test_cagr_over_window_notes():
+    """Session B disclosure: cagr_over must annotate BOTH directions of a
+    window mismatch, not just the under-window case. elapsed == target_years
+    exactly must emit neither note."""
+    under = M.cagr_over([(2020, 100), (2021, 110), (2022, 121)], 5)
+    assert under.value is not None
+    assert under.note == "only 2y of history available"
+
+    over = M.cagr_over(
+        [(2010, 50), (2011, 55), (2022, 100), (2023, 110), (2024, 121), (2025, 133), (2026, 146)], 5
+    )
+    assert over.value is not None
+    assert over.note == "window: 15y actual vs 5y requested (sparse early data)"
+
+    exact = M.cagr_over([(2018, 100), (2023, 150)], 5)
+    assert exact.value is not None
+    assert exact.note == ""
+
+
 # --- 3. peer comp-set + scoring ---
 def test_peers():
     candidates = [

@@ -153,6 +153,24 @@
     return cell;
   }
 
+  // Session B basis-disclosure badge: a small superscript marker + hover
+  // tooltip attached to an existing cell, reusing the generic .has-tooltip/
+  // .th-tooltip pattern (already shared by column headers and the analyze
+  // fragment's stat cards) rather than inventing a new tooltip mechanism.
+  // Purely additive — never changes the cell's existing displayValue/pill,
+  // only appends a marker beside it when the caller's condition is true.
+  function appendBasisBadge(cell, text, tooltip) {
+    var badge = document.createElement("span");
+    badge.className = "basis-badge has-tooltip";
+    badge.tabIndex = 0;
+    badge.textContent = text;
+    var tip = document.createElement("div");
+    tip.className = "th-tooltip";
+    tip.textContent = tooltip;
+    badge.appendChild(tip);
+    cell.appendChild(badge);
+  }
+
   // ---- API helpers ----
 
   function apiGet(url) {
@@ -1194,15 +1212,49 @@
 
     var gated = !!row.implied_growth_note;
     var impliedTd = td(gated ? null : fmtPct(row.implied_fcf_growth));
+    // Trust-tier indicator (Session B, the "Visa condition"): only when a
+    // headline number actually rests on a lower-trust input — a market-
+    // vendor (yfinance) share count because EDGAR's diluted_shares
+    // extraction failed for this ticker. Not shown for every yfinance-
+    // sourced quote, only where trust tier changes the interpretation of
+    // this score-derived number.
+    if (row.quote_source === "yfinance" && row.diluted_shares_gap) {
+      appendBasisBadge(
+        impliedTd, "mkt",
+        "Share count from yfinance (market-vendor tier) — EDGAR diluted_shares " +
+          "unavailable for this ticker (e.g. a multi-class share structure). " +
+          "Implied growth here rests on a lower-trust input than every other row."
+      );
+    }
     tr.appendChild(impliedTd);
     cellsByKey.implied_fcf_growth = impliedTd;
 
     var deliveredTd = td(fmtPct(row.delivered_fcf_growth));
+    // Stale-window note (Session B): cagr_over's window can run far past
+    // the requested horizon when a data gap forces the earliest usable
+    // point much further back (e.g. NVDA's permanent capex absence). Only
+    // shown when that note is actually present in the label.
+    if (row.delivered_growth_label && row.delivered_growth_label.indexOf("window:") !== -1) {
+      appendBasisBadge(deliveredTd, "win", "Basis: " + row.delivered_growth_label);
+    }
     tr.appendChild(deliveredTd);
     cellsByKey.delivered_fcf_growth = deliveredTd;
 
     var gapVal = gated ? null : row.expectations_gap;
     var gapTd = gapCell(gapVal, gated ? null : fmtSignedPct(row.expectations_gap));
+    // Mixed-base marker (Session B): delivered growth fell back to revenue
+    // CAGR (FCF history non-positive or unavailable), so this Gap compares
+    // implied FCF growth against delivered REVENUE growth — not a
+    // like-for-like FCF gap. The common case (clean FCF-vs-FCF) gets no
+    // marker.
+    if (row.delivered_growth_label && row.delivered_growth_label.indexOf("revenue CAGR") === 0) {
+      appendBasisBadge(
+        gapTd, "rev",
+        "Delivered growth is a revenue-CAGR fallback (FCF history non-positive " +
+          "or unavailable), not FCF. This Gap compares implied FCF growth " +
+          "against delivered REVENUE growth — not a like-for-like FCF gap."
+      );
+    }
     cellsByKey.expectations_gap = gapTd;
     tr.appendChild(appendRemoveControl(gapTd, row.ticker, tr, equitiesData, els.equitiesSection, els.equitiesBody));
 

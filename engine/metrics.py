@@ -69,6 +69,14 @@ def cagr_over(series: list[tuple[float, float]], target_years: int) -> Metric:
     m.name = f"cagr_{target_years}y"
     if m.value is not None and elapsed < target_years:
         m.note = f"only {elapsed:.0f}y of history available"
+    elif m.value is not None and elapsed > target_years:
+        # Session B disclosure: a data gap between the two chosen endpoints
+        # (e.g. a permanent companyfacts absence — see docs/assumptions.md)
+        # can force the earliest candidate far past the requested window —
+        # stale, not "extra data." Distinct wording from the elapsed <
+        # target_years note above so callers/UI can key on "window:"
+        # specifically.
+        m.note = f"window: {elapsed:.0f}y actual vs {target_years}y requested (sparse early data)"
     return m
 
 

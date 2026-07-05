@@ -322,7 +322,8 @@ def _delivered_growth(
 
     rev_pts = [(yd.year, yd.revenue) for yd in annual.values() if yd.revenue is not None]
     m = M.cagr_over(rev_pts, 5)
-    return m.value, "revenue CAGR (FCF history non-positive or unavailable)"
+    label = "revenue CAGR (FCF history non-positive or unavailable)" + (f" ({m.note})" if m.note else "")
+    return m.value, label
 
 
 # ---------------------------------------------------------------------------
