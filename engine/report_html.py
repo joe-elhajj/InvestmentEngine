@@ -848,7 +848,6 @@ def render_etf_fragment(
     profile_html = _fr_details(
         "Profile",
         _fr_table(["Item", "Value"], "".join(_fr_row(*r) for r in profile_rows)),
-        open_=True,
     )
 
     if overlap_matches:

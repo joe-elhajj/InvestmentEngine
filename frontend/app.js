@@ -387,10 +387,40 @@
   // on the next frame so the CSS `transition:max-height 200ms ease-out`
   // actually animates instead of jumping straight to "auto". ≤200ms, the
   // one other animated moment besides the score-bar fill-in.
+  //
+  // Bug (reported): rows below an open panel render on top of it instead
+  // of reflowing down. Root cause: this function set max-height to a
+  // PIXEL VALUE measured once at open time and never released it — every
+  // <tr> below depends on the table layout algorithm's computed height for
+  // this row, which is governed by that pinned pixel cap, not by the
+  // panel's actual current content. Any change after the open transition
+  // (the real fragment replacing the "Loading…" placeholder, a nested
+  // <details> toggle, the Sources reveal) then sizes against a STALE cap
+  // instead of the row's true height, leaving the table's own row-height
+  // bookkeeping out of sync with what's rendered — which is what let
+  // subsequent rows overlap instead of reflowing. Fix: once the open
+  // transition finishes, release max-height to "none" (unconstrained) so
+  // the browser's ordinary auto-height table layout governs this row from
+  // then on, exactly like every other row — no pixel value to go stale.
+  // The transitionend listener is tracked on the element itself so
+  // collapseAccordionRow (below) can cancel a still-pending one before it
+  // fires mid-collapse.
   function expandAccordionContent(inner) {
+    if (inner._openHandler) {
+      inner.removeEventListener("transitionend", inner._openHandler);
+      inner._openHandler = null;
+    }
     requestAnimationFrame(function () {
       inner.style.maxHeight = inner.scrollHeight + "px";
       inner.style.opacity = "1";
+      var onOpenEnd = function (ev) {
+        if (ev.propertyName !== "max-height") return;
+        inner.removeEventListener("transitionend", onOpenEnd);
+        inner._openHandler = null;
+        inner.style.maxHeight = "none";
+      };
+      inner._openHandler = onOpenEnd;
+      inner.addEventListener("transitionend", onOpenEnd);
     });
   }
 
@@ -403,6 +433,13 @@
     if (!inner) {
       accRow.remove();
       return;
+    }
+    // Cancel a pending "release to none" from expandAccordionContent above
+    // — if the user collapses before that ever fires, it must not clobber
+    // the collapse transition we're about to start.
+    if (inner._openHandler) {
+      inner.removeEventListener("transitionend", inner._openHandler);
+      inner._openHandler = null;
     }
     var removed = false;
     function finish() {

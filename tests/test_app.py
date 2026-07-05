@@ -891,6 +891,47 @@ class TestFlagsEndpoint:
         assert body2["state"] == "ok"
         assert body2["cache_status"] == "from_cache"
 
+    def test_preexisting_disk_cache_serves_without_any_model_call(self, client, tmp_path):
+        """Bug 3 (Phase 1, dark-instrument-redesign branch): "if a cached
+        Tier 2 flag extraction exists for a ticker, the FLAGS section must
+        render the cached flags without requiring re-extraction." Unlike
+        test_second_request_is_a_cache_hit_model_not_called_again above
+        (which proves the SECOND of two requests within this same test is a
+        cache hit), this seeds the on-disk cache directly via
+        engine.flags._save_cached_raw — the exact mechanism a prior
+        server run's extraction would have left behind — and never calls
+        the model at all in this test, then makes a single bare GET and
+        confirms the cache is read and served correctly. Verified: this
+        already passes against the current code (PR #28 touched no flags
+        display logic — grep confirms only two --signal -> --signal-text
+        color-token updates); kept here as the regression guard the bug
+        report asked for."""
+        from engine.flags import Flag, FilingRef, FlagsResult, _save_cached_raw
+
+        fs = _filing_sections()
+        result = FlagsResult(
+            ticker="NVDA", model="claude-sonnet-5", prompt_version="v1",
+            extracted_at="2026-01-01T00:00:00+00:00",
+            filing=FilingRef(form="10-K", accession=fs.accession, period_ending=fs.period_ending,
+                              filed=fs.filed, url=fs.url),
+            flags=[Flag(label="Customer concentration", snippet="one customer is 19% of revenue",
+                        severity="red", item="1A", verified_verbatim=True)],
+            dropped_count=0,
+        )
+        # The autouse fixture above already patches app.main._FLAGS_CACHE_DIR
+        # to this same tmp_path — write the seed file straight into it.
+        _save_cached_raw(tmp_path, fs.accession, "v1", "claude-sonnet-5", result)
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model") as mock_call:
+            resp = client.get("/api/flags/NVDA")
+        mock_call.assert_not_called()
+        body = resp.json()
+        assert body["state"] == "ok"
+        assert body["cache_status"] == "from_cache"
+        assert len(body["flags"]) == 1
+        assert body["flags"][0]["label"] == "Customer concentration"
+        assert body["flags"][0]["severity"] == "red"
+
     def test_refresh_true_re_calls_model_and_re_stamps(self, client):
         fs = _filing_sections()
         canned_text = _model_response([]).content[0].text
