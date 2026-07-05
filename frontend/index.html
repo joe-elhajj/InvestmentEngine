@@ -13,6 +13,9 @@
 
   <div class="search-wrap">
     <div class="search-box">
+      <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
       <input id="search-input" type="text" placeholder="Search ticker…"
              autocomplete="off" spellcheck="false" maxlength="10">
       <span id="search-status" class="search-status" aria-live="polite"></span>
@@ -25,10 +28,31 @@
   </div>
 
   <div class="topnav-actions">
-    <button id="export-csv-btn" class="btn">Export CSV</button>
-    <button id="export-pdf-btn" class="btn">Save as PDF</button>
-    <button id="usage-btn" class="btn">Usage</button>
-    <button id="refresh-btn" class="btn">Refresh Watchlist</button>
+    <button id="export-csv-btn" class="btn btn-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/>
+      </svg>
+      <span>Export CSV</span>
+    </button>
+    <button id="export-pdf-btn" class="btn btn-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 2h9l5 5v15H6z"/><path d="M15 2v5h5"/>
+      </svg>
+      <span>Save as PDF</span>
+    </button>
+    <button id="usage-btn" class="btn btn-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 12h4l3 8 4-16 3 8h4"/>
+      </svg>
+      <span>Usage</span>
+    </button>
+    <button id="refresh-btn" class="btn btn-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/>
+        <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>
+      </svg>
+      <span>Refresh Watchlist</span>
+    </button>
   </div>
 </header>
 

@@ -1,101 +1,151 @@
-/* Security Analysis Dashboard — same design tokens as the screen HTML
-   renderer (engine/screen.py), so this feels like one product. */
+/* Security Analysis Dashboard — design system.
+   Palette: --paper/--surface/--ink/--muted/--signal/--emphasis. Brand/UI
+   accent (signal, emphasis) is kept strictly separate from data semantics
+   (good/bad) — a palette change can never accidentally flip what "red"
+   means in the data. Legacy token names (--bg, --text-1/2, --accent) are
+   aliased to the palette below so the whole stylesheet inherits the
+   system without a line-by-line rewrite; new component rules reference
+   the named palette directly. */
 
 :root{
-  --bg:#fbfbfd;
-  --surface:#ffffff;
-  --hairline:rgba(0,0,0,0.07);
-  --hairline-strong:rgba(0,0,0,0.13);
-  --text-1:#1d1d1f;
-  --text-2:#6e6e73;
-  --text-3:#86868b;
-  --accent:#0066cc;
+  /* ---- palette ---- */
+  --paper:#f1f3f5;      /* page background — cool-neutral, not warm cream */
+  --surface:#ffffff;    /* card / table background */
+  --ink:#0b0e14;        /* primary text */
+  --muted:#5b6472;      /* secondary text / labels (~5.5:1 on white) */
+  --signal:#0ea5a0;     /* primary accent — a considered teal, not generic SaaS-indigo */
+  --emphasis:#d97706;   /* secondary accent — warm amber, spent on ONE headline moment only */
+  --signal-rgb:14,165,160;
+  --emphasis-rgb:217,119,6;
+
+  /* legacy aliases */
+  --bg:var(--paper);
+  --text-1:var(--ink);
+  --text-2:var(--muted);
+  --text-3:#8b93a0;
+  --accent:var(--signal);
+
+  --hairline:rgba(11,14,20,0.07);
+  --hairline-strong:rgba(11,14,20,0.14);
+  /* Card border stays faint — --paper/--surface contrast does the
+     separation work; the border just crisps the edge. */
+  --card-border:rgba(11,14,20,0.05);
+  --card-shadow:0 4px 24px rgba(11,14,20,0.07),0 1px 3px rgba(11,14,20,0.09);
+
   --good:#1d7d54;
   --bad:#c8362f;
   --warn:#a66a00;
   --gap-green-rgb:29,125,84;
   --gap-red-rgb:200,54,47;
-  --radius:12px;
+
+  --radius-sm:8px;
+  --radius-md:12px;
+  --radius-lg:16px;
+  --radius:var(--radius-md);
+  /* Data face: the existing system-mono stack, applied to numeric table
+     cells specifically — true fixed-width digits, no webfont/CDN load. */
   --mono:"SF Mono","Cascadia Code",ui-monospace,Menlo,monospace;
 
-  /* Dark chrome (app bar, table header rows, tooltips) — the light
-     --bg/--surface tokens above stay the data-surface tier; Koyfin-style
-     two-tone dashboards keep those on a darker ink so structure reads
-     before content does. */
-  --chrome-bg:#1a1d24;
-  --chrome-bg-2:#23262e;
+  /* ---- dark chrome (header, tooltips, modal) ---- */
+  --chrome-bg:#12151c;
+  --chrome-bg-2:#1a1f29;
+  --chrome-header-gradient:linear-gradient(180deg,#171b24 0%,#12151c 100%);
   --chrome-border:rgba(255,255,255,0.10);
   --chrome-text:#f2f3f5;
-  --chrome-text-dim:#9aa0aa;
+  --chrome-text-dim:#9aa3b2;
+
+  --topnav-h:56px;
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{
-  background:var(--bg);color:var(--text-1);
+  background:var(--paper);color:var(--ink);
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif;
   font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;
 }
 
-/* ---- top nav (dark chrome) ---- */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{
+    transition-duration:0.001ms !important;animation-duration:0.001ms !important;
+    scroll-behavior:auto !important;
+  }
+}
+
+/* ---- top nav (dark chrome, gradient — the one "hero" chrome moment;
+   every other dark surface — table headers, modal, diagnostics summary —
+   stays flat so the gradient doesn't repeat itself into wallpaper) ---- */
 .topnav{
-  display:flex;align-items:center;gap:24px;
-  padding:14px 24px;background:var(--chrome-bg);
+  display:flex;align-items:center;gap:24px;min-height:var(--topnav-h);
+  padding:0 24px;background:var(--chrome-header-gradient);
   border-bottom:1px solid var(--chrome-border);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,0.04);
   position:sticky;top:0;z-index:10;
 }
-.wordmark{font-size:1rem;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;color:var(--chrome-text)}
+.wordmark{
+  display:flex;align-items:center;gap:8px;
+  font-size:1rem;font-weight:600;letter-spacing:-0.01em;white-space:nowrap;color:var(--chrome-text);
+}
+.wordmark::before{
+  content:"";width:7px;height:7px;border-radius:50%;flex:none;
+  background:var(--signal);
+}
 
 .search-wrap{flex:1;display:flex;justify-content:center;position:relative}
 .search-box{display:flex;align-items:center;gap:8px;width:100%;max-width:360px}
+.search-icon{flex:none;color:var(--chrome-text-dim)}
 .search-box input{
   flex:1;font:inherit;font-size:0.8125rem;color:var(--chrome-text);
   background:rgba(255,255,255,0.06);border:1px solid var(--chrome-border);border-radius:999px;
-  padding:7px 14px;outline:none;
+  padding:7px 14px;outline:none;transition:border-color .15s ease,background .15s ease;
 }
 .search-box input::placeholder{color:var(--chrome-text-dim)}
-.search-box input:focus{border-color:var(--accent)}
+.search-box input:focus{border-color:var(--signal);background:rgba(255,255,255,0.09)}
 .search-status{font-size:0.9375rem;width:1.2em;text-align:center;color:var(--chrome-text-dim)}
 .search-status.found{color:var(--good)}
 .search-status.not-found{color:var(--bad)}
 
 .topnav-actions{display:flex;align-items:center;gap:8px}
 .topnav-actions .btn{color:var(--chrome-text-dim);border-color:var(--chrome-border)}
-.topnav-actions .btn:hover{color:var(--accent);border-color:var(--accent)}
+.topnav-actions .btn:hover{color:var(--signal);border-color:var(--signal)}
 
 .search-confirm{
   position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;
-  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
-  box-shadow:0 4px 16px rgba(0,0,0,0.08);padding:12px 16px;max-width:480px;z-index:11;
+  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius-md);
+  box-shadow:0 4px 16px rgba(11,14,20,0.10);padding:12px 16px;max-width:480px;z-index:11;
 }
-.search-confirm-text{font-size:0.8125rem;color:var(--text-2);white-space:nowrap}
+.search-confirm-text{font-size:0.8125rem;color:var(--muted);white-space:nowrap}
 
 .classification-badge{
   font-size:0.6875rem;font-weight:600;letter-spacing:.02em;white-space:nowrap;
   padding:3px 10px;border-radius:999px;border:1px solid var(--hairline-strong);
-  color:var(--text-2);background:var(--bg);
+  color:var(--muted);background:var(--paper);
 }
 .classification-badge.pending{color:var(--text-3);font-style:italic;font-weight:400;border-style:dashed}
 
 .btn{
-  font:inherit;font-size:0.6875rem;font-weight:600;letter-spacing:.02em;color:var(--text-2);
+  font:inherit;font-size:0.6875rem;font-weight:600;letter-spacing:.02em;color:var(--muted);
   background:transparent;border:1px solid var(--hairline-strong);border-radius:999px;
   padding:6px 14px;cursor:pointer;white-space:nowrap;
   transition:color .15s ease,border-color .15s ease,background .15s ease;
 }
-.btn:hover{color:var(--accent);border-color:var(--accent)}
-.btn-primary{color:#fff;background:var(--accent);border-color:var(--accent)}
+.btn:hover{color:var(--signal);border-color:var(--signal)}
+.btn-primary{color:#fff;background:var(--signal);border-color:var(--signal)}
 .btn-primary:hover{color:#fff;opacity:0.9}
 .btn-danger{color:#fff;background:var(--bad);border-color:var(--bad)}
 .btn-danger:hover{color:#fff;opacity:0.9}
+
+/* Ghost/outline utility buttons with an inline SVG icon before the label. */
+.btn-icon{display:inline-flex;align-items:center;gap:6px}
+.btn-icon svg{width:13px;height:13px;flex:none;stroke:currentColor}
 
 /* ---- main content ---- */
 .wrap{max-width:1520px;margin:0 auto;padding:40px 24px 80px}
 
 .status-banner{
-  font-size:0.8125rem;color:var(--text-2);background:var(--surface);
-  border:1px solid var(--hairline);border-radius:var(--radius);
+  font-size:0.8125rem;color:var(--muted);background:var(--surface);
+  border:1px solid var(--hairline);border-radius:var(--radius-md);
   padding:14px 18px;margin-bottom:32px;
 }
 .status-banner.error{color:var(--bad)}
@@ -108,26 +158,37 @@ body{
 .table-section{margin-bottom:56px}
 .table-section:last-of-type{margin-bottom:0}
 .sec-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+/* Section eyebrow: a small signal-colored tick before the label, in place
+   of plain uppercase-and-bold-only — a quiet, repeated brand mark. */
 .sec-lbl{
-  font-size:0.6875rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text-1);
+  display:flex;align-items:center;gap:8px;
+  font-size:0.6875rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink);
+}
+.sec-lbl::before{
+  content:"";width:3px;height:12px;border-radius:2px;background:var(--signal);flex:none;
 }
 .sort-caption{font-size:0.6875rem;color:var(--text-3);font-weight:500;letter-spacing:.02em}
 
 .surface{
-  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
-  box-shadow:0 1px 3px rgba(0,0,0,0.04);overflow:hidden;
+  background:var(--surface);border:1px solid var(--card-border);border-radius:var(--radius-md);
+  box-shadow:var(--card-shadow);overflow:hidden;
 }
 .scroll{overflow-x:auto}
 
 table{width:100%;border-collapse:collapse}
 thead th{
-  font-size:0.75rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--text-3);background:var(--bg);
-  padding:13px 16px;border-bottom:1px solid var(--hairline-strong);
+  font-size:0.75rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--text-3);background:var(--paper);
+  padding:10px 20px;border-bottom:1px solid var(--hairline-strong);
   text-align:right;white-space:nowrap;
 }
 thead th.l{text-align:left}
 thead th[data-sort-key]{cursor:pointer}
+/* Active sort column: a signal-colored label rather than relying on the
+   small arrow glyph alone to carry the whole "this is the active column"
+   signal. */
+thead th.sorted{color:var(--signal)}
+thead th.sorted .sort-arrow{color:var(--signal)}
 
 /* Dark chrome header rows — scoped to the three top-level dashboard
    tables' OWN header row only, via a direct-child combinator (>). The
@@ -138,24 +199,29 @@ thead th[data-sort-key]{cursor:pointer}
    too, since they're technically inside #equities-table in the DOM.
    The child combinator excludes anything not a direct <thead> of the
    outer table, so nested fragment tables keep the light styling from
-   the generic rule above. */
+   the generic rule above.
+   These stay FLAT (--chrome-bg, not the header's gradient) — a gradient
+   repeated on every sticky header row would read as wallpaper, not a
+   deliberate hero moment. Sticky, offset below the sticky top nav so it
+   parks just beneath it rather than fighting for the same slot on scroll. */
 #equities-table > thead th,
 #etf-table > thead th,
 #excluded-table > thead th,
 #diagnostics-table > thead th{
   color:var(--chrome-text-dim);background:var(--chrome-bg);
   border-bottom:1px solid var(--chrome-border);
+  position:sticky;top:var(--topnav-h);z-index:5;
 }
-.sort-arrow{margin-left:4px;font-size:0.7em;color:var(--accent)}
+.sort-arrow{margin-left:4px;font-size:0.7em;color:var(--signal)}
 td.mono{font-family:var(--mono);font-size:0.75rem}
 
 /* ---- Data Diagnostics (collapsed-by-default <details>, below Excluded) ---- */
 .diag-section{
-  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius);
-  overflow:hidden;margin-top:24px;
+  background:var(--surface);border:1px solid var(--card-border);border-radius:var(--radius-md);
+  box-shadow:var(--card-shadow);overflow:hidden;margin-top:24px;
 }
 .diag-section summary{
-  cursor:pointer;padding:13px 16px 13px 34px;font-size:0.6875rem;font-weight:700;letter-spacing:.08em;
+  cursor:pointer;padding:10px 16px 10px 34px;font-size:0.6875rem;font-weight:700;letter-spacing:.08em;
   text-transform:uppercase;color:var(--chrome-text-dim);background:var(--chrome-bg);
   list-style:none;position:relative;text-align:left;
 }
@@ -173,7 +239,7 @@ td.mono{font-family:var(--mono);font-size:0.75rem}
   padding:12px 16px 0;
 }
 .diagnostics-clean{
-  font-size:0.8125rem;color:var(--text-2);padding:14px 16px;
+  font-size:0.8125rem;color:var(--muted);padding:14px 16px;
 }
 
 /* ---- generic tooltip trigger + popup (column headers AND the DCF stat
@@ -181,7 +247,7 @@ td.mono{font-family:var(--mono);font-size:0.75rem}
    positioning below; .stat gets its own further down near .report-summary) ---- */
 .has-tooltip{position:relative;cursor:default}
 .has-tooltip:focus{outline:none}
-.has-tooltip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.has-tooltip:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
 
 .th-tooltip{
   position:absolute;top:calc(100% + 6px);left:50%;transform:translateX(-50%);
@@ -216,16 +282,20 @@ thead th:first-child .th-tooltip{left:0;transform:none}
 thead th:last-child .th-tooltip{left:auto;right:0;transform:none}
 
 tbody td{
-  padding:13px 16px;border-bottom:1px solid var(--hairline);
+  padding:13px 20px;border-bottom:1px solid var(--hairline);
   font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;
-  font-size:0.8125rem;font-weight:450;color:var(--text-1);
+  font-size:0.8125rem;font-weight:450;color:var(--ink);
   text-align:right;white-space:nowrap;position:relative;
 }
 tbody tr:last-child td{border-bottom:none}
-tbody tr:hover td{background:rgba(0,0,0,0.022)}
+tbody tr:hover td{background:rgba(11,14,20,0.03)}
 td.l{text-align:left;white-space:normal}
-td.tk{text-align:left;font-weight:500;cursor:pointer}
-td.tk:hover{color:var(--accent)}
+/* Ticker: the primary key — left-aligned, semibold, data face. */
+td.tk{
+  text-align:left;font-weight:600;cursor:pointer;
+  font-family:var(--mono);letter-spacing:-0.01em;
+}
+td.tk:hover{color:var(--signal)}
 td.tk .expand-hint{
   display:inline-block;opacity:0;font-size:0.7em;margin-left:6px;color:var(--text-3);
   transition:opacity .15s ease,transform .15s ease;
@@ -234,9 +304,55 @@ td.tk:hover .expand-hint{opacity:1}
 tr.row-expanded td.tk .expand-hint{opacity:1;transform:rotate(90deg)}
 td.na{color:var(--text-3);font-style:italic;font-weight:400;font-variant-numeric:normal}
 
+/* Every plain numeric cell (percentages, AUM, etc.) gets the data face too
+   — not just scores/tickers — so decimal points stack with true
+   fixed-width digits throughout the row, not just in the signature
+   columns. */
+tbody td:not(.l):not(.na){font-family:var(--mono);font-size:0.75rem}
+
+/* ---- Inline score bars (the signature element). DURABILITY, REINV,
+   QUALITY, RESILIENCE, DISCIPLINE, OPTIONALITY are 0-100 universe-relative
+   percentiles — a bar under the numeral makes a whole row scannable by
+   fill length, without reading ten numbers in sequence. Single accent
+   (--signal) for every column: a rainbow-per-metric would undercut the
+   exact scannability this exists to create. The composite (DURABILITY)
+   gets a taller bar in --emphasis instead — the one headline number, the
+   one moment the secondary accent earns its keep.
+   ABSENCE-IS-NOT-ZERO: .score-track only ever exists in the DOM when
+   app.js had a real number to draw (see td.js's scoreCell()) — a missing
+   score renders bare "n/a" text via the existing .na path, no track
+   element at all. A genuine score of 0 still renders a real (empty)
+   track, which is what visually distinguishes "computed, zero" from
+   "never computed." */
+td.score-cell{padding-top:11px;padding-bottom:9px}
+.score-num{display:block;font-variant-numeric:tabular-nums}
+.score-track{
+  height:3px;margin-top:6px;border-radius:2px;overflow:hidden;
+  background:rgba(11,14,20,0.08);
+}
+.score-fill{height:100%;border-radius:2px;background:var(--signal)}
+td.score-cell.score-composite .score-num{font-weight:700;color:var(--ink)}
+td.score-cell.score-composite .score-track{height:4px}
+td.score-cell.score-composite .score-fill{background:var(--emphasis)}
+
+/* ---- Gap pills: compact badges instead of a full-cell tint. Directional
+   sign controls which fixed hue applies (never inferred by CSS from an
+   inline value — app.js still owns the sign check); magnitude only
+   scales the --gap-alpha custom property within that hue, so directional
+   meaning and its intensity are visually separable. */
+td.gap-cell{text-align:right}
+.gap-pill{
+  display:inline-block;padding:3px 10px;border-radius:999px;
+  font-family:var(--mono);font-size:0.75rem;font-weight:700;
+  font-variant-numeric:tabular-nums;letter-spacing:-0.01em;
+}
+.gap-pill-neg{color:var(--good);background:rgba(var(--gap-green-rgb),var(--gap-alpha,0.14))}
+.gap-pill-pos{color:var(--bad);background:rgba(var(--gap-red-rgb),var(--gap-alpha,0.14))}
+.gap-pill-na{color:var(--text-3);background:rgba(11,14,20,0.05);font-weight:600;font-style:normal}
+
 /* ---- inline report accordion (clicking an equity/ETF row) ---- */
-tr.accordion-row > td{padding:0;background:var(--bg);white-space:normal;cursor:default}
-tr.accordion-row:hover > td{background:var(--bg)}
+tr.accordion-row > td{padding:0;background:var(--paper);white-space:normal;cursor:default}
+tr.accordion-row:hover > td{background:var(--paper)}
 .accordion-loading{padding:24px;text-align:center;color:var(--text-3);font-size:0.8125rem;font-style:italic}
 
 /* ---- report fragment (engine/report_html.py render_fragment output) ---- */
@@ -252,15 +368,15 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-summary{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
 .report-summary .stat{
   flex:1;min-width:120px;background:var(--surface);border:1px solid var(--hairline);
-  border-radius:10px;padding:10px 14px;
+  border-radius:var(--radius-lg);padding:20px;
 }
 .report-summary .stat-label{
   display:block;font-size:0.625rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--text-3);margin-bottom:4px;
+  color:var(--muted);margin-bottom:4px;
 }
 .report-summary .stat-value{
-  display:block;font-size:1.0625rem;font-weight:600;letter-spacing:-0.01em;
-  font-variant-numeric:tabular-nums;color:var(--text-1);
+  display:block;font-size:1.0625rem;font-weight:700;letter-spacing:-0.01em;
+  font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--ink);
 }
 
 /* stat card tooltip (e.g. "DCF Base (Systematic)") — dotted underline on
@@ -275,13 +391,13 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-summary .stat .th-tooltip{top:calc(100% + 8px);left:0;transform:none}
 
 .report-section{
-  background:var(--surface);border:1px solid var(--hairline);border-radius:10px;
-  margin-bottom:10px;overflow:hidden;
+  background:var(--surface);border:1px solid var(--hairline);border-radius:var(--radius-md);
+  box-shadow:0 2px 10px rgba(11,14,20,0.04);margin-bottom:10px;overflow:hidden;
 }
 .report-section:last-child{margin-bottom:0}
 .report-section summary{
   cursor:pointer;padding:10px 14px 10px 26px;font-size:0.6875rem;font-weight:600;letter-spacing:.06em;
-  text-transform:uppercase;color:var(--text-2);list-style:none;position:relative;
+  text-transform:uppercase;color:var(--muted);list-style:none;position:relative;
   text-align:left;
 }
 .report-section summary::-webkit-details-marker{display:none}
@@ -296,6 +412,28 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .report-section thead th{font-size:0.625rem;padding:8px 14px}
 .report-section tbody td{font-size:0.75rem;padding:8px 14px;cursor:default}
 .report-section .surface{border:none;box-shadow:none;border-radius:0;border-top:1px solid var(--hairline)}
+/* Zebra striping so the eye can track a metric name across to its value
+   without losing the row in blank span — every accordion detail table has
+   a real <tbody> (engine/report_html.py's _fr_table()), so this is a
+   structural selector, no markup changes needed.
+   NOT plain :nth-child(even): Financial position and Latest quarter build
+   their rows with _fr_row_with_lineage(), which emits TWO <tr> per logical
+   row — the visible data row immediately followed by a hidden
+   <tr class="source-row"> (display:none by default, revealed only by the
+   "Sources" toggle). A hidden row still occupies an nth-child slot, so
+   plain :nth-child(even) lands on [data(1,odd), source(2,even),
+   data(3,odd), source(4,even), ...] — it tints the ALWAYS-HIDDEN rows and
+   never the visible ones, i.e. no visible stripe at all for exactly the
+   two sections named in the brief.
+   `:nth-child(An+B of S)` (CSS Selectors Level 4; current Chrome/Firefox/
+   Safari) counts position only among siblings matching S, so
+   ":not(.source-row)" as S means the count skips hidden lineage rows
+   entirely — the 2nd, 4th, 6th... VISIBLE row, regardless of how many
+   hidden siblings sit between them. Tables with no lineage rows at all
+   (Margins, Growth, ...) have no .source-row siblings to filter, so this
+   degrades to identical behavior to plain :nth-child(2n) there. */
+.report-section tbody tr:nth-child(2n of :not(.source-row)) td{background:var(--paper)}
+.report-section tbody tr:nth-child(2n of :not(.source-row)):hover td{background:rgba(11,14,20,0.045)}
 
 /* ---- per-figure lineage: "Sources" toggle (Task 4) ---- */
 .section-toolbar{display:flex;justify-content:flex-end;padding:0 14px 8px}
@@ -305,13 +443,13 @@ tr.accordion-row:hover > td{background:var(--bg)}
   border-radius:999px;padding:3px 10px;cursor:pointer;
   transition:color .15s ease,border-color .15s ease,background .15s ease;
 }
-.sources-toggle:hover{color:var(--accent);border-color:var(--accent)}
-.sources-toggle.active{color:var(--accent);border-color:var(--accent);background:rgba(0,102,204,0.08)}
+.sources-toggle:hover{color:var(--signal);border-color:var(--signal)}
+.sources-toggle.active{color:var(--signal);border-color:var(--signal);background:rgba(var(--signal-rgb),0.10)}
 .source-row{display:none}
 .report-section.sources-on .source-row{display:table-row}
 .source-cell{
   font-family:var(--mono) !important;font-size:0.6875rem !important;color:var(--text-3) !important;
-  padding:2px 14px 8px !important;background:var(--bg);white-space:normal !important;
+  padding:2px 14px 8px !important;background:var(--paper);white-space:normal !important;
   font-weight:400 !important;
 }
 .report-caption{
@@ -321,7 +459,7 @@ tr.accordion-row:hover > td{background:var(--bg)}
 
 .gaps-list{
   text-align:left;list-style:disc;padding:8px 14px 14px 30px;
-  font-size:0.75rem;color:var(--text-1);line-height:1.6;
+  font-size:0.75rem;color:var(--ink);line-height:1.6;
 }
 
 .report-error{padding:16px 24px;color:var(--bad);font-size:0.8125rem}
@@ -343,29 +481,29 @@ tr.accordion-row:hover > td{background:var(--bg)}
 .flag-dot-red{background:var(--bad)}
 .flag-dot-yellow{background:var(--warn)}
 .flag-dot-green{background:var(--good)}
-.flag-label{font-size:0.8125rem;font-weight:600;color:var(--text-1)}
+.flag-label{font-size:0.8125rem;font-weight:600;color:var(--ink)}
 .flag-item-cite{font-size:0.6875rem;color:var(--text-3);letter-spacing:.02em}
 .flag-analyst-tag{
   font-size:0.625rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--text-2);border:1px solid var(--hairline-strong);border-radius:999px;
+  color:var(--muted);border:1px solid var(--hairline-strong);border-radius:999px;
   padding:1px 8px;
 }
 .flag-snippet{
   flex-basis:100%;margin:2px 0 0;padding:8px 12px;border-left:3px solid var(--hairline-strong);
-  font-size:0.8125rem;font-style:italic;color:var(--text-2);line-height:1.6;
-  background:var(--bg);border-radius:0 6px 6px 0;
+  font-size:0.8125rem;font-style:italic;color:var(--muted);line-height:1.6;
+  background:var(--paper);border-radius:0 6px 6px 0;
 }
 .flags-provenance{
   font-size:0.6875rem;color:var(--text-3);letter-spacing:.02em;
   padding:12px 0 0;border-top:1px solid var(--hairline);margin-top:4px;
 }
-.flags-provenance a{color:var(--accent);text-decoration:none}
+.flags-provenance a{color:var(--signal);text-decoration:none}
 .flags-provenance a:hover{text-decoration:underline}
 
 /* ---- Flags: "not yet extracted" placeholder + spend controls ---- */
 .flags-placeholder{padding:18px 14px;text-align:center}
 .flags-placeholder .report-caption{padding:0 0 8px}
-.flags-estimate{font-size:0.75rem;color:var(--text-2);margin-bottom:12px}
+.flags-estimate{font-size:0.75rem;color:var(--muted);margin-bottom:12px}
 .flags-extract-btn{font-size:0.75rem}
 
 .flags-toolbar{display:flex;justify-content:flex-end;padding:8px 14px 0}
@@ -375,7 +513,7 @@ tr.accordion-row:hover > td{background:var(--bg)}
   border-radius:999px;padding:3px 10px;cursor:pointer;
   transition:color .15s ease,border-color .15s ease,background .15s ease;
 }
-.flags-reextract-btn:hover{color:var(--accent);border-color:var(--accent)}
+.flags-reextract-btn:hover{color:var(--signal);border-color:var(--signal)}
 .flags-reextract-btn:disabled{opacity:0.5;cursor:default}
 .flags-pricing-unknown{
   font-size:0.6875rem;color:var(--warn);letter-spacing:.01em;
@@ -397,8 +535,8 @@ tbody tr:hover .row-remove{opacity:1}
 .remove-confirm{
   position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
   display:flex;align-items:center;gap:12px;
-  background:var(--text-1);color:#fff;border-radius:var(--radius);
-  padding:12px 18px;box-shadow:0 8px 24px rgba(0,0,0,0.2);z-index:20;
+  background:var(--ink);color:#fff;border-radius:var(--radius-md);
+  padding:12px 18px;box-shadow:0 8px 24px rgba(11,14,20,0.24);z-index:20;
 }
 .remove-confirm p{font-size:0.8125rem}
 .remove-confirm .btn{border-color:rgba(255,255,255,0.3);color:#fff}
@@ -406,12 +544,12 @@ tbody tr:hover .row-remove{opacity:1}
 
 /* ---- Usage modal (Tier 2 spend visibility) — dark chrome, matching topnav ---- */
 .modal-overlay{
-  position:fixed;inset:0;background:rgba(0,0,0,0.45);
+  position:fixed;inset:0;background:rgba(11,14,20,0.5);
   display:flex;align-items:center;justify-content:center;z-index:30;padding:24px;
 }
 .modal{
   background:var(--chrome-bg);color:var(--chrome-text);border:1px solid var(--chrome-border);
-  border-radius:var(--radius);box-shadow:0 16px 48px rgba(0,0,0,0.4);
+  border-radius:var(--radius-lg);box-shadow:0 16px 48px rgba(0,0,0,0.4);
   width:100%;max-width:560px;max-height:80vh;display:flex;flex-direction:column;overflow:hidden;
 }
 .modal-head{
@@ -432,11 +570,11 @@ tbody tr:hover .row-remove{opacity:1}
 
 .usage-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:8px}
 .usage-stat{
-  background:var(--chrome-bg-2);border:1px solid var(--chrome-border);border-radius:8px;
+  background:var(--chrome-bg-2);border:1px solid var(--chrome-border);border-radius:var(--radius-sm);
   padding:12px 14px;display:flex;flex-direction:column;gap:4px;
 }
 .usage-stat-label{font-size:0.6875rem;color:var(--chrome-text-dim);letter-spacing:.02em}
-.usage-stat-value{font-size:1.125rem;font-weight:600}
+.usage-stat-value{font-size:1.125rem;font-weight:600;font-family:var(--mono);font-variant-numeric:tabular-nums}
 .usage-projection-note{font-size:0.6875rem;color:var(--chrome-text-dim);margin:10px 0 14px;line-height:1.5}
 .usage-unknown-pricing-note{font-size:0.6875rem;color:var(--warn);margin:0 0 14px;line-height:1.5}
 
@@ -468,8 +606,9 @@ tbody tr:hover .row-remove{opacity:1}
   #equities-table > thead th,
   #etf-table > thead th,
   #excluded-table > thead th,
-  #diagnostics-table > thead th{background:#fff !important;color:#000 !important}
+  #diagnostics-table > thead th{background:#fff !important;color:#000 !important;position:static}
   .diag-section summary{background:#fff !important;color:#000 !important}
+  .score-track{display:none}
   tr{page-break-inside:avoid}
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
