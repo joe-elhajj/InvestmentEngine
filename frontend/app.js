@@ -411,6 +411,12 @@
       inner._openHandler = null;
     }
     requestAnimationFrame(function () {
+      // settleAccordionContent (below) may already have taken over this
+      // exact element between this rAF being queued and it actually
+      // running (the first-open race) — if so, this callback is stale and
+      // must be a no-op, or it would reintroduce a pixel max-height cap
+      // right after settle deliberately released it to "none".
+      if (inner._settled) return;
       inner.style.maxHeight = inner.scrollHeight + "px";
       inner.style.opacity = "1";
       var onOpenEnd = function (ev) {
@@ -422,6 +428,36 @@
       inner._openHandler = onOpenEnd;
       inner.addEventListener("transitionend", onOpenEnd);
     });
+  }
+
+  // Used specifically when content that's already inserted (the "Loading…"
+  // placeholder) gets REPLACED by different content — fetch completion
+  // (real fragment) or a failed-fetch error message. This is exactly the
+  // first-open race reported: expandAccordionContent()'s animate-then-
+  // release-on-transitionend approach depends on a NEW transitionend
+  // firing for THIS specific style change, but if the fetch resolves fast
+  // enough, its completion can land in the same animation frame as the
+  // placeholder's own still-pending rAF — both call expandAccordionContent
+  // in sequence, one cancelling/overwriting the other's bookkeeping, and
+  // in some interleavings the transitionend that's supposed to release the
+  // real (larger) content's height either never fires cleanly or fires
+  // for the wrong measurement. The signature was exactly "only the FIRST
+  // open of a cold cache" — every later open (fragmentCache hit) only ever
+  // calls expandAccordionContent ONCE, so there's no second call to race
+  // against. Fix: when swapping in replacement content, release the
+  // height constraint to "none" immediately and unconditionally — no rAF,
+  // no transition, no dependency on event ordering at all. This one swap
+  // loses its grow animation (an instant reveal instead of a 200ms one) in
+  // exchange for a row height that is CORRECT from the instant the real
+  // content exists, on every open including the very first.
+  function settleAccordionContent(inner) {
+    if (inner._openHandler) {
+      inner.removeEventListener("transitionend", inner._openHandler);
+      inner._openHandler = null;
+    }
+    inner._settled = true; // makes a still-queued expandAccordionContent rAF (if any) a no-op
+    inner.style.maxHeight = "none";
+    inner.style.opacity = "1";
   }
 
   // Reverses the same transition on collapse, then removes the row once
@@ -506,13 +542,13 @@
         // for this ticker — the user may have collapsed it while we waited.
         if (expandedRows[ticker] === accRow) {
           inner.innerHTML = html;
-          expandAccordionContent(inner);
+          settleAccordionContent(inner);
         }
       })
       .catch(function (e) {
         if (expandedRows[ticker] === accRow) {
           inner.innerHTML = '<div class="accordion-loading">Failed to load analysis: ' + e.message + "</div>";
-          expandAccordionContent(inner);
+          settleAccordionContent(inner);
         }
       });
   }

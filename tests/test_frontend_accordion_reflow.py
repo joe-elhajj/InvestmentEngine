@@ -13,11 +13,37 @@ replacing the "Loading…" placeholder, a nested <details> toggle, the Sources
 reveal) left the row's layout height out of sync with what was rendered,
 which is what let it overlap the next row instead of reflowing.
 
-Fix: once the open transition's transitionend fires, release max-height to
-"none" so ordinary browser auto-height table layout governs the row from
-then on — no pixel value left to go stale. collapseAccordionRow() cancels a
-still-pending release so it can't fire mid-collapse and clobber the close
-animation.
+Fix (round 1): once the open transition's transitionend fires, release
+max-height to "none" so ordinary browser auto-height table layout governs
+the row from then on — no pixel value left to go stale. collapseAccordionRow()
+cancels a still-pending release so it can't fire mid-collapse and clobber
+the close animation.
+
+Round 1's test coverage only exercised the WARM path (two back-to-back
+expandAccordionContent() calls, both released via transitionend) — it
+passed while the REAL first open (a cold cache: the "Loading…" placeholder
+opens, then the fetch resolves and swaps in the real, differently-sized
+fragment) still reproduced the overlap live. Root cause of the residual
+bug: the placeholder's own expandAccordionContent() call queues a
+requestAnimationFrame that measures scrollHeight and, later, waits for a
+transitionend to release the constraint. If the fetch resolves fast enough
+(a warm/cached response, or just a fast connection), its completion can
+race that still-pending rAF/transitionend — the real content's height
+either never gets a clean release, or the release depends on timing that
+isn't guaranteed. This can ONLY happen on the very first open of a cold
+cache (fragmentCache-hit reopens only ever call expandAccordionContent
+once — nothing to race).
+
+Fix (round 2): a new settleAccordionContent() is used specifically when
+REPLACING already-inserted content (the placeholder -> real fragment swap,
+and the placeholder -> failure-message swap) — it releases max-height to
+"none" immediately and unconditionally, with no dependency on any
+animation frame or transitionend firing at all. expandAccordionContent()'s
+own queued rAF additionally checks an `_settled` flag before doing
+anything, so even a STALE rAF from the placeholder's original call (queued
+before settle, but firing after it) can never reintroduce a pixel cap once
+settle has taken over. This closes the race for every ordering, not just
+the one that happened to reproduce.
 
 No real browser/layout engine is available in this environment (no
 Chromium/Playwright/Selenium, and this repo's own convention is a
@@ -61,6 +87,7 @@ def _extract_function(name: str) -> str:
 
 
 _EXPAND_SRC = _extract_function("expandAccordionContent")
+_SETTLE_SRC = _extract_function("settleAccordionContent")
 _COLLAPSE_SRC = _extract_function("collapseAccordionRow")
 
 _STUB = r"""
@@ -98,7 +125,108 @@ def _run(script: str) -> dict:
 
 def test_expand_and_collapse_functions_found_in_app_js():
     assert "function expandAccordionContent(inner)" in _EXPAND_SRC
+    assert "function settleAccordionContent(inner)" in _SETTLE_SRC
     assert "function collapseAccordionRow(accRow)" in _COLLAPSE_SRC
+
+
+class TestFirstOpenAsyncFragmentRace:
+    """The actual reported residual bug: fixed on second-and-later opens
+    (fragmentCache hit, one expandAccordionContent() call) but still
+    reproducing on the very FIRST open of any row (cold cache: placeholder
+    opens via expandAccordionContent(), then the fetch resolves and calls
+    settleAccordionContent() to swap in the real fragment) — because that
+    is the one sequence with TWO calls racing on the same element.
+    Exercises both possible orderings of the placeholder's queued rAF vs.
+    the fetch's completion, matching toggleAccordion()'s real call
+    sequence exactly (expandAccordionContent for the placeholder, then
+    settleAccordionContent once real content lands)."""
+
+    def test_settle_before_placeholder_raf_ever_flushes(self):
+        """The fetch resolves fast enough that settle happens before the
+        placeholder's own rAF has run at all — the most direct way to
+        reproduce "fast/warm fetch beats the placeholder's own animation
+        frame". maxHeight must already be released the instant settle
+        runs, with no rAF flush needed."""
+        script = f"""
+{_STUB}
+{_EXPAND_SRC}
+{_SETTLE_SRC}
+var inner = makeNode("div");
+inner.scrollHeight = 40; // "Loading…" placeholder
+expandAccordionContent(inner); // queues a rAF -- NOT flushed yet
+inner.scrollHeight = 900; // real fragment content installed
+settleAccordionContent(inner);
+console.log(JSON.stringify({{ maxHeightImmediatelyAfterSettle: inner.style.maxHeight }}));
+"""
+        result = _run(script)
+        assert result["maxHeightImmediatelyAfterSettle"] == "none"
+
+    def test_stale_placeholder_raf_firing_after_settle_is_a_no_op(self):
+        """The placeholder's rAF was queued before settle but, in this
+        ordering, fires AFTER settle already released the constraint —
+        without the _settled guard, this would reintroduce a pixel
+        max-height cap (900px) right after settle deliberately set "none"."""
+        script = f"""
+{_STUB}
+{_EXPAND_SRC}
+{_SETTLE_SRC}
+var inner = makeNode("div");
+inner.scrollHeight = 40;
+expandAccordionContent(inner); // rAF queued, not yet flushed
+inner.scrollHeight = 900;
+settleAccordionContent(inner); // takes over first
+flushRaf(); // the STALE placeholder rAF finally runs
+console.log(JSON.stringify({{ maxHeightAfterStaleRafFlushes: inner.style.maxHeight }}));
+"""
+        result = _run(script)
+        assert result["maxHeightAfterStaleRafFlushes"] == "none"
+
+    def test_settle_after_placeholder_raf_already_flushed(self):
+        """The other ordering: the placeholder's own rAF runs first
+        (normal, slower network case), THEN the fetch resolves and settle
+        takes over — must still end at "none", overriding whatever pixel
+        value the placeholder's rAF set."""
+        script = f"""
+{_STUB}
+{_EXPAND_SRC}
+{_SETTLE_SRC}
+var inner = makeNode("div");
+inner.scrollHeight = 40;
+expandAccordionContent(inner);
+flushRaf(); // placeholder's rAF already ran -- maxHeight is "40px"
+inner.scrollHeight = 900;
+settleAccordionContent(inner);
+console.log(JSON.stringify({{ maxHeight: inner.style.maxHeight }}));
+"""
+        result = _run(script)
+        assert result["maxHeight"] == "none"
+
+    def test_settle_cancels_the_placeholders_pending_transitionend_handler(self):
+        """If the placeholder's rAF DID run and registered its own
+        transitionend release handler before settle takes over, that
+        handler must not still be attached afterward — a leftover handler
+        firing later (e.g. from an unrelated opacity/max-height change)
+        must not double-fire stale logic."""
+        script = f"""
+{_STUB}
+{_EXPAND_SRC}
+{_SETTLE_SRC}
+var inner = makeNode("div");
+inner.scrollHeight = 40;
+expandAccordionContent(inner);
+flushRaf();
+var handlerCountBeforeSettle = (inner._handlers["transitionend"] || []).length;
+inner.scrollHeight = 900;
+settleAccordionContent(inner);
+var handlerCountAfterSettle = (inner._handlers["transitionend"] || []).length;
+console.log(JSON.stringify({{
+  handlerCountBeforeSettle: handlerCountBeforeSettle,
+  handlerCountAfterSettle: handlerCountAfterSettle,
+}}));
+"""
+        result = _run(script)
+        assert result["handlerCountBeforeSettle"] == 1
+        assert result["handlerCountAfterSettle"] == 0
 
 
 class TestOpenReleasesTheHeightConstraint:
