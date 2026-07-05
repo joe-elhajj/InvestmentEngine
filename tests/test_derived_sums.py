@@ -146,6 +146,68 @@ class TestAnnualDownstreamComposites:
         assert yd.capital_employed == 850.0
 
 
+class TestGrossProfitGapReconciliation:
+    """S3 (Session A / Session B.2 PR-B): res.gaps was snapshotted from
+    cd.unresolved BEFORE the per-year revenue - cost_of_revenue fallback
+    ever ran, so a ticker whose GrossProfit tag never resolves directly
+    (real cases: META, CAT) kept reporting a "gross_profit" gap even when
+    every year's value actually resolved via the fallback. derive() now
+    reconciles: the gap is removed only when EVERY year in the assembled
+    annual series resolved gross_profit (via tag or fallback) — keyed on
+    `is not None`, never truthiness, and a still-partial fallback (missing
+    cost_of_revenue) correctly leaves the gap in place."""
+
+    def _quote(self) -> Quote:
+        return Quote("GP", price=50.0, shares_outstanding=100.0, market_cap=5000.0, source="test")
+
+    def test_fallback_resolves_for_every_year_clears_the_gap(self):
+        cd = CompanyData(ticker="GP1", cik="0000000201", name="Gross Profit One",
+                          sic="7372", sic_description="Software")
+        cd.unresolved = ["gross_profit"]  # simulates EdgarClient: GrossProfit tag never resolved
+        cd.series = {
+            "total_assets": [_instant("total_assets", "2026-12-31", 1000.0)],
+            "revenue": [_flow("revenue", 2026, 400.0)],
+            "cost_of_revenue": [_flow("cost_of_revenue", 2026, 150.0)],
+            # no "gross_profit" key at all — only the fallback can produce it
+        }
+        res = derive(cd, self._quote(), _CFG)
+        assert "gross_profit" not in res.gaps
+        assert res.annual_series["2026-12-31"].gross_profit == 250.0
+
+    def test_fallback_cannot_resolve_keeps_the_gap(self):
+        cd = CompanyData(ticker="GP2", cik="0000000202", name="Gross Profit Two",
+                          sic="7372", sic_description="Software")
+        cd.unresolved = ["gross_profit"]
+        cd.series = {
+            "total_assets": [_instant("total_assets", "2026-12-31", 1000.0)],
+            "revenue": [_flow("revenue", 2026, 400.0)],
+            # no cost_of_revenue at all — the fallback has nothing to subtract
+        }
+        res = derive(cd, self._quote(), _CFG)
+        assert "gross_profit" in res.gaps
+        assert res.annual_series["2026-12-31"].gross_profit is None
+
+    def test_partial_fallback_across_years_keeps_the_gap(self):
+        """One year resolves via fallback, an older year doesn't (missing
+        cost_of_revenue that year) — still genuinely partial, so the gap
+        must stay, not be dropped on a technicality."""
+        cd = CompanyData(ticker="GP3", cik="0000000203", name="Gross Profit Three",
+                          sic="7372", sic_description="Software")
+        cd.unresolved = ["gross_profit"]
+        cd.series = {
+            "total_assets": [
+                _instant("total_assets", "2025-12-31", 900.0),
+                _instant("total_assets", "2026-12-31", 1000.0),
+            ],
+            "revenue": [_flow("revenue", 2025, 350.0), _flow("revenue", 2026, 400.0)],
+            "cost_of_revenue": [_flow("cost_of_revenue", 2026, 150.0)],  # 2025 missing
+        }
+        res = derive(cd, self._quote(), _CFG)
+        assert res.annual_series["2026-12-31"].gross_profit == 250.0
+        assert res.annual_series["2025-12-31"].gross_profit is None
+        assert "gross_profit" in res.gaps
+
+
 # ---------------------------------------------------------------------------
 # Quarterly path (derive()'s cd.quarterly branch) — the exact reported bug
 # ---------------------------------------------------------------------------
