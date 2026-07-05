@@ -203,9 +203,25 @@ class Fact:
     form: str                # e.g. 10-K, 20-F
     filed: str               # filing date
     currency: str = "USD"    # reporting currency for this data point
+    # SEC accession number of the filing this point came from (e.g.
+    # "0001045810-22-000036"). Present in the raw companyfacts point
+    # (p["accn"]) but dropped by every Fact(...) construction site until
+    # this field was added (Session A UNVERIFIED item / Session B.2 PR-A) —
+    # absence-is-not-zero: an unknown accession is None, never a fabricated
+    # empty string that would read as "known blank."
+    accn: Optional[str] = None
 
     def source(self) -> str:
         return f"{self.concept} | {self.form} | period {self.period_end} | filed {self.filed}"
+
+    def source_ref(self) -> str:
+        """Compact filing reference for gap/lineage text — form + accession
+        + filed date, e.g. "10-K 0001045810-22-000036 filed 2022-03-18".
+        Omits the accession clause (rather than printing a placeholder)
+        when accn is unknown."""
+        if self.accn:
+            return f"{self.form} {self.accn} filed {self.filed}"
+        return f"{self.form} filed {self.filed}"
 
 
 @dataclass
@@ -436,7 +452,7 @@ class EdgarClient:
             return []
         return [
             Fact(concept.key, p["val"], end, int(end[:4]), concept_label, p["form"], p["filed"],
-                 currency=unit)
+                 currency=unit, accn=p.get("accn"))
             for end, (_, p, concept_label) in sorted(selected.items())
         ]
 
@@ -564,7 +580,8 @@ class EdgarClient:
         if not selected:
             return []
         return [
-            Fact(concept.key, p["val"], end, int(end[:4]), concept_label, p["form"], p["filed"])
+            Fact(concept.key, p["val"], end, int(end[:4]), concept_label, p["form"], p["filed"],
+                 accn=p.get("accn"))
             for end, (_, p, concept_label) in sorted(selected.items())
         ]
 
