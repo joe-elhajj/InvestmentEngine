@@ -20,7 +20,7 @@ synthesis. Tiers 2 and 3 consume Tier 1 output; they never alter it.
 
 | File | Owns |
 |---|---|
-| `engine/edgar.py` | SEC EDGAR fetch: filing forms, XBRL tags, multi-currency annual series |
+| `engine/edgar.py` | SEC EDGAR fetch: filing forms, XBRL tags, multi-currency annual series, per-`Fact` filing lineage (`accn`, `source_ref()`) |
 | `engine/metrics.py` | Pure financial calculations — no I/O, no network, no model |
 | `engine/pipeline.py` | Deterministic spine: EDGAR → metrics → peers → valuation (no LLM) |
 | `engine/valuation.py` | Relative and absolute valuation; all assumptions come from `config.yaml` |
@@ -76,11 +76,18 @@ inferred from EDGAR absence alone — absence of a CIK means "unknown", not
 "fund". A `quoteType` of `ETF` or `MUTUALFUND` is the required positive
 confirmation.
 
-**Config-hash discipline.** Every `DurabilityScore` embeds the first 16 hex
-characters of the SHA-256 hash of `config.yaml`. Any assumption change changes
-the hash, making cross-company comparisons across different assumption sets
-immediately identifiable. Never hardcode assumptions in code; they belong in
-`config.yaml`.
+**Config-hash discipline.** Every `DurabilityScore` embeds a 16-hex-char
+SHA-256 fingerprint so cross-company comparisons across different assumption
+sets are identifiable. `engine/durability.py::_config_hash()` and
+`app/main.py::_config_hash()` are two distinct functions with the same name
+that hash different things: the former hashes only the resolved durability
+`weights`/`thresholds`/`universe_version` subset, the latter hashes the full
+`config.yaml` (including valuation/DCF assumptions) for the single-ticker
+endpoint, which runs no durability scoring. Both changed hashes correctly
+signal "different assumption set," but neither is "the hash of config.yaml"
+on its own — a prior draft of this doc claimed that incorrectly. Disambiguating
+the two names is tracked as a pending fix (Session B Item 5, not yet done).
+Never hardcode assumptions in code; they belong in `config.yaml`.
 
 **No credentials in commands or output.** Never extract, print, or embed
 credentials or tokens in bash commands or command output. Use the authenticated
@@ -115,7 +122,12 @@ are for speed of iteration, not for authorising a merge.
 
 - **`docs/assumptions.md`** — every owned assumption with its external anchor,
   current value, and review cadence. Update this whenever `config.yaml`
-  valuation or scenario parameters change.
+  valuation or scenario parameters change. Also documents known SEC EDGAR
+  `companyfacts` data-source limitations (genuine data absence, share-count
+  series discontinuities, the open "B.3" instant-concept fiscal-year-end
+  alignment investigation) diagnosed in Session B.2 — read this before
+  re-investigating a durability gap or a flagged discontinuity that looks
+  like a bug; it may already be a diagnosed, documented limitation.
 - **`config.yaml`** — all tunables: SEC credentials, history window,
   classification overrides, valuation assumptions, DCF scenarios, screening
   weights, Tier 2's `flags:` section (pinned model/prompt_version + pricing

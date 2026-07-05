@@ -108,6 +108,92 @@ are comparable across tickers.  The analyst never adjusts these per company.
 
 ---
 
+## Known SEC EDGAR data-source limitations (Session B.2)
+
+These are not owned assumptions — nothing here has a value to review or an
+anchor to update. They are genuine, diagnosed limitations of SEC EDGAR's
+`companyfacts` payload and of `engine/edgar.py`'s multi-year series assembly,
+recorded so a future session doesn't re-diagnose the same symptom from
+scratch. Each was confirmed against raw `companyfacts` JSON, not inferred.
+
+**Genuine data absence (not a bug).** NVDA's capex has zero annual
+(10-K, full-year-duration) points under either candidate XBRL tag for
+FY2012–FY2021 — only partial-year 10-Q cumulative points exist for those
+years. GOOGL's diluted/basic share-count tags have zero history before 2022
+in the same cached `companyfacts` payload that has full history for
+`Revenues`/`NetIncomeLoss` back to 2013, ruling out cache staleness. Both are
+absence-is-not-zero cases: the pipeline correctly reports `None` and a gap
+for these ticker/period combinations rather than fabricating a value. There
+is no fix — the data was never filed in a form this pipeline can parse.
+
+**Share-count series discontinuities (Session B.2 S2, PR-A/PR-C).**
+`_detect_split_contamination()` in `engine/durability.py` flags a single-year
+≥2x or ≤0.5x jump in a diluted-share series as a probable discontinuity and
+drops the series from `capital_discipline` scoring rather than scoring it as
+extreme dilution (Option A / reject-and-gap, decided in Session B — Item 1).
+Phase 1 of Session B.2 confirmed the likely mechanism against raw
+`companyfacts` JSON for AAPL, NVDA, and AMZN: `_annual_points()`'s
+prefer-latest-filed dedup causes some fiscal years to get retroactively
+split-adjusted via a later filing's comparative reach-back (typically 2–3
+years), while older years — which no later filing reaches back to — never
+get restated. This produces a spurious jump at the *reach-back boundary*,
+not the real corporate-action date; the flagged boundary's ratio matches the
+company's real historical split ratio almost exactly, but the flagged fiscal
+year does not match the real split date. Per the Option 1 decision,
+`_annual_points()`'s selection logic is unchanged — the fix is disclosure
+only: the gap message now names this mechanism as the likely cause (without
+over-asserting certainty; a genuine unadjusted split is not ruled out) and
+cites the two seam filings (form, SEC accession number, filed date) via
+`Fact.source_ref()` (added in PR-A), so the claim is independently checkable
+against the filings. The Phase 3 verification sweep (12 tickers: V, RKLB,
+NVDA, META, CRM, CAT, BE, AXON, AAPL, GOOGL, TSLA, AMZN) confirmed zero
+composite/discipline score movement from this change — every flagged
+boundary is identical before and after; only the gap message text changed.
+
+**Known limitation (backlog, not fixed):** this under-credits genuine
+split/restructured companies on `capital_discipline` relative to identical
+peers without a split — the category composite renormalizes over one fewer
+sub-score instead of crediting real buyback behavior. Resolving this
+requires an owned split/corporate-actions table (a future session), not a
+heuristic guess at the adjustment factor.
+
+**Open investigation, not yet fixed — "B.3" (read-only, queued before
+Session C).** The Phase 3 sweep reconfirmed that META carries a genuine
+`None`-year, which is why its `gross_profit` gap correctly stays present
+(see the PR-B item below) — but this sweep did not re-derive the underlying
+cause; that diagnosis (specific phantom dates, which XBRL concept, which
+filing) was established in an earlier session and has not been re-verified
+here. The suspected mechanism, not yet re-confirmed in this session: unlike
+flow concepts, which `_annual_points()` filters by duration (350–380 days),
+instant (balance-sheet) concepts have no duration to filter on and currently
+have no fiscal-year-end *alignment* check in its place, so an off-cycle
+instant snapshot embedded in a filing's footnote tables could be accepted as
+if it were a real fiscal year-end. The fix shape, if the diagnosis holds: derive
+the true annual period-ends from validated flow concepts and accept only
+instants whose date matches one of them, rejecting off-cycle snapshots.
+Because instant concepts feed invested capital (ROIC → reinvestment,
+quality) and net debt/liquid assets/coverage (resilience), the blast radius
+is potentially three of five durability categories on META — severity not
+yet established. Full diagnosis (exact dates, exact concept, whether the
+scoring functions actually ingest the phantom year or filter it out) is the
+subject of the queued read-only B.3 session, not settled here.
+
+**gross_profit false-gap reconciliation (Session B.2 S3, PR-B).**
+`engine/pipeline.py`'s gap-accounting snapshotted `res.gaps` before the
+per-year fallback computation ran, so a `gross_profit` gap could survive in
+the reported gap list even when every year's fallback actually resolved a
+value. The fix clears the gap only when every year in `annual_series` has a
+non-`None` `gross_profit` after the fallback runs. The Phase 3 sweep found
+this fires for CAT, GOOGL, and AMZN — not only the originally-diagnosed CAT
+— because the condition is general, not CAT-specific. META's `gross_profit`
+gap correctly stays present: it has a genuine `None` year from the B.3
+phantom-period-end issue above, so the fallback cannot resolve every year,
+and the gap is real, not a false positive. No composite or discipline score
+changed for any of these tickers — this fix only removes a spurious entry
+from the disclosed gap list.
+
+---
+
 ## What this file is NOT
 
 - It does not document EDGAR XBRL tag choices (those are in `engine/edgar.py`).
