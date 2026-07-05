@@ -130,6 +130,14 @@
   --ease-out:cubic-bezier(0.16,1,0.3,1);
 }
 
+/* Tells the browser this UI wants dark-aware native chrome — without it,
+   unstyled scrollbars/form controls default to the OS's LIGHT rendering
+   regardless of the page's own dark background (this is what made a
+   plain native scrollbar thumb read as jarringly out-of-place light on
+   an otherwise all-dark surface). Paired with the explicit .scroll
+   scrollbar rules below for deterministic cross-browser control. */
+:root{color-scheme:dark}
+
 *{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
 body{
@@ -281,7 +289,19 @@ body{
   background:var(--surface);border:1px solid var(--card-border);border-radius:var(--radius-md);
   box-shadow:var(--card-shadow);overflow:hidden;
 }
-.scroll{overflow-x:auto}
+/* Every scrollable surface in the dashboard shares this ONE class
+   (Equities/ETF/Excluded tables' wrappers, Data Diagnostics' table wrap)
+   — defining the scrollbar treatment once here is what GUARANTEES they
+   stay identical; there is no per-table override to drift out of sync. */
+.scroll{
+  overflow-x:auto;
+  scrollbar-width:thin;                                  /* Firefox */
+  scrollbar-color:rgba(255,255,255,0.18) transparent;    /* Firefox */
+}
+.scroll::-webkit-scrollbar{height:8px;width:8px}
+.scroll::-webkit-scrollbar-track{background:transparent}
+.scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.18);border-radius:999px}
+.scroll::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.28)}
 
 table{width:100%;border-collapse:collapse}
 thead th{
@@ -936,6 +956,7 @@ tbody tr:hover .row-remove{opacity:1}
    flip, not just a couple of hand-picked elements. ---- */
 @media print{
   :root{
+    color-scheme:light;
     --canvas:#f6f7f9;
     --paper:#f1f3f6;
     --surface:#ffffff;
