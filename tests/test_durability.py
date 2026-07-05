@@ -755,3 +755,73 @@ def test_reinvestment_rate_fails_on_pre_fix_logic():
     # And the fixed function must NOT reproduce this contaminated result:
     fixed_rr = next(s for s in D._score_reinvestment(annual, coc=0.08) if s.name == "reinvestment_rate")
     assert fixed_rr.raw != round(mean_rr, 4)
+
+
+# ---------------------------------------------------------------------------
+# Negative-EBITDA curve domain (Session C follow-up): the net_debt/EBITDA
+# ratio's sign was previously undefined whenever ebitda <= 0, and the old
+# `if ebitda > 0:` gate with no else branch silently dropped the sub-score
+# in EITHER direction -- a levered, unprofitable company got no worst-case
+# floor, and a net-cash, unprofitable company (RKLB) got no credit and no
+# disclosure. Fixed: net_debt > 0 floors to 0.0 (real score movement,
+# worst-case debt service); net_debt <= 0 (net cash) discloses via ds.gaps
+# instead of inventing a score for a ratio with no defined sign here.
+# ---------------------------------------------------------------------------
+
+def _ebitda_domain_company(ticker: str, cik: str, *, long_term_debt: float, cash: float) -> CompanyData:
+    """oi=-50, dep_amort=10 -> ebitda=-40 (<=0) in every case. net_debt sign
+    is controlled purely by the long_term_debt/cash split passed in."""
+    cd = CompanyData(ticker=ticker, cik=cik, name=f"{ticker} Co",
+                     sic="7372", sic_description="Prepackaged Software")
+    cd.series = {
+        "total_assets":     [_instant("total_assets",     "2023-12-31", 500.0)],
+        "total_equity":     [_instant("total_equity",      "2023-12-31", 200.0)],
+        "long_term_debt":   [_instant("long_term_debt",    "2023-12-31", long_term_debt)],
+        "short_term_debt":  [_instant("short_term_debt",   "2023-12-31", 0.0)],
+        "cash":             [_instant("cash",              "2023-12-31", cash)],
+        "revenue":          [_flow("revenue",          2023, 200.0)],
+        "operating_income": [_flow("operating_income", 2023, -50.0)],
+        "net_income":       [_flow("net_income",        2023, -60.0)],
+        "cfo":              [_flow("cfo",               2023, -40.0)],
+        "capex":            [_flow("capex",              2023,  10.0)],
+        "dep_amort":        [_flow("dep_amort",          2023,  10.0)],
+    }
+    return cd
+
+
+def test_negative_ebitda_with_net_debt_floors_to_zero():
+    """ebitda<=0 AND net_debt>0: worst-case debt service, floored to 0.0 with
+    a rationale naming the branch that fired -- real score movement, not a
+    silent drop."""
+    cd = _ebitda_domain_company("NDFLOOR", "0000000060", long_term_debt=300.0, cash=20.0)
+    res = _make_res(cd)
+    annual = res.annual_series
+    assert annual["2023-12-31"].net_debt == 280.0
+    assert annual["2023-12-31"].ebitda == -40.0
+
+    ds = D.score(res, _BASE_CFG)
+    resilience = ds.categories["balance_sheet_resilience"]
+    nd_sub = next((s for s in resilience.sub_scores if s.name == "net_debt_ebitda"), None)
+    assert nd_sub is not None, "net_debt>0 with ebitda<=0 must produce a floored sub-score, not drop it"
+    assert nd_sub.score == 0.0
+    assert "floored" in str(nd_sub.raw) and "net debt" in str(nd_sub.raw)
+    assert not [g for g in ds.gaps if g.startswith("net_debt_ebitda:")], \
+        "the floored (scored) branch must not also emit a disclose-only gap"
+
+
+def test_negative_ebitda_with_net_cash_discloses_gap_not_subscore():
+    """ebitda<=0 AND net_debt<=0 (net cash): outside the ratio's domain in
+    the other direction -- no sub-score invented, but a visible ds.gaps
+    entry naming the branch, not silence."""
+    cd = _ebitda_domain_company("NDCASH", "0000000061", long_term_debt=0.0, cash=200.0)
+    res = _make_res(cd)
+    annual = res.annual_series
+    assert annual["2023-12-31"].net_debt == -200.0
+    assert annual["2023-12-31"].ebitda == -40.0
+
+    ds = D.score(res, _BASE_CFG)
+    resilience = ds.categories.get("balance_sheet_resilience")
+    if resilience:
+        nd_sub = next((s for s in resilience.sub_scores if s.name == "net_debt_ebitda"), None)
+        assert nd_sub is None, "net_debt<=0 with ebitda<=0 has no defined ratio sign -- must not be scored"
+    assert "net_debt_ebitda: EBITDA <= 0 with net cash — outside ratio domain, not scored." in ds.gaps

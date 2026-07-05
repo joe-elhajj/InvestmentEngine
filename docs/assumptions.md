@@ -168,6 +168,38 @@ values.
    functions, not a `config.yaml` value — out of scope for a docs-only
    disposition.
 
+### Session C follow-up: net_debt/EBITDA curve domain (fixed 2026-07-05)
+
+`_score_resilience`'s `net_debt_ebitda` sub-score previously gated on
+`if ebitda > 0:` with no else branch, so `ebitda <= 0` silently dropped the
+metric regardless of `net_debt`'s sign — a levered, unprofitable company got
+no worst-case floor, and a net-cash, unprofitable company got no credit and
+no disclosure. Both outcomes are wrong in different directions, and neither
+was visible in `ds.gaps`.
+
+Fixed rule, applied only when `ebitda <= 0` (both `net_debt`/`ebitda`
+non-`None`; the `ebitda > 0` branch and its existing thresholds are
+unchanged):
+- `net_debt > 0` (levered): `net_debt_ebitda` SubScore, `score=0.0`, raw
+  `"EBITDA <= 0 with net debt — floored (worst-case debt service)."` — real
+  score movement for any name in this branch.
+- `net_debt <= 0` (net cash): no SubScore; a `ds.gaps` entry
+  `"net_debt_ebitda: EBITDA <= 0 with net cash — outside ratio domain, not
+  scored."` — disclosed, not silent, but no score is invented for a ratio
+  with no defined sign here.
+
+This curve-domain rule **post-dates every audit baseline above** (Session C
+Phases 1.5/2/4, and the fourteen/fifteen-ticker sweeps they reference) —
+those baselines were computed under the old silent-drop behavior. Rescored
+the 8-ticker watchlist (V, NVDA, META, CAT, CRM, AXON, BE, RKLB)
+before/after: RKLB is the only name with `ebitda <= 0` (net cash, so the
+disclose-only branch fires), and its composite is byte-identical
+before/after — only its `ds.gaps` disclosure changes, since a disclosed
+non-domain gap renormalizes category weight exactly as the prior silent
+omission did. No watchlist ticker currently falls into the net-debt-floor
+branch, so no name shows real score movement today; any future name with
+`net_debt > 0` and `ebitda <= 0` will.
+
 ---
 
 ## Classification overrides (`config.yaml → classification.overrides`)

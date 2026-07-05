@@ -393,12 +393,20 @@ def _score_quality(
     return sub
 
 
-def _score_resilience(annual: dict[str, YearlyDerived]) -> list[SubScore]:
-    """Category 3: Balance-sheet resilience."""
+def _score_resilience(annual: dict[str, YearlyDerived]) -> tuple[list[SubScore], list[str]]:
+    """Category 3: Balance-sheet resilience.
+
+    Returns (sub_scores, gaps). The gaps list carries disclosure-only
+    findings that don't produce a SubScore -- mirroring how
+    _detect_split_contamination's extra_gaps reach ds.gaps from outside a
+    SubScore, this channel lets the net-cash/EBITDA<=0 case below disclose
+    without inventing a score for a ratio that has no defined sign here.
+    """
     sub: list[SubScore] = []
+    gaps: list[str] = []
     periods = sorted(annual)
     if not periods:
-        return sub
+        return sub, gaps
     latest = annual[periods[-1]]
 
     # Net debt / EBITDA
@@ -419,6 +427,24 @@ def _score_resilience(annual: dict[str, YearlyDerived]) -> list[SubScore]:
                 raw=round(ratio, 3), source=f"net_debt/EBITDA at {periods[-1]}",
                 years_covered=[latest.year],
             ))
+        elif nd > 0:
+            # EBITDA <= 0 with net debt: the ratio's sign is undefined but the
+            # risk is real and worse than any levered-but-profitable case --
+            # floor to the worst score rather than silently dropping the metric.
+            sub.append(SubScore(
+                name="net_debt_ebitda", score=0.0,
+                raw="EBITDA <= 0 with net debt — floored (worst-case debt service).",
+                source=f"net_debt/EBITDA at {periods[-1]}",
+                years_covered=[latest.year],
+            ))
+        else:
+            # EBITDA <= 0 with net cash: outside the ratio's domain in the
+            # other direction -- unlike the net-debt case there's no
+            # worst-case direction to floor to, so disclose instead of score.
+            gaps.append(
+                "net_debt_ebitda: EBITDA <= 0 with net cash — outside ratio "
+                "domain, not scored."
+            )
 
     # Interest coverage — read Metric.note to distinguish "no debt" from "data missing"
     ebit = latest.ebit
@@ -455,7 +481,7 @@ def _score_resilience(annual: dict[str, YearlyDerived]) -> list[SubScore]:
             years_covered=[y for y, _ in fcf_vals],
         ))
 
-    return sub
+    return sub, gaps
 
 
 def _detect_split_contamination(series: list[tuple[int, float]]) -> Optional[tuple[int, int]]:
@@ -817,10 +843,13 @@ def score(
     else:
         diluted_series_for_scoring = diluted_series
 
+    resilience_sub, resilience_gaps = _score_resilience(annual)
+    extra_gaps.extend(resilience_gaps)
+
     cat_scores: dict[str, list[SubScore]] = {
         "reinvestment_engine": _score_reinvestment(annual, coc),
         "quality_persistence": _score_quality(annual, roic_thresh, uni_gm),
-        "balance_sheet_resilience": _score_resilience(annual),
+        "balance_sheet_resilience": resilience_sub,
         "capital_discipline": _score_capital_discipline(annual, diluted_series_for_scoring),
         "optionality_proxies": _score_optionality(annual, uni_cx, uni_rnd),
     }
