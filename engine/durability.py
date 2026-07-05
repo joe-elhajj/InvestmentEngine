@@ -17,6 +17,16 @@ Design rules
 - Score bands quantify uncertainty from missing data (C2).
 - Config hash enables cross-company comparability (C3).
 - Stability perturbation flags reinvestment-rate sensitivity (C4).
+
+Known open investigation (Session A Item 1 sweep, as of this writing): the
+share-count discontinuity detector below (_detect_split_contamination) found
+flagged boundaries for AAPL/TSLA/AMZN whose RATIOS match those companies'
+real historical split ratios almost exactly, but whose fiscal years do NOT
+match the real split dates. That "ratio right, year wrong" signature points
+at engine/edgar.py's multi-year series assembly (likely comparative-column
+splicing across filings) rather than confirming genuine unadjusted splits
+landing on those exact years. Root cause under investigation in a follow-up
+session (B.2) — not yet fixed, not yet fully diagnosed as of this comment.
 """
 
 from __future__ import annotations
@@ -407,6 +417,47 @@ def _score_resilience(annual: dict[str, YearlyDerived]) -> list[SubScore]:
     return sub
 
 
+def _detect_split_contamination(series: list[tuple[int, float]]) -> Optional[tuple[int, int]]:
+    """
+    Scans an as-filed (year, value) share-count series for a single-year jump
+    too large to be real per-share issuance or buybacks — NVDA's diluted
+    share count goes 2.535B (FY2022) -> 25.07B (FY2023), a ratio consistent
+    with a 10-for-1 split, not 889% dilution. The exact cause of a flagged
+    jump is NOT diagnosed by this function and must not be asserted by a
+    caller: an Item 1 sweep across AAPL/TSLA/AMZN found flagged-boundary
+    RATIOS that match those companies' real historical split ratios almost
+    exactly, but fiscal years that do NOT match the real split dates —
+    which is the signature of multi-filing comparative splicing (as-filed
+    and later-restated points for the same nominal fiscal year merged into
+    one series), not necessarily an unadjusted split or corporate action
+    landing on that exact year. Root cause is under active investigation in
+    a follow-up session; this function and its caller only know "this
+    ratio is too large to be real dilution/buybacks," nothing more.
+
+    Returns (year_before, year_after) of the FIRST such jump found (series
+    sorted ascending internally, so callers don't have to guarantee order),
+    or None when the series is clean. A ratio >=2x or <=0.5x between
+    adjacent fiscal years is treated as a probable discontinuity — real
+    single-year dilution/buyback swings of that magnitude are not a thing
+    outside a restructuring event or a data-assembly artifact; RKLB's OWN
+    genuine year-over-year dilution from FY2022 onward (466M -> 482M ->
+    496M -> 531M, ~3-7%/yr) stays far under this threshold and is scored
+    normally.
+
+    Deliberately a standalone function, not inlined into
+    _score_capital_discipline(), so detection has exactly one call site
+    (engine.durability.score()) and one thing to unit-test.
+    """
+    ordered = sorted(series, key=lambda pair: pair[0])
+    for (y0, v0), (y1, v1) in zip(ordered, ordered[1:]):
+        if v0 <= 0:
+            continue
+        ratio = v1 / v0
+        if ratio >= 2.0 or ratio <= 0.5:
+            return (y0, y1)
+    return None
+
+
 def _score_capital_discipline(
     annual: dict[str, YearlyDerived],
     diluted_shares_series: list[tuple[int, float]],
@@ -678,11 +729,47 @@ def score(
         for f in res.company.series.get("diluted_shares", [])
     ]
 
+    # Share-count discontinuity check (Session A/Item 1): a single-year jump
+    # in the raw diluted-share series reads as extreme "dilution" to a plain
+    # CAGR, floor-clamping share_count_cagr to 0 for reasons that have
+    # nothing to do with capital discipline. Reject-and-gap, not infer-and-
+    # adjust (Joe's call): the contaminated series is dropped entirely
+    # (empty list -> _score_capital_discipline's own `len(...) >= 2` check
+    # naturally omits the sub-score — absent, not a fabricated 0), and the
+    # omission is logged as an explicit gap naming the probable
+    # discontinuity so it's discoverable later, not silently missing.
+    # The Item 1 sweep found flagged boundaries whose RATIOS match known
+    # split ratios for AAPL/TSLA/AMZN but whose fiscal years do NOT match
+    # those companies' real split dates — evidence pointing at multi-filing
+    # comparative splicing in engine/edgar.py's series assembly rather than
+    # (or in addition to) genuine unadjusted corporate actions. Root cause
+    # is under investigation in a follow-up session (Session B.2); the gap
+    # message below deliberately does not assert a specific mechanism.
+    # Known limitation (backlog, not fixed here): this under-credits
+    # genuine split/restructured companies on discipline relative to
+    # identical peers without one — the category composite renormalizes
+    # over one fewer sub-score instead of crediting real buyback behavior.
+    # Resolving that requires an owned split/corporate-actions table
+    # (Session C), not a heuristic guess at the adjustment factor.
+    extra_gaps: list[str] = []
+    split_jump = _detect_split_contamination(diluted_series)
+    if split_jump is not None:
+        y0, y1 = split_jump
+        extra_gaps.append(
+            f"share_count_cagr: probable share-count discontinuity (unadjusted split, "
+            f"restructuring, or filing-comparative splice — cause not yet diagnosed) "
+            f"between FY{y0} and FY{y1} — unadjusted "
+            "diluted-share series rejected, not scored as dilution"
+        )
+        diluted_series_for_scoring: list[tuple[int, float]] = []
+    else:
+        diluted_series_for_scoring = diluted_series
+
     cat_scores: dict[str, list[SubScore]] = {
         "reinvestment_engine": _score_reinvestment(annual, coc),
         "quality_persistence": _score_quality(annual, coc, roic_thresh, uni_gm),
         "balance_sheet_resilience": _score_resilience(annual),
-        "capital_discipline": _score_capital_discipline(annual, diluted_series),
+        "capital_discipline": _score_capital_discipline(annual, diluted_series_for_scoring),
         "optionality_proxies": _score_optionality(annual, uni_cx, uni_rnd),
     }
 
@@ -697,7 +784,7 @@ def score(
             data_completeness=0.0, is_stable=True, stability_delta=0.0,
             excluded=True,
             exclusion_reason="no scoreable metrics after data filtering",
-            gaps=list(res.gaps),
+            gaps=list(res.gaps) + extra_gaps,
         )
 
     # Score band (C2) — impute pessimistic / optimistic for missing metrics
@@ -724,7 +811,7 @@ def score(
         data_completeness=completeness,
         is_stable=is_stable,
         stability_delta=stability_delta,
-        gaps=list(res.gaps),
+        gaps=list(res.gaps) + extra_gaps,
     )
 
     _check_invariants(result)

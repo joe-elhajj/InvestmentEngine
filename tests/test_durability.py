@@ -463,3 +463,105 @@ def test_stability_flag():
     # stability_delta is a float (may be 0 if no reinvestment rate computed)
     assert isinstance(ds.stability_delta, float)
     assert ds.stability_delta >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# 12. Split-contamination detection (Session A Item 1) — _detect_split_contamination()
+#
+# Root cause (Session A): _score_capital_discipline() fed an unadjusted, as-
+# filed diluted-share series straight into cagr_over(). NVDA's real 10-for-1
+# split (FY2022 2.535B -> FY2023 25.07B) reads as +57.7%/yr "dilution",
+# floor-clamping share_count_cagr to 0 for a reason that has nothing to do
+# with capital discipline (split-adjusted, NVDA's share count actually
+# *shrank* over the window — real buybacks). Joe's call: reject-and-gap
+# (Option A), not infer-and-adjust (Option B) — a contaminated series is
+# rejected outright (sub-score becomes absent, not a fabricated number) and
+# an explicit gap names the probable discontinuity.
+# ---------------------------------------------------------------------------
+
+def test_split_detection_clean_series_untouched():
+    """No single-year ratio anywhere near 2x — detector finds nothing."""
+    series = [(2021, 100.0), (2022, 102.0), (2023, 104.0), (2024, 103.0), (2025, 105.0)]
+    assert D._detect_split_contamination(series) is None
+
+
+def test_split_detection_10_to_1_split_detected():
+    """NVDA's real shape: a clean ~10x single-year jump."""
+    series = [(2021, 2_400_000_000), (2022, 2_535_000_000), (2023, 25_070_000_000),
+              (2024, 24_940_000_000), (2025, 24_804_000_000)]
+    assert D._detect_split_contamination(series) == (2022, 2023)
+
+
+def test_split_detection_2_to_1_split_detected():
+    """Boundary case: a ratio of EXACTLY 2.0 must still be caught (>=, not >)."""
+    series = [(2021, 100.0), (2022, 105.0), (2023, 210.0), (2024, 208.0), (2025, 212.0)]
+    assert D._detect_split_contamination(series) == (2022, 2023)
+
+
+def test_split_detection_reverse_split_detected():
+    """The <=0.5x direction (a reverse split) must also be caught."""
+    series = [(2021, 1_000_000.0), (2022, 950_000.0), (2023, 190_000.0), (2024, 195_000.0)]
+    assert D._detect_split_contamination(series) == (2022, 2023)
+
+
+def test_split_detection_gradual_dilution_not_flagged():
+    """RKLB-style genuine dilution — 60% cumulative growth over 5 elapsed
+    years, but every single year-over-year step stays far under 2x — must
+    NOT be flagged. This is real capital-discipline signal, not a
+    discontinuity, and must keep scoring through to a real (floor-clamped)
+    share_count_cagr, not be dropped as a gap."""
+    series = [(2021, 100.0), (2022, 110.0), (2023, 122.0), (2024, 135.0), (2025, 148.0), (2026, 160.0)]
+    assert D._detect_split_contamination(series) is None
+
+
+def test_split_detection_scans_unsorted_input():
+    """Callers shouldn't have to pre-sort — the function sorts internally."""
+    series = [(2023, 25_070_000_000), (2021, 2_400_000_000), (2022, 2_535_000_000), (2024, 24_940_000_000)]
+    assert D._detect_split_contamination(series) == (2022, 2023)
+
+
+def _company_with_diluted_shares(diluted: list[tuple[int, float]]) -> CompanyData:
+    """A minimal strong-company fixture (enough real data for the other 4
+    categories to score normally) plus a caller-supplied diluted_shares
+    series, isolating the discipline-category effect under test."""
+    cd = _strong_company()
+    cd.series["diluted_shares"] = [
+        _instant("diluted_shares", f"{y}-12-31", v, concept="us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding")
+        for y, v in diluted
+    ]
+    return cd
+
+
+def test_score_omits_subscore_and_logs_gap_when_split_contaminated():
+    """End-to-end through D.score(): a contaminated series must produce an
+    ABSENT share_count_cagr sub-score (not a fabricated 0) and an explicit
+    gap naming the probable discontinuity — absence-is-not-zero."""
+    cd = _company_with_diluted_shares([
+        (2018, 2_400_000_000), (2019, 2_450_000_000), (2020, 2_500_000_000),
+        (2021, 2_535_000_000), (2022, 2_535_000_000), (2023, 25_070_000_000),
+    ])
+    res = _make_res(cd)
+    ds = D.score(res, _BASE_CFG)
+    disc = ds.categories["capital_discipline"]
+    sub_names = [s.name for s in disc.sub_scores]
+    assert "share_count_cagr" not in sub_names
+    assert "sbc_revenue_ratio" in sub_names  # the other sub-score is unaffected
+    matching_gaps = [g for g in ds.gaps if g.startswith("share_count_cagr:")]
+    assert len(matching_gaps) == 1
+    assert "FY2022" in matching_gaps[0] and "FY2023" in matching_gaps[0]
+    assert "discontinuity" in matching_gaps[0]
+
+
+def test_score_keeps_real_subscore_when_series_is_clean():
+    """Control case: a clean (gradually-diluting) series must still produce
+    a real share_count_cagr sub-score and no gap — the detector must not
+    over-fire on genuine data."""
+    cd = _company_with_diluted_shares([
+        (2018, 100.0), (2019, 110.0), (2020, 122.0), (2021, 135.0), (2022, 148.0), (2023, 160.0),
+    ])
+    res = _make_res(cd)
+    ds = D.score(res, _BASE_CFG)
+    disc = ds.categories["capital_discipline"]
+    sub_names = [s.name for s in disc.sub_scores]
+    assert "share_count_cagr" in sub_names
+    assert not [g for g in ds.gaps if g.startswith("share_count_cagr:")]
