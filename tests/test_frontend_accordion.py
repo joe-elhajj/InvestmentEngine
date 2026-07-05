@@ -33,6 +33,7 @@ from pathlib import Path
 import pytest
 
 from engine import report_html as RH
+from engine.etf import EtfProfile
 from tests.test_report_html import _company_result
 
 _APP_JS = (Path(__file__).resolve().parent.parent / "frontend" / "app.js").read_text()
@@ -105,6 +106,18 @@ class TestNoDetailsOpenOnRowExpand:
         a raw substring grep would get wrong."""
         html = '<details class="report-section" data-open-label="foo"><summary>X</summary></details>'
         assert _parse_open_states(html) == [False]
+
+    def test_etf_fragment_profile_section_has_no_open_details(self):
+        """Bug 2 (Phase 1): the ETF fragment's "Profile" section was passed
+        open_=True in render_etf_fragment() — the one call site in this
+        file that ever set it — so it rendered already-expanded on load
+        while every other section (here and on the equity fragment above)
+        correctly defaults collapsed. Fixed by dropping that argument."""
+        profile = EtfProfile(ticker="QQQ", name="Invesco QQQ Trust", quote_type="ETF")
+        frag = RH.render_etf_fragment(profile, price=500.0, evidence="ETF/Fund — fund forms observed", overlap_matches=[])
+        states = _parse_open_states(frag)
+        assert len(states) >= 1  # at least "Profile"
+        assert all(state is False for state in states), states
 
 
 class TestNoJavaScriptForcesASectionOpen:

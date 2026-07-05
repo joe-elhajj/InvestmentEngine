@@ -511,6 +511,28 @@ class TestAnalyzeFragmentEndpoint:
         assert resp.status_code == 200
         assert '<span class="stat-value stat-value-na">n/a</span>' in resp.text
 
+    def test_council_section_present_after_flags_via_the_real_endpoint(self, client):
+        """End-to-end regression guard (dark-instrument-redesign branch,
+        live-browser review finding #3): the equity fragment served through
+        the REAL /api/analyze/{ticker}/fragment route — not just the
+        engine.report_html.render_fragment() unit test in
+        test_report_html.py — must still carry the Council section after
+        Flags. Diagnosed at the time: this branch's merge-base with main
+        already included PR #29 (Council access section) and
+        render_fragment() had not dropped the markup; the reported gap
+        could not be reproduced against this exact code with a real
+        browser. Kept here as a route-level guard regardless — a future
+        change to how this endpoint calls the renderer (or a refactor that
+        drops a section) would be caught here even if the unit test above
+        somehow weren't."""
+        with patch("app.main.run_single_ticker", return_value=_real_analysis_result()):
+            resp = client.get("/api/analyze/AAPL/fragment")
+        assert resp.status_code == 200
+        flags_idx = resp.text.index('class="report-section flags-section"')
+        council_idx = resp.text.index('class="report-section council-section"')
+        assert flags_idx < council_idx
+        assert "<summary>Council</summary>" in resp.text
+
     def test_failure_returns_inline_error_fragment_not_full_page(self, client):
         with patch(
             "app.main.run_single_ticker",
@@ -890,6 +912,47 @@ class TestFlagsEndpoint:
         body2 = resp2.json()
         assert body2["state"] == "ok"
         assert body2["cache_status"] == "from_cache"
+
+    def test_preexisting_disk_cache_serves_without_any_model_call(self, client, tmp_path):
+        """Bug 3 (Phase 1, dark-instrument-redesign branch): "if a cached
+        Tier 2 flag extraction exists for a ticker, the FLAGS section must
+        render the cached flags without requiring re-extraction." Unlike
+        test_second_request_is_a_cache_hit_model_not_called_again above
+        (which proves the SECOND of two requests within this same test is a
+        cache hit), this seeds the on-disk cache directly via
+        engine.flags._save_cached_raw — the exact mechanism a prior
+        server run's extraction would have left behind — and never calls
+        the model at all in this test, then makes a single bare GET and
+        confirms the cache is read and served correctly. Verified: this
+        already passes against the current code (PR #28 touched no flags
+        display logic — grep confirms only two --signal -> --signal-text
+        color-token updates); kept here as the regression guard the bug
+        report asked for."""
+        from engine.flags import Flag, FilingRef, FlagsResult, _save_cached_raw
+
+        fs = _filing_sections()
+        result = FlagsResult(
+            ticker="NVDA", model="claude-sonnet-5", prompt_version="v1",
+            extracted_at="2026-01-01T00:00:00+00:00",
+            filing=FilingRef(form="10-K", accession=fs.accession, period_ending=fs.period_ending,
+                              filed=fs.filed, url=fs.url),
+            flags=[Flag(label="Customer concentration", snippet="one customer is 19% of revenue",
+                        severity="red", item="1A", verified_verbatim=True)],
+            dropped_count=0,
+        )
+        # The autouse fixture above already patches app.main._FLAGS_CACHE_DIR
+        # to this same tmp_path — write the seed file straight into it.
+        _save_cached_raw(tmp_path, fs.accession, "v1", "claude-sonnet-5", result)
+        with patch.object(fastapi_app.state.filings_client, "latest_10k_sections", return_value=fs), \
+             patch("engine.flags._call_model") as mock_call:
+            resp = client.get("/api/flags/NVDA")
+        mock_call.assert_not_called()
+        body = resp.json()
+        assert body["state"] == "ok"
+        assert body["cache_status"] == "from_cache"
+        assert len(body["flags"]) == 1
+        assert body["flags"][0]["label"] == "Customer concentration"
+        assert body["flags"][0]["severity"] == "red"
 
     def test_refresh_true_re_calls_model_and_re_stamps(self, client):
         fs = _filing_sections()

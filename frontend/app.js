@@ -387,11 +387,77 @@
   // on the next frame so the CSS `transition:max-height 200ms ease-out`
   // actually animates instead of jumping straight to "auto". ≤200ms, the
   // one other animated moment besides the score-bar fill-in.
+  //
+  // Bug (reported): rows below an open panel render on top of it instead
+  // of reflowing down. Root cause: this function set max-height to a
+  // PIXEL VALUE measured once at open time and never released it — every
+  // <tr> below depends on the table layout algorithm's computed height for
+  // this row, which is governed by that pinned pixel cap, not by the
+  // panel's actual current content. Any change after the open transition
+  // (the real fragment replacing the "Loading…" placeholder, a nested
+  // <details> toggle, the Sources reveal) then sizes against a STALE cap
+  // instead of the row's true height, leaving the table's own row-height
+  // bookkeeping out of sync with what's rendered — which is what let
+  // subsequent rows overlap instead of reflowing. Fix: once the open
+  // transition finishes, release max-height to "none" (unconstrained) so
+  // the browser's ordinary auto-height table layout governs this row from
+  // then on, exactly like every other row — no pixel value to go stale.
+  // The transitionend listener is tracked on the element itself so
+  // collapseAccordionRow (below) can cancel a still-pending one before it
+  // fires mid-collapse.
   function expandAccordionContent(inner) {
+    if (inner._openHandler) {
+      inner.removeEventListener("transitionend", inner._openHandler);
+      inner._openHandler = null;
+    }
     requestAnimationFrame(function () {
+      // settleAccordionContent (below) may already have taken over this
+      // exact element between this rAF being queued and it actually
+      // running (the first-open race) — if so, this callback is stale and
+      // must be a no-op, or it would reintroduce a pixel max-height cap
+      // right after settle deliberately released it to "none".
+      if (inner._settled) return;
       inner.style.maxHeight = inner.scrollHeight + "px";
       inner.style.opacity = "1";
+      var onOpenEnd = function (ev) {
+        if (ev.propertyName !== "max-height") return;
+        inner.removeEventListener("transitionend", onOpenEnd);
+        inner._openHandler = null;
+        inner.style.maxHeight = "none";
+      };
+      inner._openHandler = onOpenEnd;
+      inner.addEventListener("transitionend", onOpenEnd);
     });
+  }
+
+  // Used specifically when content that's already inserted (the "Loading…"
+  // placeholder) gets REPLACED by different content — fetch completion
+  // (real fragment) or a failed-fetch error message. This is exactly the
+  // first-open race reported: expandAccordionContent()'s animate-then-
+  // release-on-transitionend approach depends on a NEW transitionend
+  // firing for THIS specific style change, but if the fetch resolves fast
+  // enough, its completion can land in the same animation frame as the
+  // placeholder's own still-pending rAF — both call expandAccordionContent
+  // in sequence, one cancelling/overwriting the other's bookkeeping, and
+  // in some interleavings the transitionend that's supposed to release the
+  // real (larger) content's height either never fires cleanly or fires
+  // for the wrong measurement. The signature was exactly "only the FIRST
+  // open of a cold cache" — every later open (fragmentCache hit) only ever
+  // calls expandAccordionContent ONCE, so there's no second call to race
+  // against. Fix: when swapping in replacement content, release the
+  // height constraint to "none" immediately and unconditionally — no rAF,
+  // no transition, no dependency on event ordering at all. This one swap
+  // loses its grow animation (an instant reveal instead of a 200ms one) in
+  // exchange for a row height that is CORRECT from the instant the real
+  // content exists, on every open including the very first.
+  function settleAccordionContent(inner) {
+    if (inner._openHandler) {
+      inner.removeEventListener("transitionend", inner._openHandler);
+      inner._openHandler = null;
+    }
+    inner._settled = true; // makes a still-queued expandAccordionContent rAF (if any) a no-op
+    inner.style.maxHeight = "none";
+    inner.style.opacity = "1";
   }
 
   // Reverses the same transition on collapse, then removes the row once
@@ -403,6 +469,13 @@
     if (!inner) {
       accRow.remove();
       return;
+    }
+    // Cancel a pending "release to none" from expandAccordionContent above
+    // — if the user collapses before that ever fires, it must not clobber
+    // the collapse transition we're about to start.
+    if (inner._openHandler) {
+      inner.removeEventListener("transitionend", inner._openHandler);
+      inner._openHandler = null;
     }
     var removed = false;
     function finish() {
@@ -469,13 +542,13 @@
         // for this ticker — the user may have collapsed it while we waited.
         if (expandedRows[ticker] === accRow) {
           inner.innerHTML = html;
-          expandAccordionContent(inner);
+          settleAccordionContent(inner);
         }
       })
       .catch(function (e) {
         if (expandedRows[ticker] === accRow) {
           inner.innerHTML = '<div class="accordion-loading">Failed to load analysis: ' + e.message + "</div>";
-          expandAccordionContent(inner);
+          settleAccordionContent(inner);
         }
       });
   }
