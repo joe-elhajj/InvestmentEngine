@@ -356,6 +356,20 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     annual = derive_annual_series(cd, config)
     res.annual_series = annual
 
+    # S3 fix (Session B.2 PR-B): res.gaps above was snapshotted from
+    # cd.unresolved BEFORE the per-year revenue - cost_of_revenue fallback
+    # (_build_year_entry, inside derive_annual_series just above) ever ran —
+    # so a ticker whose GrossProfit tag never resolves directly (confirmed:
+    # META, CAT) kept reporting a false "gross_profit" gap even when every
+    # year's value actually resolved via the fallback. Reconcile now that
+    # the real, per-year answer is known. Keyed on `is not None`, never
+    # truthiness — a legitimately zero gross profit must not re-open the
+    # gap. Narrow and single-metric on purpose: only removed when EVERY
+    # year resolved — a still-partial fallback (e.g. cost_of_revenue itself
+    # missing for some years) is a real, ongoing gap and stays reported.
+    if "gross_profit" in res.gaps and annual and all(yd.gross_profit is not None for yd in annual.values()):
+        res.gaps.remove("gross_profit")
+
     # Normalized FCF and delivered growth (both depend only on annual series)
     nfcf_val, nfcf_lineage = _normalized_fcf(annual, window=fcf_window)
     res.normalized_fcf = nfcf_val
