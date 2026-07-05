@@ -820,7 +820,15 @@ tr.accordion-row:hover > td{background:var(--paper)}
 .council-confirm-no:hover{background:var(--hairline-strong);color:var(--ink)}
 .council-confirm-yes:disabled,.council-confirm-no:disabled{opacity:0.5;cursor:default}
 
-.council-toolbar{display:flex;justify-content:flex-end;padding:0 0 8px}
+.council-toolbar{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:0 0 8px}
+/* "View report" / "Download PDF" — plain links styled as the same ghost
+   .btn family as Re-consult, never gated behind a confirm (cache-only
+   reads, engine/report_council.py + app/pdf.py never trigger a convene
+   or extraction). */
+.council-report-links{display:flex;gap:8px}
+.council-report-link{
+  font-size:0.6875rem;padding:5px 12px;text-decoration:none;display:inline-flex;align-items:center;
+}
 .council-verdict{padding:4px 0 10px}
 .council-verdict-label{
   font-family:var(--mono);font-size:1rem;font-weight:700;color:var(--ink);
