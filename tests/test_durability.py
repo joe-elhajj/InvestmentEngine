@@ -552,6 +552,46 @@ def test_score_omits_subscore_and_logs_gap_when_split_contaminated():
     assert "discontinuity" in matching_gaps[0]
 
 
+def test_score_gap_message_cites_seam_filings_via_source_ref():
+    """S2 Option 1 (Session B.2, PR-C): the gap message must name the two
+    seam filings using Fact.source_ref() — form + accession + filed date —
+    without asserting a diagnosed cause. No selection/score change: this
+    only enriches the existing gap string."""
+    cd = _strong_company()
+    cd.series["diluted_shares"] = [
+        Fact("diluted_shares", 2_535_000_000, "2022-12-31", 2022,
+             "us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding", "10-K",
+             "2023-02-15", accn="0001045810-23-000017"),
+        Fact("diluted_shares", 25_070_000_000, "2023-12-31", 2023,
+             "us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding", "10-K",
+             "2024-02-21", accn="0001045810-24-000029"),
+    ]
+    res = _make_res(cd)
+    ds = D.score(res, _BASE_CFG)
+    matching_gaps = [g for g in ds.gaps if g.startswith("share_count_cagr:")]
+    assert len(matching_gaps) == 1
+    msg = matching_gaps[0]
+    assert "10-K 0001045810-23-000017 filed 2023-02-15" in msg
+    assert "10-K 0001045810-24-000029 filed 2024-02-21" in msg
+
+
+def test_score_gap_message_degrades_when_accn_unknown():
+    """When accn is None (unknown accession), source_ref() omits the
+    accession clause rather than printing a placeholder — the gap message
+    must still cite form + filed date, not fabricate a value."""
+    cd = _company_with_diluted_shares([
+        (2018, 2_400_000_000), (2019, 2_450_000_000), (2020, 2_500_000_000),
+        (2021, 2_535_000_000), (2022, 2_535_000_000), (2023, 25_070_000_000),
+    ])
+    res = _make_res(cd)
+    ds = D.score(res, _BASE_CFG)
+    matching_gaps = [g for g in ds.gaps if g.startswith("share_count_cagr:")]
+    assert len(matching_gaps) == 1
+    msg = matching_gaps[0]
+    assert "10-K filed 2022-02-15" in msg
+    assert "10-K filed 2023-02-15" in msg
+
+
 def test_score_keeps_real_subscore_when_series_is_clean():
     """Control case: a clean (gradually-diluting) series must still produce
     a real share_count_cagr sub-score and no gap — the detector must not

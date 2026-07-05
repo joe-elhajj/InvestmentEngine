@@ -742,9 +742,14 @@ def score(
     # split ratios for AAPL/TSLA/AMZN but whose fiscal years do NOT match
     # those companies' real split dates — evidence pointing at multi-filing
     # comparative splicing in engine/edgar.py's series assembly rather than
-    # (or in addition to) genuine unadjusted corporate actions. Root cause
-    # is under investigation in a follow-up session (Session B.2); the gap
-    # message below deliberately does not assert a specific mechanism.
+    # (or in addition to) genuine unadjusted corporate actions. Session B.2
+    # Phase 1 confirmed this mechanism against raw companyfacts JSON for
+    # AAPL/NVDA/AMZN (exact ratio matches landing at the wrong fiscal-year
+    # boundary). Per the B.2 Option 1 decision, _annual_points()'s
+    # prefer-latest-filed selection is NOT changed here — the gap message
+    # below names the diagnosed mechanism as the likely cause (without
+    # over-asserting certainty) and cites the two seam filings via
+    # Fact.source_ref() so the claim is independently checkable.
     # Known limitation (backlog, not fixed here): this under-credits
     # genuine split/restructured companies on discipline relative to
     # identical peers without one — the category composite renormalizes
@@ -755,11 +760,20 @@ def score(
     split_jump = _detect_split_contamination(diluted_series)
     if split_jump is not None:
         y0, y1 = split_jump
+        diluted_facts = res.company.series.get("diluted_shares", [])
+        f0 = next((f for f in diluted_facts if f.fiscal_year == y0), None)
+        f1 = next((f for f in diluted_facts if f.fiscal_year == y1), None)
+        seam_ref = (
+            f" — seam filings: FY{y0} from {f0.source_ref()}, FY{y1} from {f1.source_ref()}"
+            if f0 is not None and f1 is not None else ""
+        )
         extra_gaps.append(
-            f"share_count_cagr: probable share-count discontinuity (unadjusted split, "
-            f"restructuring, or filing-comparative splice — cause not yet diagnosed) "
+            f"share_count_cagr: probable share-count discontinuity (likely a "
+            f"filing-vintage splice — later comparatives split-adjusted, older "
+            f"years stranded pre-split — or a genuine unadjusted split) "
             f"between FY{y0} and FY{y1} — unadjusted "
             "diluted-share series rejected, not scored as dilution"
+            f"{seam_ref}"
         )
         diluted_series_for_scoring: list[tuple[int, float]] = []
     else:
