@@ -539,21 +539,34 @@ td.gap-cell{text-align:right}
 }
 .basis-badge .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
 
-/* ---- Gap-inheritance marker (badge-placement fix): a hollow ring, NOT a
-   second full basis-badge, on the Gap cell when its computed value
-   silently inherits an Implied g/Delivered g caveat (MKT/WIN/REV-with-a-
-   computed-gap). Deliberately smaller/quieter than .basis-badge — "this
-   value has an upstream caveat," one visual step down from "this IS the
-   caveat." Border reuses --emphasis, the same amber already verified at
-   10.89:1 against --surface in this file's contrast table (well past the
-   3:1 WCAG 1.4.11 non-text-contrast minimum for a graphical marker like
-   this) — no new color pairing to verify. */
-.inherit-dot{
-  display:inline-block;width:7px;height:7px;margin-left:6px;
-  border-radius:50%;border:1.5px solid var(--emphasis);background:transparent;
-  vertical-align:middle;cursor:default;
+/* ---- Gap-inheritance marker (badge-placement + column-alignment fix): a
+   hollow ring, NOT a second full basis-badge, on the Gap cell when its
+   computed value silently inherits an Implied g/Delivered g caveat
+   (MKT/WIN/REV-with-a-computed-gap). Deliberately smaller/quieter than
+   .basis-badge — "this value has an upstream caveat," one visual step down
+   from "this IS the caveat." Border reuses --emphasis, the same amber
+   already verified at 10.89:1 against --surface in this file's contrast
+   table (well past the 3:1 WCAG 1.4.11 non-text-contrast minimum for a
+   graphical marker like this) — no new color pairing to verify.
+
+   .gap-inherit-slot is reserved on EVERY gap cell, to the LEFT of the pill
+   (see gapCell() in app.js) — empty (no border/background, just its
+   footprint) on rows with no caveat, promoted to the visible ring via the
+   .inherit-dot class only when appendInheritDot() actually has something to
+   disclose. Reserving the same width unconditionally is what keeps every
+   row's pill right-edge aligned to the same column regardless of dot
+   presence; placing it before rather than after the pill is what keeps it
+   clear of .row-remove-wrap, which is absolutely positioned at the cell's
+   own right:6px and would otherwise sit directly on top of a dot appended
+   after the pill. */
+.gap-inherit-slot{
+  display:inline-block;width:7px;height:7px;margin-right:6px;
+  border-radius:50%;vertical-align:middle;
 }
-.inherit-dot .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
+.gap-inherit-slot.inherit-dot{
+  border:1.5px solid var(--emphasis);background:transparent;cursor:default;
+}
+.gap-inherit-slot.inherit-dot .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
 
 /* ---- inline report accordion (clicking an equity/ETF row) ----
    .accordion-content (not the <tr>/<td> themselves — table rows don't

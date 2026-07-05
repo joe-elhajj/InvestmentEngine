@@ -138,6 +138,15 @@
   function gapCell(rawValue, displayValue) {
     var cell = document.createElement("td");
     cell.className = "gap-cell";
+    // Inherit-dot slot: reserved on EVERY gap cell (before the pill), empty
+    // when there's no upstream caveat. Reserving the slot unconditionally
+    // (rather than only inserting it when a dot is needed) keeps every
+    // pill's right edge aligned to the same column position whether or not
+    // this row has a dot — see appendInheritDot below, which populates this
+    // same slot instead of appending a separate node after the pill.
+    var slot = document.createElement("span");
+    slot.className = "gap-inherit-slot";
+    cell.appendChild(slot);
     var pill = document.createElement("span");
     if (rawValue === null || rawValue === undefined) {
       pill.className = "gap-pill gap-pill-na";
@@ -174,16 +183,19 @@
   // Gap-inheritance marker: a small ring (never a second full basis-badge)
   // on the Gap cell, naming which upstream Implied g/Delivered g caveat(s)
   // this specific computed gap value silently carries. Reuses .has-tooltip/
-  // .th-tooltip like appendBasisBadge above.
+  // .th-tooltip like appendBasisBadge above. Populates the slot gapCell()
+  // already reserved to the LEFT of the pill (rather than appending a new
+  // node after it) so the dot never collides with the hover-remove × that's
+  // absolutely positioned at the cell's own right edge, and so undotted
+  // rows' empty slot still occupies the identical width.
   function appendInheritDot(cell, reasons) {
-    var dot = document.createElement("span");
-    dot.className = "inherit-dot has-tooltip";
-    dot.tabIndex = 0;
+    var slot = cell.querySelector(".gap-inherit-slot");
+    slot.classList.add("inherit-dot", "has-tooltip");
+    slot.tabIndex = 0;
     var tip = document.createElement("div");
     tip.className = "th-tooltip";
     tip.textContent = "Inherits: " + reasons.join(", ");
-    dot.appendChild(tip);
-    cell.appendChild(dot);
+    slot.appendChild(tip);
   }
 
   // ---- API helpers ----
