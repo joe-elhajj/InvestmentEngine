@@ -995,28 +995,94 @@ def _no_rnd_company(ticker: str, cik: str) -> CompanyData:
     return cd
 
 
+def _short_history_all_fallback_company(ticker: str, cik: str) -> CompanyData:
+    """Real R&D data (rnd_state == 'present'), but only 3 years of TOTAL
+    history against amortization_years=5 -- no year can EVER accumulate a
+    full 5-consecutive-year window, so n_adjusted_total == 0 despite R&D
+    genuinely existing. Distinct from _no_rnd_company: this is the
+    'adjustment attempted but zero years clear the window' case, which
+    must take the full-history GAAP path AND fire the existing UNADJUSTED
+    disclosure (rnd_state != 'no_rnd') -- unlike a genuine NO_RND company,
+    which stays silent."""
+    cd = CompanyData(ticker=ticker, cik=cik, name=f"{ticker} Co",
+                     sic="7372", sic_description="Prepackaged Software",
+                     recent_forms=["10-K"])
+    years = list(range(2022, 2025))  # only 3 years total
+    cd.series = {
+        "total_assets":     [_instant("total_assets", f"{y}-12-31", 2000.0) for y in years],
+        "total_equity":     [_instant("total_equity", f"{y}-12-31", 1500.0) for y in years],
+        "long_term_debt":   [_instant("long_term_debt", f"{y}-12-31", 100.0) for y in years],
+        "short_term_debt":  [_instant("short_term_debt", f"{y}-12-31", 0.0) for y in years],
+        "cash":             [_instant("cash", f"{y}-12-31", 200.0) for y in years],
+        "revenue":          [_flow("revenue", y, 800.0) for y in years],
+        "operating_income": [_flow("operating_income", y, 200.0) for y in years],
+        "net_income":       [_flow("net_income", y, 150.0) for y in years],
+        "cfo":              [_flow("cfo", y, 180.0) for y in years],
+        "capex":            [_flow("capex", y, 40.0) for y in years],
+        "rnd":              [_flow("rnd", y, 200.0) for y in years],
+    }
+    return cd
+
+
+def test_rnd_all_fallback_unadjusted_fixture_uses_full_history_gaap_and_fires_gap():
+    """Real R&D data but zero years ever clear the window: full-history
+    GAAP means (identical to regime-off, same as the NO_RND case), but
+    UNLIKE NO_RND this must ALSO fire the existing UNADJUSTED gap --
+    rnd_state != 'no_rnd' here, so the adjustment abstention is real R&D
+    data going unused, not a legitimate non-event."""
+    from engine.edgar import classify_rnd_series
+    cd = _short_history_all_fallback_company("RNDSHORT", "0000000089")
+    rnd_state, _ = classify_rnd_series(cd)
+    assert rnd_state == "present", "fixture must have real R&D data, not no_rnd"
+
+    res = _make_res(cd)
+    cfg_off = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": False}}}
+    cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
+    ds_off = D.score(res, cfg_off)
+    ds_on = D.score(res, cfg_on)
+
+    reinv_off = ds_off.categories["reinvestment_engine"]
+    reinv_on = ds_on.categories["reinvestment_engine"]
+    raws_off = {s.name: s.raw for s in reinv_off.sub_scores}
+    raws_on = {s.name: s.raw for s in reinv_on.sub_scores}
+    assert raws_on == raws_off, "regime on must be byte-identical to regime off when zero years clear the window"
+
+    gaps = _reinvestment_gaps(ds_on)
+    assert any("regime enabled but 0 of" in g and "R&D-adjusted (GAAP basis only)" in g for g in gaps), \
+        "real R&D data that never accumulates a full window must still disclose, unlike a genuine NO_RND company"
+
+
 def _reinvestment_gaps(ds) -> list:
     return [g for g in ds.gaps if g.startswith("reinvestment_engine:")]
 
 
-def test_rnd_mixed_basis_gap_fires_with_correct_counts():
-    """_rnd_company's natural shape (early years lack a full R&D window,
-    later years have one) must fire exactly the mixed-basis gaps for
-    roic_mean and compounding_proxy, with the exact adjusted/fallback
-    counts -- and the SubScore.source lineage string must carry the same
-    composition."""
+def test_rnd_formerly_mixed_fixture_is_clean_under_matched_window():
+    """PR 2a tripwire proof: _rnd_company was MIXED under Option A (2
+    R&D-adj + 4 GAAP-fallback years feeding roic_mean). Under the
+    matched-window (Option C) methodology, the SAME fixture must fire
+    ZERO mixed-basis gaps -- the Option-A gap-firing path stays live (not
+    removed) but must simply never fire, since roic_mean now only ever
+    sees adjusted-tagged years by construction. It DOES still fire the
+    NEW short-history gap (2 adjusted years < the default
+    min_history_years=4) -- a separate, expected disclosure, not a
+    mixed-basis one."""
     cd = _rnd_company("RNDMIXED", "0000000080")
     res = _make_res(cd)
     cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
     ds = D.score(res, cfg_on)
 
     gaps = _reinvestment_gaps(ds)
-    assert "reinvestment_engine: roic_mean mixed basis (2 R&D-adj + 4 GAAP-fallback)" in gaps
-    assert "reinvestment_engine: compounding_proxy mixed basis (2 R&D-adj + 3 GAAP-fallback)" in gaps
+    assert not any("mixed basis" in g for g in gaps), \
+        "the Option-A tripwire must stay silent under matched-window Option C"
+    assert any(g.startswith("reinvestment_engine: adjusted-window roic_mean rests on 2 of 2")
+               for g in gaps), "short-history gap must fire instead (2 adjusted years < min_history_years=4)"
 
     reinv = ds.categories["reinvestment_engine"]
     roic_mean_sub = next(s for s in reinv.sub_scores if s.name == "roic_mean")
-    assert "2 R&D-adjusted + 4 GAAP-fallback years (mixed basis)" in roic_mean_sub.source
+    assert "all 2 years R&D-adjusted" in roic_mean_sub.source, \
+        "classify_basis_mix must classify 'clean' on the restricted (adjusted-only) window"
+    assert len(roic_mean_sub.years_covered) == 2, \
+        "roic_mean must only span the 2 years that cleared the full R&D window, not all 6"
 
 
 def test_rnd_clean_basis_produces_no_gap():
@@ -1034,20 +1100,45 @@ def test_rnd_clean_basis_produces_no_gap():
     assert "all 5 years R&D-adjusted" in roic_mean_sub.source
 
 
-def test_rnd_no_rnd_company_produces_no_gap_and_no_annotation_confusion():
+def test_rnd_no_rnd_company_uses_full_history_gaap_path_not_empty_window():
     """A legitimate NO_RND company with the regime enabled must produce NO
-    reinvestment_engine gap at all -- zero adjustment is normal there, not
-    an exception state, exactly mirroring the established NO_RND no-badge
-    rule from the single-year R&D-UNADJ disclosure."""
+    reinvestment_engine gap, and ALL FOUR sub-scores must still exist, at
+    their plain GAAP values -- identical to the regime-off computation.
+    The routing bug this test guards against: gating the matched-window
+    view on "regime enabled" alone (without first checking an adjustment
+    path exists) would empty this company's window and coerce its genuine
+    GAAP nopat/invested_capital to None for every year -- presence treated
+    as absence, the inverse of absence-is-not-zero. There is no adjustment
+    path for a NO_RND company at all, so it must take the untouched
+    full-history GAAP path, exactly as if the regime were off."""
     cd = _no_rnd_company("RNDNONE", "0000000082")
     res = _make_res(cd)
+    cfg_off = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": False}}}
     cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
-    ds = D.score(res, cfg_on)
+    ds_off = D.score(res, cfg_off)
+    ds_on = D.score(res, cfg_on)
 
-    assert _reinvestment_gaps(ds) == []
-    reinv = ds.categories["reinvestment_engine"]
-    roic_mean_sub = next(s for s in reinv.sub_scores if s.name == "roic_mean")
-    assert "all" in roic_mean_sub.source and "GAAP basis" in roic_mean_sub.source
+    assert _reinvestment_gaps(ds_on) == []
+    reinv_off = ds_off.categories["reinvestment_engine"]
+    reinv_on = ds_on.categories["reinvestment_engine"]
+    names_off = {s.name for s in reinv_off.sub_scores}
+    names_on = {s.name for s in reinv_on.sub_scores}
+    assert names_on == names_off == {"roic_latest", "roic_mean", "reinvestment_rate", "compounding_proxy"}
+
+    raws_off = {s.name: s.raw for s in reinv_off.sub_scores}
+    raws_on = {s.name: s.raw for s in reinv_on.sub_scores}
+    assert raws_on == raws_off, "regime on must be byte-identical to regime off for a NO_RND company"
+
+
+def test_rnd_matched_window_view_raises_on_zero_adjusted_years():
+    """Guard/tripwire test: _rnd_matched_window_view must never be called
+    with an all-excluded series -- if it ever is (a future routing
+    regression), it must raise loudly rather than silently coerce every
+    year's GAAP data to None."""
+    cd = _no_rnd_company("RNDGUARD", "0000000088")
+    res = _make_res(cd)
+    with pytest.raises(AssertionError):
+        D._rnd_matched_window_view(res.annual_series)
 
 
 def test_rnd_regime_off_produces_no_mixed_basis_gap():
@@ -1064,3 +1155,117 @@ def test_rnd_regime_off_produces_no_mixed_basis_gap():
     roic_mean_sub = next(s for s in reinv.sub_scores if s.name == "roic_mean")
     assert "mixed basis" not in roic_mean_sub.source
     assert roic_mean_sub.source == f"mean ROIC over {len(roic_mean_sub.years_covered)} years"
+
+
+# ---------------------------------------------------------------------------
+# Matched-window ROIC (Option C, PR 2a)
+# ---------------------------------------------------------------------------
+
+def test_matched_window_full_history_clean_company_uses_full_window():
+    """A company where every roic_mean-feeding year is R&D-adjusted (the
+    _clean_rnd_company fixture, 2020-2024): the matched window must equal
+    the full eligible history, not a truncated subset -- window selection
+    only excludes years that DON'T clear the research-asset check, it
+    doesn't arbitrarily shrink an already-clean window."""
+    cd = _clean_rnd_company("RNDWINCLEAN", "0000000084")
+    res = _make_res(cd)
+    cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
+    ds = D.score(res, cfg_on)
+
+    reinv = ds.categories["reinvestment_engine"]
+    roic_mean_sub = next(s for s in reinv.sub_scores if s.name == "roic_mean")
+    assert set(roic_mean_sub.years_covered) == {2020, 2021, 2022, 2023, 2024}
+    assert _reinvestment_gaps(ds) == [], "5 adjusted years >= min_history_years=4 -- no short-history gap either"
+
+
+def test_matched_window_excludes_early_fallback_years_from_both_means():
+    """_rnd_company's formerly-mixed shape (2019-2022 GAAP-fallback,
+    2023-2024 R&D-adjusted): the matched window must restrict roic_mean to
+    EXACTLY {2023, 2024} -- the early fallback years must not feed it. The
+    matched-window GAAP-basis mean (computed by the same window-selection
+    pass, not a second one) must be derived from that SAME {2023, 2024}
+    set, not the full 2019-2024 history -- proving the two means can't
+    drift onto different windows."""
+    cd = _rnd_company("RNDWINMIX", "0000000085")
+    res = _make_res(cd)
+    cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
+    ds = D.score(res, cfg_on)
+
+    reinv = ds.categories["reinvestment_engine"]
+    roic_mean_sub = next(s for s in reinv.sub_scores if s.name == "roic_mean")
+    assert set(roic_mean_sub.years_covered) == {2023, 2024}
+
+    # The GAAP-matched mean in source must come from the SAME window --
+    # recompute it independently via the pure helper (identical inputs:
+    # res.annual_series + the SubScore's own years_covered) and confirm it
+    # matches what's embedded in the lineage string, not some other window.
+    gaap_mean = D._rnd_matched_window_gaap_mean(res.annual_series, set(roic_mean_sub.years_covered))
+    assert gaap_mean is not None
+    assert f"matched-window GAAP-basis mean: {gaap_mean:.2%}" in roic_mean_sub.source
+    # _rnd_company's nopat/invested_capital are deliberately flat across all
+    # 6 years (see its docstring), so the GAAP mean happens to be numerically
+    # identical whichever window it's computed over -- that incidental
+    # flatness isn't what's under test here. The real invariant (already
+    # proven above) is structural: years_covered == {2023, 2024}, not the
+    # full {2019..2024} GAAP-eligible set -- the window WAS restricted, and
+    # the GAAP mean was computed from that SAME restricted set (passed in
+    # directly above), not re-derived or re-selected.
+
+
+def test_matched_window_none_year_excluded_from_eligibility():
+    """A year with neither nopat nor invested_capital resolved (cash
+    missing) sits INSIDE the 2019-2024 range but must count toward
+    NEITHER the matched window NOR the fallback count -- absence-is-not-
+    zero, keyed on `is not None`, not silently folded into either basis."""
+    cd = _rnd_company("RNDWINNONE", "0000000086")
+    # Knock out 2022's cash -> invested_capital becomes None for 2022 only.
+    cd.series["cash"] = [f for f in cd.series["cash"] if f.period_end != "2022-12-31"]
+    res = _make_res(cd)
+    cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
+    ds = D.score(res, cfg_on)
+
+    reinv = ds.categories["reinvestment_engine"]
+    roic_mean_sub = next(s for s in reinv.sub_scores if s.name == "roic_mean")
+    assert 2022 not in roic_mean_sub.years_covered
+    # 2023/2024 (adjusted) must be unaffected by 2022's exclusion.
+    assert {2023, 2024} <= set(roic_mean_sub.years_covered)
+
+
+def test_short_history_gap_threshold_read_from_config_not_hardcoded():
+    """Dead-key prevention: min_history_years must come from
+    config.yaml's existing valuation.min_history_years, not a hardcoded 4.
+    _rnd_company's roic_mean has exactly 2 adjusted years under Option C --
+    proving the threshold is live by flipping the outcome with a
+    non-default config value on both sides of 2."""
+    cd = _rnd_company("RNDTHRESH", "0000000087")
+    res = _make_res(cd)
+
+    # min_history_years=1: 2 adjusted years >= 1 -- gap must NOT fire.
+    cfg_lenient = {
+        **_BASE_CFG,
+        "durability": {"rnd_capitalization": {"enabled": True}},
+        "valuation": {**_BASE_CFG["valuation"], "min_history_years": 1},
+    }
+    ds_lenient = D.score(res, cfg_lenient)
+    assert not any("adjusted-window roic_mean" in g for g in _reinvestment_gaps(ds_lenient))
+
+    # min_history_years=3: 2 adjusted years < 3 -- gap MUST fire.
+    cfg_strict = {
+        **_BASE_CFG,
+        "durability": {"rnd_capitalization": {"enabled": True}},
+        "valuation": {**_BASE_CFG["valuation"], "min_history_years": 3},
+    }
+    ds_strict = D.score(res, cfg_strict)
+    assert any("adjusted-window roic_mean rests on 2 of 2 available years (below min_history_years=3)" in g
+               for g in _reinvestment_gaps(ds_strict))
+
+    # min_history_years=2 (exactly at the boundary): 2 adjusted years is
+    # NOT below 2 -- must be silent (the rule is strictly "<", not "<=").
+    cfg_boundary = {
+        **_BASE_CFG,
+        "durability": {"rnd_capitalization": {"enabled": True}},
+        "valuation": {**_BASE_CFG["valuation"], "min_history_years": 2},
+    }
+    ds_boundary = D.score(res, cfg_boundary)
+    assert not any("adjusted-window roic_mean" in g for g in _reinvestment_gaps(ds_boundary)), \
+        "exactly at min_history_years must be silent, not below it"

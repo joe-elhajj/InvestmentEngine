@@ -241,6 +241,14 @@ and adjusted ROIC are always reported with full lineage.
 | History-insufficiency rule | Full window or no adjustment | A partial research asset understates invested capital and overstates adjusted ROIC — failing in exactly the direction the adjustment exists to correct. Below N years of R&D history: GAAP ROIC only, badge R&D-UNADJ with reason | Fixed; structural |
 | No-R&D distinction | Tag absent across all filings = legitimate zero adjustment (not a gap); tag present in some years but missing in others = gap, no adjustment, disclosed | Evidence-based classification: absence of the concept is not absence of the data | Fixed; structural |
 | IFRS filer rule | FPIs (20-F filers) receive no adjustment; badge R&D-UNADJ ("IFRS filer — pending disposition") | IAS 38 already capitalizes development costs to an unknown degree; stacking the adjustment produces an error of ambiguous sign. Abstain-and-disclose (calibration principle 3) | On deliberate IFRS disposition (backlog) |
+| Matched-window rule (Option C) | `roic_mean`/`reinvestment_rate`/`compounding_proxy` span ONLY the years that clear the full `amortization_years` research-asset window when the regime is on; the matched-window GAAP-basis mean (recorded in lineage for delta comparison) is derived from that SAME year-set | Isolates the capitalization effect as the only variable between the two means — a delta computed over mismatched windows would conflate "capitalization effect" with "different sample of years," making the comparison meaningless. Replaces the interim Option-A approach (a formerly-mixed name's average used a blend of adjusted and GAAP-fallback years); Option A's classifier/gap machinery is kept live as an invariant tripwire against a future regression that reintroduces mixing, not removed | Fixed; structural |
+| Short-history disclosure threshold | `valuation.min_history_years` (existing key, currently 4 — not a new assumption) | Reuses the same reliability threshold already applied to delivered-growth CAGR: an adjusted-window mean resting on fewer years than that bar is just as unreliable as a CAGR computed the same way. Fires only when the regime is on and the window is non-empty but short — silent for NO_RND/FPI/fully-unadjusted names, where there's no window to call "short" (a near-universal disclosure there would be wallpaper, not signal) | Shared with `valuation.min_history_years`'s own review cadence |
+
+Single-year `roic_latest` is unaffected by the matched-window rule — a
+single year was never subject to the mixed-basis problem the window
+restriction exists to fix, and restricting it would risk losing a young or
+short-history company's latest-year ROIC entirely rather than reporting a
+GAAP fallback. It keeps using the fallback-inclusive (Option A) view.
 
 ---
 
