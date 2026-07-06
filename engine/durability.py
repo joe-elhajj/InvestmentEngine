@@ -228,16 +228,24 @@ def _cv_score(values: list[float]) -> Optional[float]:
 
 def _rnd_adjusted_view(annual: dict[str, YearlyDerived]) -> dict[str, YearlyDerived]:
     """
-    A view of `annual` with GAAP nopat/invested_capital replaced by their
-    R&D-capitalization-adjusted counterparts, so _score_reinvestment's own
-    math runs completely UNCHANGED below -- it always just reads
-    .nopat/.invested_capital, never branches on the regime itself. The
-    regime toggle (and the IFRS abstention) live entirely in score()'s
-    decision of whether to call this function at all, not inside the
-    scoring math. Falls back to GAAP figures for any year lacking a full
-    research-asset window, so a company with a short R&D history doesn't
-    lose reinvestment_engine scoring entirely -- only the years lacking a
-    full window stay on GAAP figures for that specific year.
+    Option A (fallback-inclusive): a view of `annual` with GAAP nopat/
+    invested_capital replaced by their R&D-capitalization-adjusted
+    counterparts, falling back to GAAP figures for any year lacking a full
+    research-asset window. Retired from feeding the multi-year averages
+    (roic_mean/reinvestment_rate/compounding_proxy) as of the matched-window
+    (Option C) change below -- averaging fallback-inclusive years is
+    exactly the mixed-basis problem Option C exists to remove. Kept for
+    two reasons: (1) roic_latest is a single year, so "mixed basis" never
+    applied to it in the first place -- falling back to GAAP for a young
+    or short-history company's latest year is still correct and desired,
+    so it keeps using this view; (2) _annotate_rnd_basis's classifier
+    (classify_basis_mix) is kept live as an invariant tripwire against a
+    future regression that reintroduces mixing -- see score()'s call site.
+    _score_reinvestment's own math runs completely UNCHANGED either way --
+    it always just reads .nopat/.invested_capital, never branches on the
+    regime itself. The regime toggle (and the IFRS abstention) live
+    entirely in score()'s decision of which view(s) to build, not inside
+    the scoring math.
     """
     view: dict[str, YearlyDerived] = {}
     for pe, yd in annual.items():
@@ -249,6 +257,97 @@ def _rnd_adjusted_view(annual: dict[str, YearlyDerived]) -> dict[str, YearlyDeri
         else:
             view[pe] = yd
     return view
+
+
+def _rnd_matched_window_view(annual: dict[str, YearlyDerived]) -> dict[str, YearlyDerived]:
+    """
+    Option C (matched window): unlike _rnd_adjusted_view above, a year
+    lacking a full research-asset window is EXCLUDED here (nopat/
+    invested_capital set to None) rather than falling back to GAAP.
+    _score_reinvestment's own existing filters (`if yd.nopat is not None
+    and yd.invested_capital is not None...`) then naturally drop these
+    years from every multi-year average -- no GAAP-fallback year ever
+    enters an R&D-adjusted roic_mean/reinvestment_rate/compounding_proxy
+    again. _score_reinvestment's code is untouched either way; only which
+    view feeds it changes.
+
+    Must only be called when at least one year in `annual` has cleared
+    the full research-asset window (yd.rnd_basis == "adjusted") -- score()
+    gates on that evidence before ever calling this function. A company
+    with NO adjustment path anywhere (NO_RND, or real R&D data that never
+    accumulates a full consecutive window) must take the untouched
+    full-history GAAP path instead, upstream of this function -- routing
+    it through here would coerce every year's genuine GAAP nopat/
+    invested_capital to None (presence treated as absence, the inverse of
+    absence-is-not-zero). Raises if that invariant is ever violated: an
+    all-excluded matched window reaching this function is a bug, not a
+    legitimate "nothing to adjust" case.
+    """
+    if not any(yd.rnd_basis == "adjusted" for yd in annual.values()):
+        raise AssertionError(
+            "_rnd_matched_window_view called with zero adjusted years across "
+            "the whole series -- caller must route no-adjustment-path "
+            "companies through the full-history GAAP path instead of "
+            "building an all-excluded matched window"
+        )
+    view: dict[str, YearlyDerived] = {}
+    for pe, yd in annual.items():
+        nopat_adj, ic_adj = M.rnd_adjusted_nopat_and_ic(
+            yd.nopat, yd.invested_capital, yd.research_asset, yd.rnd
+        )
+        if nopat_adj is not None and ic_adj is not None:
+            view[pe] = dataclasses.replace(yd, nopat=nopat_adj, invested_capital=ic_adj)
+        else:
+            view[pe] = dataclasses.replace(yd, nopat=None, invested_capital=None)
+    return view
+
+
+def _rnd_matched_window_gaap_mean(annual: dict[str, YearlyDerived], matched_years: set) -> Optional[float]:
+    """
+    GAAP-basis ROIC mean over the EXACT SAME year-set that fed the
+    R&D-adjusted mean (`matched_years`, derived once by the caller from
+    the same classify_basis_mix pass that also drives the tripwire/
+    short-history disclosures -- never re-selected here, so the two means
+    cannot drift apart onto different windows). For delta-comparison
+    lineage only (docs/assumptions.md: "delta isolates one cause") -- not
+    a new displayed report row.
+    """
+    vals = [
+        yd.nopat / yd.invested_capital for yd in annual.values()
+        if yd.year in matched_years and yd.nopat is not None
+        and yd.invested_capital is not None and yd.invested_capital > 0
+    ]
+    if not vals:
+        return None
+    return statistics.fmean(vals)
+
+
+def _annotate_matched_window_gaap_mean(
+    sub_scores: list[SubScore], annual: dict[str, YearlyDerived],
+) -> list[SubScore]:
+    """
+    Appends the matched-window GAAP-basis mean to roic_mean's lineage, for
+    delta-comparison (docs/assumptions.md: "delta isolates one cause") --
+    not a new displayed report row. The window is exactly roic_mean's own
+    years_covered (already restricted to adjusted-only years by
+    _rnd_matched_window_view), so this can never select a different
+    year-set than the adjusted mean itself came from -- one
+    window-selection pass, read here rather than re-derived.
+    """
+    annotated: list[SubScore] = []
+    for sub in sub_scores:
+        if sub.name != "roic_mean":
+            annotated.append(sub)
+            continue
+        matched_years = set(sub.years_covered)
+        gaap_mean = _rnd_matched_window_gaap_mean(annual, matched_years)
+        if gaap_mean is not None:
+            annotated.append(dataclasses.replace(
+                sub, source=f"{sub.source} — matched-window GAAP-basis mean: {gaap_mean:.2%}"
+            ))
+        else:
+            annotated.append(sub)
+    return annotated
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +507,64 @@ def _annotate_rnd_basis(
                 f"{n_fb} years R&D-adjusted (GAAP basis only)"
             )
     return annotated, gaps
+
+
+def _merge_rnd_reinvestment_views(
+    latest_view_subs: list[SubScore], matched_view_subs: list[SubScore],
+) -> list[SubScore]:
+    """
+    roic_latest comes from the Option-A (fallback-inclusive) view --
+    unchanged single-year behavior, since "mixed basis" never applied to
+    a single year and a short-history company's latest year should still
+    get a value rather than disappearing under the matched-window
+    restriction. Every other sub-score (roic_mean, reinvestment_rate,
+    compounding_proxy) comes from the Option-C (matched-window) view.
+    _score_reinvestment is called twice, its own code unchanged either
+    time -- this function only picks the right result per sub-score name,
+    in the same order _score_reinvestment itself would have emitted them.
+    """
+    by_name_latest = {s.name: s for s in latest_view_subs}
+    by_name_matched = {s.name: s for s in matched_view_subs}
+    merged: list[SubScore] = []
+    if "roic_latest" in by_name_latest:
+        merged.append(by_name_latest["roic_latest"])
+    for name in ("roic_mean", "reinvestment_rate", "compounding_proxy"):
+        if name in by_name_matched:
+            merged.append(by_name_matched[name])
+    return merged
+
+
+def _annotate_rnd_short_history(
+    sub_scores: list[SubScore], annual: dict[str, YearlyDerived], min_history_years: int,
+) -> list[str]:
+    """
+    Matched-window (Option C) short-history disclosure: the window
+    restriction shortens history on every formerly-mixed name -- that's
+    normal under C and must NOT be badged (near-universal disclosure is
+    wallpaper). The informative condition is absolute shortness: fewer
+    adjusted years feed the mean than min_history_years (config.yaml's
+    existing valuation.min_history_years -- no new assumption). Reuses the
+    SAME classify_basis_mix pass _annotate_rnd_basis already runs (one
+    traversal per sub-score, not a second selection that could drift from
+    the tripwire's own count). Silent when n_adjusted == 0 (NO_RND/FPI/
+    fully-unadjusted) -- nothing to call "short," matching the established
+    NO_RND no-badge rule.
+    """
+    basis_by_year = {yd.year: yd.rnd_basis for yd in annual.values()}
+    gaps: list[str] = []
+    for sub in sub_scores:
+        if sub.name not in ("roic_mean", "compounding_proxy"):
+            continue
+        bases = [b for y in sub.years_covered if (b := basis_by_year.get(y)) is not None]
+        _cls, n_adj, n_fb = M.classify_basis_mix(bases)
+        total_eligible = n_adj + n_fb
+        if 0 < n_adj < min_history_years:
+            gaps.append(
+                f"reinvestment_engine: adjusted-window {sub.name} rests on "
+                f"{n_adj} of {total_eligible} available years "
+                f"(below min_history_years={min_history_years})"
+            )
+    return gaps
 
 
 def _score_quality(
@@ -956,21 +1113,71 @@ def score(
     rnd_cfg = dcfg["rnd_capitalization"]
     ticker_is_fpi, _fpi_evidence = is_fpi(res.company)
     use_rnd_adjusted_roic = bool(rnd_cfg["enabled"]) and not ticker_is_fpi
-    reinvestment_annual = _rnd_adjusted_view(annual) if use_rnd_adjusted_roic else annual
-    reinvestment_sub = _score_reinvestment(reinvestment_annual, coc)
 
-    # Mixed-basis disclosure (Session D Step 2): roic_mean/compounding_proxy
-    # average across years that can land on different bases (R&D-adjusted
-    # vs GAAP-fallback) whenever a company's earliest history predates a
-    # full amortization-years R&D window -- the common case on the audited
-    # set (10/12 R&D-bearing tickers), not a corner case, so it must never
-    # be silent. Only computed/consumed when the regime is actually active
-    # -- _score_reinvestment's own output above (and thus regime-off gaps)
-    # is completely unaffected by this block's existence.
     if use_rnd_adjusted_roic:
+        # Matched-window ROIC (Option C, PR 2a) applies ONLY where an
+        # adjustment path actually exists -- i.e., at least one year
+        # anywhere in `annual` cleared the full research-asset window.
+        # Gate on that evidence BEFORE building the matched view, not by
+        # inferring "no adjustment" from an empty window after the fact:
+        # a company with no adjustment path (NO_RND, or real R&D data that
+        # never accumulates a full consecutive window) must take the
+        # UNTOUCHED full-history GAAP path, identical to regime-off --
+        # routing it through the matched-window view instead would coerce
+        # its genuine GAAP nopat/invested_capital to None for every year
+        # (presence treated as absence, the inverse of absence-is-not-zero).
+        n_adjusted_total = sum(1 for yd in annual.values() if yd.rnd_basis == "adjusted")
+        if n_adjusted_total > 0:
+            # roic_mean/reinvestment_rate/compounding_proxy are computed
+            # ONLY over years that clear the full research-asset window --
+            # no GAAP-fallback year feeds them anymore
+            # (_rnd_matched_window_view excludes rather than falls back).
+            # Single-year roic_latest is untouched -- it keeps the Option-A
+            # fallback-inclusive view, since "mixed basis" never applied to
+            # one year and a short-history company's latest year should
+            # still get a value rather than disappearing under the window
+            # restriction. _score_reinvestment's own code is unchanged
+            # either way -- called twice, unchanged, merged by
+            # _merge_rnd_reinvestment_views.
+            latest_view = _rnd_adjusted_view(annual)
+            matched_view = _rnd_matched_window_view(annual)
+            reinvestment_sub = _merge_rnd_reinvestment_views(
+                _score_reinvestment(latest_view, coc),
+                _score_reinvestment(matched_view, coc),
+            )
+            reinvestment_sub = _annotate_matched_window_gaap_mean(reinvestment_sub, annual)
+        else:
+            # No adjustment path exists anywhere for this company: full-
+            # history GAAP means, byte-identical to the regime-off
+            # computation. _annotate_rnd_basis below still runs on this --
+            # its classifier will see an all-"gaap_fallback" (or all-None-
+            # excluded) basis set and correctly emit the existing
+            # UNADJUSTED gap when real R&D data existed but never
+            # accumulated a full window (rnd_state != "no_rnd"), and stay
+            # silent for a genuine NO_RND company.
+            reinvestment_sub = _score_reinvestment(annual, coc)
+
+        # Option-A machinery kept live as the invariant tripwire: under C,
+        # every adjusted average is clean by construction (its years_covered
+        # can only contain "adjusted"-tagged years) -- classify_basis_mix
+        # returning anything but "clean" (or "unadjusted" for NO_RND/FPI/
+        # fully-unadjusted names) here is a bug detector, not an expected
+        # disclosure. The mixed-basis gap-firing path stays live; it must
+        # simply never fire under C.
         rnd_state, _rnd_series = classify_rnd_series(res.company)
         reinvestment_sub, rnd_basis_gaps = _annotate_rnd_basis(reinvestment_sub, annual, rnd_state)
         extra_gaps.extend(rnd_basis_gaps)
+
+        # Short-history disclosure (replaces the retired MIXED badge concern
+        # from Option A -- under C, a short adjusted window is normal, not a
+        # mixed-basis bug, so it needs its OWN, narrower threshold-based
+        # signal rather than firing on near-universal "mixed"). Reads the
+        # SAME existing valuation.min_history_years config key pipeline.py's
+        # delivered_growth already uses -- no new assumption.
+        min_history_years = int(config.get("valuation", {}).get("min_history_years", 4))
+        extra_gaps.extend(_annotate_rnd_short_history(reinvestment_sub, annual, min_history_years))
+    else:
+        reinvestment_sub = _score_reinvestment(annual, coc)
 
     cat_scores: dict[str, list[SubScore]] = {
         "reinvestment_engine": reinvestment_sub,
