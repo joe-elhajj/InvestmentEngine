@@ -31,6 +31,7 @@ session (B.2) — not yet fixed, not yet fully diagnosed as of this comment.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import statistics
@@ -38,7 +39,9 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from engine.pipeline import AnalysisResult, YearlyDerived
+from engine import metrics as M
 from engine import peers as P
+from engine.edgar import classify_rnd_series, is_fpi
 from engine.universe import UniverseDistribution
 
 
@@ -65,8 +68,13 @@ _DEFAULT_SCORE_BAND: dict[str, float] = {
     "optimistic_impute": 75.0,
 }
 
+_DEFAULT_RND_CAPITALIZATION: dict = {
+    "enabled": False,             # regime OFF by default -- see docs/assumptions.md
+    "amortization_years": 5,
+}
 
-def _merge_strict(dur: dict, section_name: str, defaults: dict[str, float]) -> dict:
+
+def _merge_strict(dur: dict, section_name: str, defaults: dict) -> dict:
     """
     Merge one durability.<section_name> sub-dict onto its defaults, failing
     loudly on any key the code doesn't consume (Session C Phase 1.5: closes
@@ -99,9 +107,11 @@ def _resolve_config(cfg: dict) -> dict:
     weights = _merge_strict(dur, "weights", _DEFAULT_WEIGHTS)
     thresholds = _merge_strict(dur, "thresholds", _DEFAULT_THRESHOLDS)
     score_band = _merge_strict(dur, "score_band", _DEFAULT_SCORE_BAND)
+    rnd_capitalization = _merge_strict(dur, "rnd_capitalization", _DEFAULT_RND_CAPITALIZATION)
     universe_version = cfg.get("universe", {}).get("version", "unversioned")
     return {
         "weights": weights, "thresholds": thresholds, "score_band": score_band,
+        "rnd_capitalization": rnd_capitalization,
         "universe_version": universe_version,
     }
 
@@ -213,6 +223,35 @@ def _cv_score(values: list[float]) -> Optional[float]:
 
 
 # ---------------------------------------------------------------------------
+# R&D-capitalization regime: reinvestment_engine's adjusted-ROIC view
+# ---------------------------------------------------------------------------
+
+def _rnd_adjusted_view(annual: dict[str, YearlyDerived]) -> dict[str, YearlyDerived]:
+    """
+    A view of `annual` with GAAP nopat/invested_capital replaced by their
+    R&D-capitalization-adjusted counterparts, so _score_reinvestment's own
+    math runs completely UNCHANGED below -- it always just reads
+    .nopat/.invested_capital, never branches on the regime itself. The
+    regime toggle (and the IFRS abstention) live entirely in score()'s
+    decision of whether to call this function at all, not inside the
+    scoring math. Falls back to GAAP figures for any year lacking a full
+    research-asset window, so a company with a short R&D history doesn't
+    lose reinvestment_engine scoring entirely -- only the years lacking a
+    full window stay on GAAP figures for that specific year.
+    """
+    view: dict[str, YearlyDerived] = {}
+    for pe, yd in annual.items():
+        nopat_adj, ic_adj = M.rnd_adjusted_nopat_and_ic(
+            yd.nopat, yd.invested_capital, yd.research_asset, yd.rnd
+        )
+        if nopat_adj is not None and ic_adj is not None:
+            view[pe] = dataclasses.replace(yd, nopat=nopat_adj, invested_capital=ic_adj)
+        else:
+            view[pe] = yd
+    return view
+
+
+# ---------------------------------------------------------------------------
 # Category scorers
 # ---------------------------------------------------------------------------
 
@@ -310,6 +349,65 @@ def _score_reinvestment(
             ))
 
     return sub
+
+
+def _annotate_rnd_basis(
+    sub_scores: list[SubScore], annual: dict[str, YearlyDerived], rnd_state: str,
+) -> tuple[list[SubScore], list[str]]:
+    """
+    Post-processing step, called ONLY when the R&D-capitalization regime is
+    actually active (score() gates this -- _score_reinvestment's own code
+    above is untouched either way, so regime-off output, including every
+    SubScore's `source` string, is byte-identical to before this function
+    existed).
+
+    roic_mean and compounding_proxy average across years that can be on
+    DIFFERENT bases (R&D-adjusted vs GAAP-fallback) whenever a company's
+    earliest history predates a full amortization-years R&D window -- this
+    is the common case (Session-D Step-1 diagnostic: 10/12 R&D-bearing
+    audited tickers were MIXED), not a corner case, so it must never be
+    silent. Uses each contributing year's yd.rnd_basis tag (computed once
+    in pipeline.py, invariant across the GAAP<->adjusted view swap) rather
+    than re-deriving anything -- classifier, gap string, and lineage string
+    all derive from the SAME `bases` list, one traversal, no second count
+    that could drift.
+
+    Returns (annotated_sub_scores, gap_strings). A "mixed" classification
+    always produces a gap (visible, not buried); an "unadjusted"
+    classification produces a gap only when rnd_state != "no_rnd" (real
+    R&D data existed somewhere but this specific metric got zero adjusted
+    years anyway -- worth disclosing, per the task's distinction from a
+    legitimate NO_RND company, which stays silent); "clean" never produces
+    a gap (the aspirational default, not an exception).
+    """
+    basis_by_year = {yd.year: yd.rnd_basis for yd in annual.values()}
+    annotated: list[SubScore] = []
+    gaps: list[str] = []
+    for sub in sub_scores:
+        if sub.name not in ("roic_mean", "compounding_proxy"):
+            annotated.append(sub)
+            continue
+        bases = [b for y in sub.years_covered if (b := basis_by_year.get(y)) is not None]
+        cls, n_adj, n_fb = M.classify_basis_mix(bases)
+        if cls == "clean":
+            note = f"all {n_adj} years R&D-adjusted"
+        elif cls == "mixed":
+            note = f"{n_adj} R&D-adjusted + {n_fb} GAAP-fallback years (mixed basis)"
+        else:
+            note = f"all {n_fb} years GAAP basis"
+        annotated.append(dataclasses.replace(sub, source=f"{sub.source} — {note}"))
+
+        if cls == "mixed":
+            gaps.append(
+                f"reinvestment_engine: {sub.name} mixed basis "
+                f"({n_adj} R&D-adj + {n_fb} GAAP-fallback)"
+            )
+        elif cls == "unadjusted" and rnd_state != "no_rnd":
+            gaps.append(
+                f"reinvestment_engine: {sub.name} regime enabled but 0 of "
+                f"{n_fb} years R&D-adjusted (GAAP basis only)"
+            )
+    return annotated, gaps
 
 
 def _score_quality(
@@ -846,8 +944,36 @@ def score(
     resilience_sub, resilience_gaps = _score_resilience(annual)
     extra_gaps.extend(resilience_gaps)
 
+    # R&D capitalization regime (docs/assumptions.md: calibration principle 3,
+    # "abstain and disclose"). The toggle and the IFRS abstention are both
+    # resolved HERE, at the single call-site decision of which view of
+    # `annual` to feed reinvestment_engine -- _score_reinvestment's own code
+    # is untouched either way (see _rnd_adjusted_view above). FPIs (20-F/
+    # 40-F filers) receive no adjustment regardless of R&D data availability
+    # or the regime toggle: IAS 38 already capitalizes development costs to
+    # an unknown degree, so stacking this adjustment on top would produce an
+    # error of ambiguous sign.
+    rnd_cfg = dcfg["rnd_capitalization"]
+    ticker_is_fpi, _fpi_evidence = is_fpi(res.company)
+    use_rnd_adjusted_roic = bool(rnd_cfg["enabled"]) and not ticker_is_fpi
+    reinvestment_annual = _rnd_adjusted_view(annual) if use_rnd_adjusted_roic else annual
+    reinvestment_sub = _score_reinvestment(reinvestment_annual, coc)
+
+    # Mixed-basis disclosure (Session D Step 2): roic_mean/compounding_proxy
+    # average across years that can land on different bases (R&D-adjusted
+    # vs GAAP-fallback) whenever a company's earliest history predates a
+    # full amortization-years R&D window -- the common case on the audited
+    # set (10/12 R&D-bearing tickers), not a corner case, so it must never
+    # be silent. Only computed/consumed when the regime is actually active
+    # -- _score_reinvestment's own output above (and thus regime-off gaps)
+    # is completely unaffected by this block's existence.
+    if use_rnd_adjusted_roic:
+        rnd_state, _rnd_series = classify_rnd_series(res.company)
+        reinvestment_sub, rnd_basis_gaps = _annotate_rnd_basis(reinvestment_sub, annual, rnd_state)
+        extra_gaps.extend(rnd_basis_gaps)
+
     cat_scores: dict[str, list[SubScore]] = {
-        "reinvestment_engine": _score_reinvestment(annual, coc),
+        "reinvestment_engine": reinvestment_sub,
         "quality_persistence": _score_quality(annual, roic_thresh, uni_gm),
         "balance_sheet_resilience": resilience_sub,
         "capital_discipline": _score_capital_discipline(annual, diluted_series_for_scoring),

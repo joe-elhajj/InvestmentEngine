@@ -260,6 +260,67 @@ class CompanyData:
         return None
 
 
+# ---------------------------------------------------------------------------
+# R&D capitalization support (Tier 1, deterministic — no model involvement)
+# ---------------------------------------------------------------------------
+
+_RND_NO_RND = "no_rnd"
+_RND_PRESENT = "present"
+_RND_PARTIAL_GAP = "partial_gap"
+
+
+def is_fpi(cd: CompanyData) -> tuple[bool, str]:
+    """
+    Evidence-based FPI (Foreign Private Issuer) detection: filed 20-F or
+    40-F. Never inferred from SIC or ticker. Mirrors engine/screen.py's own
+    FPI evidence check (SEC form history) but is kept as a small, separate
+    predicate here rather than imported from screen.py: screen.py already
+    imports engine.durability (`from engine import durability as D`), so
+    durability.py importing screen.py back for this check would be
+    circular. Same evidence class (recent_forms), not a parallel inference
+    rule.
+    """
+    fpi_forms = [f for f in cd.recent_forms if f.startswith(("20-F", "40-F"))]
+    if fpi_forms:
+        return True, f"FPI: {fpi_forms[0][:4]} observed"
+    return False, ""
+
+
+def classify_rnd_series(cd: CompanyData) -> tuple[str, dict]:
+    """
+    Extract the annual R&D expense series (one value per total_assets-
+    anchored fiscal year, mirroring exactly what _build_year_entry's
+    _pv("rnd") resolves per year in engine/pipeline.py) and classify it
+    into exactly one of three states for the R&D-capitalization regime
+    (engine/metrics.py::build_research_asset):
+
+      "no_rnd"      -- the tag never resolves in ANY filing (zero raw facts
+                       across every taxonomy candidate) -- a legitimate zero
+                       adjustment, not a gap. No badge; nothing to disclose.
+      "present"     -- the tag resolves for every total_assets-anchored year.
+      "partial_gap" -- the tag resolves for at least one year but not every
+                       anchored year -- a real degradation, not silence.
+                       Already disclosed via _build_year_entry's existing
+                       _pv("rnd") gap-logging path (no new gap message is
+                       added here); this classification exists purely so
+                       callers can distinguish it from "no_rnd" for badging.
+
+    Returns (state, series) where series maps each total_assets anchor
+    period_end -> R&D value (or None).
+    """
+    anchors = sorted(f.period_end for f in cd.series.get("total_assets", []))
+    series: dict = {}
+    for pe in anchors:
+        f = cd.value_for_period("rnd", pe)
+        series[pe] = f.value if f is not None else None
+
+    if not cd.series.get("rnd"):
+        return _RND_NO_RND, series
+    if anchors and all(series[pe] is not None for pe in anchors):
+        return _RND_PRESENT, series
+    return _RND_PARTIAL_GAP, series
+
+
 class EdgarClient:
     def __init__(
         self,

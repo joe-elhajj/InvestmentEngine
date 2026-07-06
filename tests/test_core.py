@@ -431,3 +431,181 @@ def test_gross_profit_fallback():
         "fallback gross_profit must equal revenue - cost_of_revenue"
     assert "gross_profit" in res.derived_lineage, "lineage must record the derivation"
     assert "derived" in res.derived_lineage["gross_profit"], "lineage must be labelled 'derived'"
+
+
+# ---------------------------------------------------------------------------
+# 9. R&D capitalization (Damodaran method) -- engine/metrics.py
+# ---------------------------------------------------------------------------
+
+def test_build_research_asset_full_window():
+    """Flat $100/yr R&D over exactly 5 years, amortization_years=5: hand-
+    computed unamortized balance and current amortization."""
+    series = {f"{y}-12-31": 100.0 for y in range(2020, 2025)}
+    ra = M.build_research_asset(series, 5)
+    assert ra is not None
+    # weights (n-k)/n for k=0..4: 5/5,4/5,3/5,2/5,1/5 -> sum=15/5=3 -> *100=300
+    assert abs(ra.unamortized_balance - 300.0) < 1e-9
+    # amortization excludes k=0 (current year): (4+3+2+1)/5 * 100 = 80
+    assert abs(ra.current_amortization - 80.0) < 1e-9
+    assert len(ra.schedule) == 5
+    assert ra.schedule[0][0] == "2020-12-31" and ra.schedule[-1][0] == "2024-12-31"
+    assert abs(ra.schedule[-1][2] - 1.0) < 1e-9, "current year's own R&D must be 100% unamortized"
+
+
+def test_build_research_asset_short_window_is_none():
+    """Only 3 years of history against a 5-year requirement: full-window-
+    or-nothing rule returns None, not a partial asset."""
+    series = {f"{y}-12-31": 100.0 for y in range(2022, 2025)}
+    assert M.build_research_asset(series, 5) is None
+
+
+def test_build_research_asset_none_year_inside_window_is_none():
+    """A None value for one year INSIDE an otherwise-full window must still
+    reject the whole window -- absence-is-not-zero, never a silent partial
+    adjustment."""
+    series = {f"{y}-12-31": 100.0 for y in range(2020, 2025)}
+    series["2022-12-31"] = None
+    assert M.build_research_asset(series, 5) is None
+
+
+def test_build_research_asset_exact_boundary_succeeds():
+    """Exactly N years of history (the boundary, not fewer) must succeed --
+    distinct from the short-window-is-None case above."""
+    series = {f"{y}-12-31": 50.0 for y in range(2019, 2024)}  # exactly 5 years
+    ra = M.build_research_asset(series, 5)
+    assert ra is not None
+    assert len(ra.schedule) == 5
+
+
+def test_rnd_adjusted_nopat_and_ic_and_adjusted_roic():
+    series = {f"{y}-12-31": 100.0 for y in range(2020, 2025)}
+    ra = M.build_research_asset(series, 5)
+    nopat_adj, ic_adj = M.rnd_adjusted_nopat_and_ic(1000.0, 5000.0, ra, 100.0)
+    assert abs(nopat_adj - 1020.0) < 1e-9   # 1000 + 100 - 80
+    assert abs(ic_adj - 5300.0) < 1e-9      # 5000 + 300
+    m = M.adjusted_roic(1000.0, 5000.0, ra, 100.0)
+    assert m.name == "roic_adjusted"
+    assert abs(m.value - (1020.0 / 5300.0)) < 1e-9
+    # Absence-is-not-zero: any missing input -> None, never a partial adjustment
+    assert M.adjusted_roic(None, 5000.0, ra, 100.0).value is None
+    assert M.rnd_adjusted_nopat_and_ic(None, 5000.0, ra, 100.0) == (None, None)
+
+
+# ---------------------------------------------------------------------------
+# 10. Three-state R&D extraction classification -- engine/edgar.py
+# ---------------------------------------------------------------------------
+
+def test_classify_rnd_series_no_rnd():
+    """Tag absent across every fiscal year (and every filing) -> 'no_rnd',
+    a legitimate zero adjustment, not a gap."""
+    from engine.edgar import classify_rnd_series
+    cd = CompanyData(ticker="NORND", cik="0000000040", name="No RnD Co",
+                     sic="7372", sic_description="Software")
+    cd.series = {
+        "total_assets": [Fact("total_assets", 1000.0, f"{y}-12-31", y, "us-gaap:Assets", "10-K", f"{y+1}-02-15")
+                          for y in range(2020, 2025)],
+        # rnd series entirely absent
+    }
+    state, series = classify_rnd_series(cd)
+    assert state == "no_rnd"
+    assert all(v is None for v in series.values())
+
+
+def test_classify_rnd_series_present():
+    """Tag resolves for every total_assets-anchored year -> 'present'."""
+    from engine.edgar import classify_rnd_series
+    years = range(2020, 2025)
+    cd = CompanyData(ticker="FULLRND", cik="0000000041", name="Full RnD Co",
+                     sic="7372", sic_description="Software")
+    cd.series = {
+        "total_assets": [Fact("total_assets", 1000.0, f"{y}-12-31", y, "us-gaap:Assets", "10-K", f"{y+1}-02-15") for y in years],
+        "rnd": [Fact("rnd", 50.0, f"{y}-12-31", y, "us-gaap:ResearchAndDevelopmentExpense", "10-K", f"{y+1}-02-15") for y in years],
+    }
+    state, series = classify_rnd_series(cd)
+    assert state == "present"
+    assert all(v == 50.0 for v in series.values())
+
+
+def test_classify_rnd_series_partial_gap():
+    """Tag resolves for SOME anchored years but not others -> 'partial_gap'
+    -- a real degradation, distinct from a legitimate no_rnd absence."""
+    from engine.edgar import classify_rnd_series
+    cd = CompanyData(ticker="GAPRND", cik="0000000042", name="Gap RnD Co",
+                     sic="7372", sic_description="Software")
+    cd.series = {
+        "total_assets": [Fact("total_assets", 1000.0, f"{y}-12-31", y, "us-gaap:Assets", "10-K", f"{y+1}-02-15")
+                          for y in range(2020, 2025)],
+        # rnd resolves only for 2020-2022, missing 2023/2024
+        "rnd": [Fact("rnd", 50.0, f"{y}-12-31", y, "us-gaap:ResearchAndDevelopmentExpense", "10-K", f"{y+1}-02-15")
+                for y in range(2020, 2023)],
+    }
+    state, series = classify_rnd_series(cd)
+    assert state == "partial_gap"
+    assert series["2020-12-31"] == 50.0
+    assert series["2024-12-31"] is None
+
+
+# ---------------------------------------------------------------------------
+# 11. Mixed-basis disclosure classifier -- engine/metrics.py
+# ---------------------------------------------------------------------------
+
+def test_classify_basis_mix_clean():
+    assert M.classify_basis_mix(["adjusted", "adjusted", "adjusted"]) == ("clean", 3, 0)
+
+
+def test_classify_basis_mix_mixed():
+    assert M.classify_basis_mix(["adjusted", "adjusted", "gaap_fallback"]) == ("mixed", 2, 1)
+
+
+def test_classify_basis_mix_unadjusted_all_fallback():
+    """A company with real R&D data where every feeding year individually
+    lacked a full window: zero adjusted, all fallback -- 'unadjusted', not
+    'mixed' (there's nothing to mix; nothing was ever adjusted)."""
+    assert M.classify_basis_mix(["gaap_fallback", "gaap_fallback"]) == ("unadjusted", 0, 2)
+
+
+def test_classify_basis_mix_no_rnd_regression_guard():
+    """The exact bug the Step-1 diagnostic script hit: a NO_RND series
+    (every year uniformly GAAP, zero R&D data ever) must classify
+    'unadjusted' via the AND in the mixed condition, never 'mixed' via a
+    careless OR on "any fallback present". Same shape as the all-fallback
+    case above, asserted separately since this is a named regression."""
+    no_rnd_bases = ["gaap_fallback"] * 15  # 15 years, all fallback, none adjusted
+    cls, n_adj, n_fb = M.classify_basis_mix(no_rnd_bases)
+    assert cls == "unadjusted"
+    assert n_adj == 0
+    assert n_fb == 15
+
+
+def test_classify_basis_mix_empty():
+    assert M.classify_basis_mix([]) == ("unadjusted", 0, 0)
+
+
+def test_rnd_basis_tag_none_year_excluded():
+    """A year where neither nopat nor invested_capital resolve (the
+    absence-is-not-zero case) must tag None -- neither 'adjusted' nor
+    'gaap_fallback' -- so it's excluded from classify_basis_mix's counts
+    entirely, not miscounted as a fallback year."""
+    assert M.rnd_basis_tag(None, None, None, None) is None
+    assert M.rnd_basis_tag(None, 5000.0, None, 100.0) is None  # nopat missing
+    assert M.rnd_basis_tag(1000.0, None, None, 100.0) is None  # invested_capital missing
+
+
+def test_rnd_basis_tag_adjusted_vs_fallback():
+    series = {f"{y}-12-31": 100.0 for y in range(2020, 2025)}
+    ra = M.build_research_asset(series, 5)
+    # Full research asset resolves -> adjusted
+    assert M.rnd_basis_tag(1000.0, 5000.0, ra, 100.0) == "adjusted"
+    # GAAP resolves but no research asset (e.g. insufficient window) -> gaap_fallback
+    assert M.rnd_basis_tag(1000.0, 5000.0, None, 100.0) == "gaap_fallback"
+
+
+def test_a_none_tagged_year_excluded_from_classification_end_to_end():
+    """A mix of adjusted/fallback/None-tagged years: classify_basis_mix must
+    key on the pre-filtered (non-None) list only -- None years contribute to
+    neither the adjusted nor fallback count nor the total."""
+    bases_with_none_already_filtered = ["adjusted", "gaap_fallback"]  # caller already dropped the None-tagged year
+    cls, n_adj, n_fb = M.classify_basis_mix(bases_with_none_already_filtered)
+    assert cls == "mixed"
+    assert n_adj == 1 and n_fb == 1
+    assert n_adj + n_fb == 2, "a None-tagged (excluded) year must not inflate the total"

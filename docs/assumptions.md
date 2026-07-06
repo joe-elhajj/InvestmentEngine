@@ -8,6 +8,29 @@ an auditable event.
 
 ---
 
+## Calibration principles
+
+These govern how every assumption below is designed and every future one
+should be. The system's goal is to be calibrated — neither systematically
+optimistic nor systematically conservative.
+
+1. **Bound, don't assert.** When an assumption's correct value is uncertain,
+   measure whether the choice materially moves outputs (sensitivity on the
+   audited set) rather than defending the point value. Immaterial
+   assumptions get documented as measured non-issues; material ones get
+   fragility annotations.
+2. **Band over point.** Where an assumption has a scenario structure (e.g.
+   WACC), signals derived from it are reported as ranges across scenarios,
+   with the base case as the anchor. A signal whose sign flips across the
+   band is disclosed as fragile, not reported at its base value alone.
+3. **Abstain and disclose.** When an input required for an adjustment,
+   gate, or signal is missing — or when an adjustment's error cannot even
+   be signed — the system abstains, computes the unadjusted figure, and
+   badges the abstention with its reason. It never defaults in either the
+   flattering or the punishing direction.
+
+---
+
 ## Valuation assumptions (`config.yaml → valuation`)
 
 | Assumption | Value | External anchor | Review cadence |
@@ -199,6 +222,25 @@ non-domain gap renormalizes category weight exactly as the prior silent
 omission did. No watchlist ticker currently falls into the net-debt-floor
 branch, so no name shows real score movement today; any future name with
 `net_debt > 0` and `ebitda <= 0` will.
+
+## R&D capitalization assumptions (`config.yaml → durability.rnd_capitalization`)
+
+GAAP expenses R&D immediately, which understates invested capital and
+distorts ROIC comparability between R&D-heavy and capex-heavy businesses.
+When enabled, the engine capitalizes R&D into a research asset (Damodaran
+method): the last N years of R&D expense are amortized straight-line over
+N years; NOPAT is adjusted by (current-year R&D − amortization); invested
+capital is increased by the unamortized research asset balance. All
+arithmetic is deterministic from the EDGAR R&D expense series; both GAAP
+and adjusted ROIC are always reported with full lineage.
+
+| Assumption | Value | External anchor | Review cadence |
+|---|---|---|---|
+| `enabled` | false (until regime-flip PR) | Regime toggle; config hash makes the active regime explicit on every score | On regime adoption, with dual-regime rescore evidence attached |
+| `amortization_years` | 5 | Approximate product-cycle length across the coverage universe (Damodaran sector tables range 3y short-cycle tech to 10y pharma); uniform value preserves cross-ticker comparability at the cost of sector precision. Materiality to be bounded by a 3/5/7 window sensitivity in the regime-flip PR | If coverage skews toward long-cycle R&D (pharma, aerospace), revisit uniform vs. per-sector table |
+| History-insufficiency rule | Full window or no adjustment | A partial research asset understates invested capital and overstates adjusted ROIC — failing in exactly the direction the adjustment exists to correct. Below N years of R&D history: GAAP ROIC only, badge R&D-UNADJ with reason | Fixed; structural |
+| No-R&D distinction | Tag absent across all filings = legitimate zero adjustment (not a gap); tag present in some years but missing in others = gap, no adjustment, disclosed | Evidence-based classification: absence of the concept is not absence of the data | Fixed; structural |
+| IFRS filer rule | FPIs (20-F filers) receive no adjustment; badge R&D-UNADJ ("IFRS filer — pending disposition") | IAS 38 already capitalizes development costs to an unknown degree; stacking the adjustment produces an error of ambiguous sign. Abstain-and-disclose (calibration principle 3) | On deliberate IFRS disposition (backlog) |
 
 ---
 
