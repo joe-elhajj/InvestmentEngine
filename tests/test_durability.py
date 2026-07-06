@@ -17,7 +17,7 @@ Covers:
 
 import pytest
 
-from engine.edgar import CompanyData, Fact
+from engine.edgar import CompanyData, Fact, is_fpi
 from engine.market import Quote
 from engine.pipeline import derive, derive_annual_series, YearlyDerived
 from engine import durability as D
@@ -825,3 +825,242 @@ def test_negative_ebitda_with_net_cash_discloses_gap_not_subscore():
         nd_sub = next((s for s in resilience.sub_scores if s.name == "net_debt_ebitda"), None)
         assert nd_sub is None, "net_debt<=0 with ebitda<=0 has no defined ratio sign -- must not be scored"
     assert "net_debt_ebitda: EBITDA <= 0 with net cash — outside ratio domain, not scored." in ds.gaps
+
+
+# ---------------------------------------------------------------------------
+# R&D capitalization regime (Damodaran method): regime-off byte-identity,
+# the config-flip wiring proof, and the IFRS abstention.
+# ---------------------------------------------------------------------------
+
+def _rnd_company(ticker: str, cik: str, *, recent_forms=None) -> CompanyData:
+    """6 years (2019-2024) of flat rnd=200/yr -- a full 5-year trailing
+    window is available at the 2024 anchor. Values scaled like
+    _strong_company so nopat/invested_capital land in a normal range:
+    invested_capital = 100 + 1500 - 200 = 1400; nopat = 200*(1-0.21) = 158;
+    GAAP roic_latest = 158/1400 = 11.29%. Research asset at 2024 (n=5,
+    flat 200/yr): unamortized_balance = 200*(5+4+3+2+1)/5 = 600;
+    current_amortization = 200*(4+3+2+1)/5 = 160; nopat_adj = 158+200-160
+    = 198; ic_adj = 1400+600 = 2000; adjusted roic_latest = 198/2000 = 9.9%
+    -- LOWER than GAAP, a deliberately non-flattering fixture (sustained
+    flat R&D spend inflates invested capital faster than it helps NOPAT)."""
+    cd = CompanyData(ticker=ticker, cik=cik, name=f"{ticker} Co",
+                     sic="7372", sic_description="Prepackaged Software",
+                     recent_forms=recent_forms or ["10-K"])
+    years = list(range(2019, 2025))
+    cd.series = {
+        "total_assets":     [_instant("total_assets", f"{y}-12-31", 2000.0) for y in years],
+        "total_equity":     [_instant("total_equity", f"{y}-12-31", 1500.0) for y in years],
+        "long_term_debt":   [_instant("long_term_debt", f"{y}-12-31", 100.0) for y in years],
+        "short_term_debt":  [_instant("short_term_debt", f"{y}-12-31", 0.0) for y in years],
+        "cash":             [_instant("cash", f"{y}-12-31", 200.0) for y in years],
+        "revenue":          [_flow("revenue", y, 800.0) for y in years],
+        "operating_income": [_flow("operating_income", y, 200.0) for y in years],
+        "net_income":       [_flow("net_income", y, 150.0) for y in years],
+        "cfo":              [_flow("cfo", y, 180.0) for y in years],
+        "capex":            [_flow("capex", y, 40.0) for y in years],
+        "rnd":              [_flow("rnd", y, 200.0) for y in years],
+    }
+    return cd
+
+
+def _roic_latest_raw(ds) -> float:
+    resilience = ds.categories["reinvestment_engine"]
+    sub = next(s for s in resilience.sub_scores if s.name == "roic_latest")
+    return sub.raw
+
+
+def test_rnd_regime_off_byte_identical_to_config_missing_section():
+    """A config dict that omits durability.rnd_capitalization entirely
+    (the pre-this-PR config.yaml shape) must score BYTE-IDENTICAL to one
+    that explicitly sets enabled: false -- proving the new section's mere
+    presence-with-default-off changes nothing observable."""
+    cd = _rnd_company("RNDOFF", "0000000070")
+    res = _make_res(cd)
+
+    cfg_missing_section = dict(_BASE_CFG)  # no "durability" key at all
+    cfg_explicit_off = {
+        **_BASE_CFG,
+        "durability": {"rnd_capitalization": {"enabled": False, "amortization_years": 5}},
+    }
+
+    ds_missing = D.score(res, cfg_missing_section)
+    ds_explicit = D.score(res, cfg_explicit_off)
+
+    assert ds_missing.composite == ds_explicit.composite
+    assert ds_missing.gaps == ds_explicit.gaps
+    for cat in ds_missing.categories:
+        subs_a = {s.name: (s.score, s.raw) for s in ds_missing.categories[cat].sub_scores}
+        subs_b = {s.name: (s.score, s.raw) for s in ds_explicit.categories[cat].sub_scores}
+        assert subs_a == subs_b, f"category {cat} sub-scores differ"
+    # Regardless of on-disk config shape, GAAP (not adjusted) ROIC is used
+    # when the regime is off -- 158/1400, not 198/2000.
+    assert abs(_roic_latest_raw(ds_explicit) - (158.0 / 1400.0)) < 1e-4
+
+
+def test_rnd_regime_on_changes_reinvestment_engine_output():
+    """Config-flip wiring proof (dead-key prevention): flipping enabled
+    false->true for the SAME non-FPI, full-R&D-history company must change
+    reinvestment_engine's roic_latest raw value -- proving the config key
+    is actually consumed, not a dead no-op."""
+    cd = _rnd_company("RNDON", "0000000071")
+    res = _make_res(cd)
+
+    cfg_off = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": False}}}
+    cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
+
+    roic_off = _roic_latest_raw(D.score(res, cfg_off))
+    roic_on = _roic_latest_raw(D.score(res, cfg_on))
+
+    assert abs(roic_off - (158.0 / 1400.0)) < 1e-4
+    assert abs(roic_on - (198.0 / 2000.0)) < 1e-4
+    assert roic_off != roic_on
+    assert roic_on < roic_off, "this fixture's adjustment must be LOWER than GAAP, not uniformly flattering"
+
+
+def test_rnd_ifrs_fpi_receives_no_adjustment_even_with_full_history():
+    """An FPI (20-F filer) must receive NO adjustment even with a full,
+    clean R&D history and the regime enabled -- the IFRS rule overrides
+    data availability and the regime toggle alike. reinvestment_engine's
+    roic_latest must match the GAAP figure exactly, not the adjusted one."""
+    cd = _rnd_company("RNDFPI", "0000000072", recent_forms=["20-F"])
+    fpi, evidence = is_fpi(cd)
+    assert fpi is True
+    assert "20-F" in evidence
+
+    res = _make_res(cd)
+    cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
+    ds = D.score(res, cfg_on)
+
+    assert abs(_roic_latest_raw(ds) - (158.0 / 1400.0)) < 1e-4, \
+        "FPI must stay on GAAP ROIC even with the regime enabled and full R&D history"
+
+
+# ---------------------------------------------------------------------------
+# Mixed-basis disclosure (Session D Step 2): roic_mean/compounding_proxy can
+# span R&D-adjusted and GAAP-fallback years within the same average -- must
+# be disclosed via ds.gaps, never silent, and must not move any number.
+# ---------------------------------------------------------------------------
+
+def _clean_rnd_company(ticker: str, cik: str) -> CompanyData:
+    """9 years (2016-2024) of total_assets + rnd data, but invested_capital
+    only resolves for 2020-2024 (cash omitted for 2016-2019) -- so only
+    those 5 years feed roic_vals, and EVERY one of them has a full 5-year
+    trailing R&D window (2016-2019 exist as total_assets anchors + rnd
+    facts, even though they don't resolve invested_capital themselves).
+    This is the CLEAN case: all roic_mean-feeding years are R&D-adjusted."""
+    cd = CompanyData(ticker=ticker, cik=cik, name=f"{ticker} Co",
+                     sic="7372", sic_description="Prepackaged Software",
+                     recent_forms=["10-K"])
+    all_years = list(range(2016, 2025))
+    feeding_years = list(range(2020, 2025))
+    series = {
+        "total_assets":     [_instant("total_assets", f"{y}-12-31", 2000.0) for y in all_years],
+        "rnd":              [_flow("rnd", y, 200.0) for y in all_years],
+        "total_equity":     [_instant("total_equity", f"{y}-12-31", 1500.0) for y in feeding_years],
+        "long_term_debt":   [_instant("long_term_debt", f"{y}-12-31", 100.0) for y in feeding_years],
+        "short_term_debt":  [_instant("short_term_debt", f"{y}-12-31", 0.0) for y in feeding_years],
+        "cash":             [_instant("cash", f"{y}-12-31", 200.0) for y in feeding_years],
+        "revenue":          [_flow("revenue", y, 800.0) for y in all_years],
+        "operating_income": [_flow("operating_income", y, 200.0) for y in all_years],
+        "net_income":       [_flow("net_income", y, 150.0) for y in all_years],
+        "cfo":              [_flow("cfo", y, 180.0) for y in all_years],
+        "capex":            [_flow("capex", y, 40.0) for y in all_years],
+    }
+    cd.series = series
+    return cd
+
+
+def _no_rnd_company(ticker: str, cik: str) -> CompanyData:
+    """Same shape as _rnd_company but with the rnd series entirely absent
+    -- classify_rnd_series returns 'no_rnd'. Regime enabled should produce
+    NO mixed-basis or unadjusted-basis gap: a legitimate absence of R&D is
+    silent, not an exception."""
+    cd = CompanyData(ticker=ticker, cik=cik, name=f"{ticker} Co",
+                     sic="7372", sic_description="Prepackaged Software",
+                     recent_forms=["10-K"])
+    years = list(range(2019, 2025))
+    cd.series = {
+        "total_assets":     [_instant("total_assets", f"{y}-12-31", 2000.0) for y in years],
+        "total_equity":     [_instant("total_equity", f"{y}-12-31", 1500.0) for y in years],
+        "long_term_debt":   [_instant("long_term_debt", f"{y}-12-31", 100.0) for y in years],
+        "short_term_debt":  [_instant("short_term_debt", f"{y}-12-31", 0.0) for y in years],
+        "cash":             [_instant("cash", f"{y}-12-31", 200.0) for y in years],
+        "revenue":          [_flow("revenue", y, 800.0) for y in years],
+        "operating_income": [_flow("operating_income", y, 200.0) for y in years],
+        "net_income":       [_flow("net_income", y, 150.0) for y in years],
+        "cfo":              [_flow("cfo", y, 180.0) for y in years],
+        "capex":            [_flow("capex", y, 40.0) for y in years],
+        # rnd deliberately absent
+    }
+    return cd
+
+
+def _reinvestment_gaps(ds) -> list:
+    return [g for g in ds.gaps if g.startswith("reinvestment_engine:")]
+
+
+def test_rnd_mixed_basis_gap_fires_with_correct_counts():
+    """_rnd_company's natural shape (early years lack a full R&D window,
+    later years have one) must fire exactly the mixed-basis gaps for
+    roic_mean and compounding_proxy, with the exact adjusted/fallback
+    counts -- and the SubScore.source lineage string must carry the same
+    composition."""
+    cd = _rnd_company("RNDMIXED", "0000000080")
+    res = _make_res(cd)
+    cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
+    ds = D.score(res, cfg_on)
+
+    gaps = _reinvestment_gaps(ds)
+    assert "reinvestment_engine: roic_mean mixed basis (2 R&D-adj + 4 GAAP-fallback)" in gaps
+    assert "reinvestment_engine: compounding_proxy mixed basis (2 R&D-adj + 3 GAAP-fallback)" in gaps
+
+    reinv = ds.categories["reinvestment_engine"]
+    roic_mean_sub = next(s for s in reinv.sub_scores if s.name == "roic_mean")
+    assert "2 R&D-adjusted + 4 GAAP-fallback years (mixed basis)" in roic_mean_sub.source
+
+
+def test_rnd_clean_basis_produces_no_gap():
+    """Every roic_mean-feeding year fully R&D-adjusted: no gap fires (clean
+    is the aspirational default, not an exception), and the lineage string
+    says so plainly."""
+    cd = _clean_rnd_company("RNDCLEAN", "0000000081")
+    res = _make_res(cd)
+    cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
+    ds = D.score(res, cfg_on)
+
+    assert _reinvestment_gaps(ds) == []
+    reinv = ds.categories["reinvestment_engine"]
+    roic_mean_sub = next(s for s in reinv.sub_scores if s.name == "roic_mean")
+    assert "all 5 years R&D-adjusted" in roic_mean_sub.source
+
+
+def test_rnd_no_rnd_company_produces_no_gap_and_no_annotation_confusion():
+    """A legitimate NO_RND company with the regime enabled must produce NO
+    reinvestment_engine gap at all -- zero adjustment is normal there, not
+    an exception state, exactly mirroring the established NO_RND no-badge
+    rule from the single-year R&D-UNADJ disclosure."""
+    cd = _no_rnd_company("RNDNONE", "0000000082")
+    res = _make_res(cd)
+    cfg_on = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": True}}}
+    ds = D.score(res, cfg_on)
+
+    assert _reinvestment_gaps(ds) == []
+    reinv = ds.categories["reinvestment_engine"]
+    roic_mean_sub = next(s for s in reinv.sub_scores if s.name == "roic_mean")
+    assert "all" in roic_mean_sub.source and "GAAP basis" in roic_mean_sub.source
+
+
+def test_rnd_regime_off_produces_no_mixed_basis_gap():
+    """The SAME fixture that fires a mixed-basis gap when enabled=true must
+    produce NONE when the regime is off -- _score_reinvestment's own output,
+    including every gap, is untouched when the regime toggle is off."""
+    cd = _rnd_company("RNDMIXOFF", "0000000083")
+    res = _make_res(cd)
+    cfg_off = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": False}}}
+    ds = D.score(res, cfg_off)
+
+    assert _reinvestment_gaps(ds) == []
+    reinv = ds.categories["reinvestment_engine"]
+    roic_mean_sub = next(s for s in reinv.sub_scores if s.name == "roic_mean")
+    assert "mixed basis" not in roic_mean_sub.source
+    assert roic_mean_sub.source == f"mean ROIC over {len(roic_mean_sub.years_covered)} years"

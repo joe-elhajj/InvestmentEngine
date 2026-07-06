@@ -22,6 +22,7 @@ from datetime import datetime
 from html import escape
 from typing import Optional
 
+from engine.edgar import classify_rnd_series, is_fpi
 from engine.pipeline import AnalysisResult
 
 
@@ -195,6 +196,27 @@ _RATIO_ORDER = [
 ]
 
 
+def _rnd_unadj_reason(res: AnalysisResult) -> Optional[str]:
+    """
+    R&D-UNADJ badge reason for the R&D-capitalization-adjusted ROIC row, or
+    None when there's nothing to disclose. Per docs/assumptions.md's
+    calibration principle 3 (abstain and disclose): a legitimate absence of
+    R&D (NO_RND) is silent — zero adjustment is normal there, not an
+    exception state — while an IFRS filer or an insufficient/gapped R&D
+    history abstains loudly, with a reason distinguishing which.
+    """
+    fpi, _ = is_fpi(res.company)
+    if fpi:
+        return "IFRS filer — pending disposition"
+    state, _ = classify_rnd_series(res.company)
+    if state == "no_rnd":
+        return None
+    m = res.ratios.get("roic_adjusted")
+    if m is not None and m.value is not None:
+        return None  # adjustment succeeded -- no badge needed
+    return "insufficient history"
+
+
 def _ratio_rows(res: AnalysisResult) -> list[tuple[str, str]]:
     rows = []
     for label, key, is_pct in _RATIO_ORDER:
@@ -206,6 +228,22 @@ def _ratio_rows(res: AnalysisResult) -> list[tuple[str, str]]:
         else:
             val = _fmt_pct(m.value) if is_pct else f"{m.value:.2f}"
         rows.append((label, val))
+        if key == "roic":
+            # Dual ROIC (Damodaran R&D capitalization) -- displayed whenever
+            # computable regardless of durability.rnd_capitalization.enabled
+            # (that flag gates only the durability score's consumption; see
+            # engine/durability.py). No row at all for a legitimate NO_RND
+            # company -- zero adjustment is normal there, not an exception.
+            # Plain text, not an HTML chip: this row's value string is
+            # escape()'d at both call sites below like every other ratio,
+            # and is not exempted from that here.
+            adj = res.ratios.get("roic_adjusted")
+            if adj is not None and adj.value is not None:
+                rows.append(("ROIC (R&D-adj)", _fmt_pct(adj.value)))
+            else:
+                reason = _rnd_unadj_reason(res)
+                if reason:
+                    rows.append(("ROIC (R&D-adj)", f"n/a — R&D-UNADJ ({reason})"))
     return rows
 
 

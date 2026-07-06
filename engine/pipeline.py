@@ -61,6 +61,17 @@ class YearlyDerived:
     # --- audit trail ---
     gaps: list[str] = field(default_factory=list)
     derived_lineage: dict[str, str] = field(default_factory=dict)
+    # --- R&D capitalization (regime OFF by default; computed whenever data
+    # allows, regardless of the regime toggle -- see engine/durability.py's
+    # score() for the config-gated consumption, and engine/metrics.py for
+    # the pure Damodaran capitalization math this is built from) ---
+    research_asset: Optional[M.ResearchAsset] = None
+    # This year's basis if it were to feed an R&D-adjusted average --
+    # "adjusted"/"gaap_fallback"/None (excluded), from M.rnd_basis_tag().
+    # Invariant across engine/durability.py's GAAP<->adjusted view swap
+    # (dataclasses.replace only overwrites nopat/invested_capital there),
+    # so it stays correct whichever view a sub-score computation reads.
+    rnd_basis: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +122,9 @@ def _safe_div(a: Optional[float], b: Optional[float]) -> Optional[float]:
 # Per-year computation
 # ---------------------------------------------------------------------------
 
-def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> YearlyDerived:
+def _build_year_entry(
+    cd: CompanyData, period_end: str, tax_rate: float, rnd_amortization_years: int = 5,
+) -> YearlyDerived:
     """Derive all metrics for one fiscal year anchored at period_end."""
     year = int(period_end[:4])
     gaps: list[str] = []
@@ -233,6 +246,26 @@ def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> Year
     )
     nopat = (ebit * (1 - tax_rate)) if ebit is not None else None
 
+    # R&D capitalization research asset (Damodaran method) — computed
+    # whenever the trailing amortization_years-year window of R&D fully
+    # resolves, regardless of the durability.rnd_capitalization.enabled
+    # toggle (that flag gates CONSUMPTION in engine/durability.py's score(),
+    # not computation here). Built directly from cd's own raw R&D facts
+    # rather than from a not-yet-built `annual` dict, since this function
+    # processes one fiscal year at a time and every other anchor year gets
+    # its own _build_year_entry() call.
+    all_anchors = sorted(f.period_end for f in cd.series.get("total_assets", []))
+    anchors_by_year = {int(pe[:4]): pe for pe in all_anchors}
+    rnd_window: dict[str, Optional[float]] = {}
+    for k in range(rnd_amortization_years):
+        pe_k = anchors_by_year.get(year - k)
+        if pe_k is None:
+            continue
+        f_k = cd.value_for_period("rnd", pe_k)
+        rnd_window[pe_k] = f_k.value if f_k is not None else None
+    research_asset = M.build_research_asset(rnd_window, rnd_amortization_years) if rnd_window else None
+    rnd_basis = M.rnd_basis_tag(nopat, invested_capital, research_asset, rnd_val)
+
     return YearlyDerived(
         period_end=period_end, year=year,
         revenue=rev, net_income=ni, operating_income=oi, gross_profit=gp,
@@ -247,6 +280,8 @@ def _build_year_entry(cd: CompanyData, period_end: str, tax_rate: float) -> Year
         gross_margin=_safe_div(gp, rev),
         operating_margin=_safe_div(oi, rev),
         gaps=gaps, derived_lineage=dl,
+        research_asset=research_asset,
+        rnd_basis=rnd_basis,
     )
 
 
@@ -348,8 +383,16 @@ def derive_annual_series(cd: CompanyData, config: dict) -> dict[str, YearlyDeriv
     never treated as zero for equity; a gap is logged instead.
     """
     tax_rate = config.get("valuation", {}).get("assumed_tax_rate", 0.21)
+    # Read directly from the raw config dict (not durability._resolve_config,
+    # which pipeline.py must not import -- durability.py imports FROM
+    # pipeline.py, and screen.py imports durability.py, so the reverse
+    # import would be circular). Default (5) matches config.yaml's own
+    # default so behavior is correct even when the section is omitted.
+    rnd_years = int(
+        config.get("durability", {}).get("rnd_capitalization", {}).get("amortization_years", 5)
+    )
     anchors = [f.period_end for f in cd.series.get("total_assets", [])]
-    return {pe: _build_year_entry(cd, pe, tax_rate) for pe in sorted(anchors)}
+    return {pe: _build_year_entry(cd, pe, tax_rate, rnd_years) for pe in sorted(anchors)}
 
 
 def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
@@ -418,6 +461,8 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         ebitda         = yd.ebitda
         capital_employed = yd.capital_employed
         cash           = yd.cash
+        rnd_val        = yd.rnd
+        research_asset = yd.research_asset
     else:
         # No balance-sheet anchor (total_assets absent); flow metrics still available
         rev      = _v(cd, "revenue")
@@ -438,6 +483,8 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         ebitda = (oi + da) if (oi is not None and da is not None) else None
         capital_employed = None
         nopat  = (ebit * (1 - tax_rate)) if ebit is not None else None
+        rnd_val = None
+        research_asset = None
         res.gaps.append(
             "total_debt: no anchor period (total_assets absent); treated as absent, not zero"
         )
@@ -515,6 +562,12 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     r["roe"]                = M.roe(ni, equity)
     r["roa"]                = M.roa(ni, assets)
     r["roic"]               = M.roic(nopat, invested_capital)
+    # R&D-capitalization-adjusted ROIC — always computed when data allows,
+    # independent of durability.rnd_capitalization.enabled (that flag gates
+    # only the durability score's reinvestment_engine consumption; this
+    # report-level ratio is a display-when-computable figure per the
+    # "abstain and disclose" calibration principle, not a regime-gated one).
+    r["roic_adjusted"]      = M.adjusted_roic(nopat, invested_capital, research_asset, rnd_val)
     r["roce"]               = M.roce(ebit, capital_employed)
     r["current_ratio"]      = M.current_ratio(cur_assets, cur_liab)
     r["debt_to_equity"]     = M.debt_to_equity(total_debt, equity)

@@ -114,6 +114,143 @@ def roic(nopat, invested_capital):
     return Metric("roic", safe_div(nopat, invested_capital))
 
 
+# ---- R&D capitalization (Damodaran method) --------------------------------
+@dataclass
+class ResearchAsset:
+    """A capitalized R&D research asset built from a trailing
+    amortization_years-year window of R&D expense, straight-line amortized.
+    schedule entries are (period_end, original_rnd_value, unamortized_fraction),
+    oldest-first, for lineage — so a renderer can show exactly which years
+    contributed and how much of each is still on the books."""
+    unamortized_balance: float
+    current_amortization: float
+    schedule: list[tuple[str, float, float]]
+
+
+def build_research_asset(rnd_series: dict, amortization_years: int) -> Optional[ResearchAsset]:
+    """
+    Damodaran R&D capitalization: an R&D dollar spent in year t is written
+    off in equal installments of 1/N over years t, t+1, ..., t+N-1 (N total
+    years, starting the same year it's spent). rnd_series maps period_end
+    -> R&D expense (or None); the valuation year is the LATEST period_end
+    present. Full-window-or-nothing: requires amortization_years CONSECUTIVE
+    fiscal years (by year number, not merely N dict entries — a fiscal-year
+    gap inside the window fails this just as a genuinely missing year does)
+    of non-None R&D ending at the valuation year. Returns None otherwise —
+    a partial research asset would understate invested capital and
+    overstate adjusted ROIC, exactly backwards from what the adjustment
+    exists to correct (docs/assumptions.md's history-insufficiency rule).
+    """
+    if not rnd_series or amortization_years <= 0:
+        return None
+    n = amortization_years
+    valuation_year = int(max(rnd_series)[:4])
+    by_year = {int(pe[:4]): (pe, val) for pe, val in rnd_series.items()}
+
+    window = []  # (years_ago, period_end, value), years_ago=0 is the valuation year
+    for years_ago in range(n):
+        yr = valuation_year - years_ago
+        if yr not in by_year:
+            return None
+        pe, val = by_year[yr]
+        if val is None:
+            return None
+        window.append((years_ago, pe, val))
+
+    unamortized_balance = sum(val * (n - years_ago) / n for years_ago, _, val in window)
+    current_amortization = sum(val / n for years_ago, _, val in window if years_ago >= 1)
+    schedule = sorted(
+        ((pe, val, (n - years_ago) / n) for years_ago, pe, val in window),
+        key=lambda row: row[0],
+    )
+    return ResearchAsset(
+        unamortized_balance=unamortized_balance,
+        current_amortization=current_amortization,
+        schedule=schedule,
+    )
+
+
+def rnd_adjusted_nopat_and_ic(nopat, invested_capital, research_asset, current_rnd):
+    """
+    NOPAT_adj = nopat + current_rnd - amortization; IC_adj = invested_capital
+    + unamortized_balance. Absence-is-not-zero: any missing input means the
+    adjustment cannot be computed at all (not "as if R&D were zero") — both
+    return None, never a silent partial adjustment. Shared by adjusted_roic
+    (below, which reduces this pair to a ratio) and durability.py's
+    reinvestment-engine regime swap (which needs the numerator/denominator
+    separately, not their quotient).
+    """
+    if nopat is None or invested_capital is None or research_asset is None or current_rnd is None:
+        return None, None
+    nopat_adj = nopat + current_rnd - research_asset.current_amortization
+    ic_adj = invested_capital + research_asset.unamortized_balance
+    return nopat_adj, ic_adj
+
+
+def adjusted_roic(nopat, invested_capital, research_asset, current_rnd):
+    """R&D-capitalization-adjusted ROIC. Returns a data-missing Metric (never
+    a silent partial adjustment) if any input is None; otherwise reuses
+    roic()'s own non-positive-invested-capital guard for consistency."""
+    nopat_adj, ic_adj = rnd_adjusted_nopat_and_ic(nopat, invested_capital, research_asset, current_rnd)
+    if nopat_adj is None or ic_adj is None:
+        return Metric("roic_adjusted", None, "missing data for R&D-adjusted ROIC")
+    m = roic(nopat_adj, ic_adj)
+    m.name = "roic_adjusted"
+    return m
+
+
+def rnd_basis_tag(nopat, invested_capital, research_asset, current_rnd):
+    """
+    Per-year basis tag for a single fiscal year, used by the R&D-
+    capitalization mixed-basis disclosure (averaged metrics like roic_mean/
+    compounding_proxy can span years on different bases when a company's
+    early history predates a full amortization-years R&D window):
+
+      "adjusted"      -- this year's research asset resolved; it would
+                         contribute an R&D-adjusted nopat/invested_capital
+                         to an average.
+      "gaap_fallback"  -- nopat/invested_capital resolve in GAAP but the
+                         R&D adjustment specifically didn't for this year
+                         (insufficient trailing window, or no R&D data);
+                         it would contribute a plain-GAAP value instead.
+      None             -- neither resolves. Absence-is-not-zero: this year
+                         is excluded from the average entirely upstream,
+                         and must count toward NEITHER basis nor any total
+                         here either.
+    """
+    nopat_adj, ic_adj = rnd_adjusted_nopat_and_ic(nopat, invested_capital, research_asset, current_rnd)
+    if nopat_adj is not None and ic_adj is not None:
+        return "adjusted"
+    if nopat is not None and invested_capital is not None:
+        return "gaap_fallback"
+    return None
+
+
+def classify_basis_mix(bases):
+    """
+    Classify the basis composition of an averaged metric's constituent
+    years. `bases` must already exclude None-tagged (excluded) years --
+    the caller filters those out upstream, since a None year contributes
+    to neither count. Returns (classification, n_adjusted, n_fallback):
+
+      "clean"       -- every year adjusted (n_fallback == 0)
+      "mixed"       -- >=1 adjusted AND >=1 fallback (the AND is
+                       deliberate: a NO_RND series is all-fallback, zero
+                       adjusted, and must classify "unadjusted", never
+                       "mixed" via a careless OR)
+      "unadjusted"  -- zero adjusted years (n_adjusted == 0), whether
+                       because every year individually fell back or
+                       because there was never any R&D data at all
+    """
+    n_adjusted = bases.count("adjusted")
+    n_fallback = bases.count("gaap_fallback")
+    if n_adjusted == 0:
+        return "unadjusted", n_adjusted, n_fallback
+    if n_fallback == 0:
+        return "clean", n_adjusted, n_fallback
+    return "mixed", n_adjusted, n_fallback
+
+
 def roce(ebit, capital_employed):
     if capital_employed is not None and capital_employed <= 0:
         return Metric("roce", None, "non-positive capital employed")
