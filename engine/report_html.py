@@ -312,8 +312,36 @@ def _dcf_section(res: AnalysisResult) -> Optional[dict]:
     return {"scenarios": scenario_rows, "sensitivity": sensitivity}
 
 
-def _gaps_list(res: AnalysisResult) -> list[str]:
-    return list(res.gaps)
+# DUR provenance chip: marks a Data-gaps entry as a DurabilityScore.gaps
+# disclosure (scoring-level: net-cash resilience, mixed-basis, short-history,
+# split-contamination) rather than a pipeline-level res.gaps entry
+# (EDGAR-absence). Same outline-chip vocabulary as the R&D-UNADJ/INH-chip
+# family (mono, uppercase, bordered, no fill) -- styled in render()'s own
+# embedded <style> for the standalone document, and in frontend/styles.css
+# for render_fragment() (which shares the dashboard's stylesheet). The
+# chip's own markup is a hardcoded constant, never user data, so it's safe
+# to splice in unescaped alongside the escape()'d gap text.
+_DUR_CHIP = '<span class="dur-chip" title="Durability-scoring gap (not a pipeline data gap)">DUR</span> '
+
+
+def _gaps_list(res: AnalysisResult, ds_gaps: Optional[list[str]] = None) -> list[tuple[str, bool]]:
+    """
+    (text, is_durability) pairs for the shared "Data gaps" section: res.gaps
+    (pipeline, absence-is-not-zero) first, then ds_gaps (DurabilityScore.gaps,
+    if provided) -- ONE list, not two sections. is_durability drives the DUR
+    chip at render time. ds_gaps defaults to None (additive parameter) so any
+    caller not yet passing a DurabilityScore renders exactly as before.
+    """
+    items: list[tuple[str, bool]] = [(g, False) for g in res.gaps]
+    if ds_gaps:
+        items += [(g, True) for g in ds_gaps]
+    return items
+
+
+def _gaps_li(gaps: list[tuple[str, bool]]) -> str:
+    return "".join(
+        f"<li>{_DUR_CHIP if is_dur else ''}{escape(g)}</li>" for g, is_dur in gaps
+    )
 
 
 def _basis_disclosure_tooltip(res: AnalysisResult) -> str:
@@ -403,7 +431,7 @@ def _table_html(header_cells: list[str], rows_html: str) -> str:
     return f"<table><thead><tr>{header}</tr></thead><tbody>{rows_html}</tbody></table>"
 
 
-def render(res: AnalysisResult, peer_table: list | None = None) -> str:
+def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | None = None) -> str:
     cd = res.company
     summary = _summary(res)
 
@@ -494,12 +522,18 @@ def render(res: AnalysisResult, peer_table: list | None = None) -> str:
 
     valuation_html = f"{rel_html}{dcf_html}" if (rel_html or dcf_html) else ""
 
-    gaps = _gaps_list(res)
+    gaps = _gaps_list(res, ds_gaps)
     if gaps:
-        gaps_items = "".join(f"<li>{escape(g)}</li>" for g in gaps)
+        gaps_items = _gaps_li(gaps)
+        has_dur = any(is_dur for _, is_dur in gaps)
+        legend = (
+            ' A <span class="dur-chip">DUR</span>-marked entry is a '
+            "durability-scoring disclosure, not a pipeline data gap."
+            if has_dur else ""
+        )
         gaps_html = (
             "<p>The following could not be resolved from EDGAR and were excluded "
-            "from the analysis (do not treat absence as zero):</p>"
+            f"from the analysis (do not treat absence as zero).{legend}</p>"
             f"<ul>{gaps_items}</ul>"
         )
     else:
@@ -535,6 +569,7 @@ th {{ background: #1e293b; color: #e2e8f0; }}
 tbody tr:nth-child(even) {{ background: #111827; }}
 code {{ color: #cbd5e1; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace; white-space: pre-wrap; }}
 .footer {{ color: #94a3b8; font-size: 0.95rem; margin-top: 40px; }}
+.dur-chip {{ display:inline-block;margin-right:6px;padding:1px 5px;border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:0.7rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#fbbf24;border:1px solid rgba(251,191,36,0.35);cursor:default; }}
 </style>
 </head>
 <body>
@@ -695,6 +730,7 @@ def render_fragment(
     res: AnalysisResult,
     peer_table: list | None = None,
     durability_composite: Optional[float] = None,
+    ds_gaps: Optional[list[str]] = None,
 ) -> str:
     """
     Renders an HTML fragment (no <html>/<head>) styled to match the
@@ -837,12 +873,18 @@ def render_fragment(
                 )
         valuation_html = _fr_details("Valuation & sensitivity", content)
 
-    gaps = _gaps_list(res)
+    gaps = _gaps_list(res, ds_gaps)
     if gaps:
+        has_dur = any(is_dur for _, is_dur in gaps)
+        legend = (
+            ' A <span class="dur-chip">DUR</span>-marked entry is a '
+            "durability-scoring disclosure, not a pipeline data gap."
+            if has_dur else ""
+        )
         gaps_html = (
             '<p class="report-caption">Could not be resolved from EDGAR; excluded '
-            "rather than defaulted to zero.</p>"
-            '<ul class="gaps-list">' + "".join(f"<li>{escape(g)}</li>" for g in gaps) + "</ul>"
+            f"rather than defaulted to zero.{legend}</p>"
+            '<ul class="gaps-list">' + _gaps_li(gaps) + "</ul>"
         )
     else:
         gaps_html = '<p class="report-caption">None — all targeted concepts resolved.</p>'

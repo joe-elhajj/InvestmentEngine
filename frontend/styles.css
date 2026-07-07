@@ -578,6 +578,27 @@ td.gap-cell{text-align:right}
 }
 .gap-inherit-slot.inherit-chip .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
 
+/* ---- Durability-gaps presence indicator (DUR): same reserved-slot
+   pattern as .gap-inherit-slot above, applied to the Durability
+   (composite) score cell instead of the Gap column. DurabilityScore.gaps
+   (net-cash resilience, mixed-basis, short-history, split-contamination)
+   fires during scoring but never reached the dashboard before this --
+   the slot is always in the DOM (text "DUR" already present) so the
+   composite cell's layout never shifts between a disclosed and an
+   undisclosed row, and visibility:hidden keeps a gapless row's slot out
+   of the accessibility tree rather than announcing a phantom DUR. */
+.dur-gaps-slot{
+  display:inline-block;margin-right:5px;padding:1px 5px;border-radius:5px;
+  font-family:var(--mono);font-size:0.625rem;font-weight:700;
+  letter-spacing:.02em;text-transform:uppercase;vertical-align:super;
+  border:1px solid transparent;cursor:default;visibility:hidden;
+}
+.dur-gaps-slot.dur-gaps-present{
+  visibility:visible;color:var(--emphasis);
+  border-color:rgba(var(--emphasis-rgb),0.35);
+}
+.dur-gaps-slot.dur-gaps-present .th-tooltip{top:auto;bottom:calc(100% + 6px);left:0;transform:none}
+
 /* ---- inline report accordion (clicking an equity/ETF row) ----
    .accordion-content (not the <tr>/<td> themselves — table rows don't
    animate height reliably under the table layout algorithm) is what
@@ -751,6 +772,21 @@ tr.accordion-row:hover > td{background:var(--paper)}
   font-size:0.75rem;font-weight:600;color:var(--text-3);line-height:1.4;
   background:rgba(255,255,255,0.06);border:1px solid var(--hairline-strong);
   border-radius:var(--radius-sm);padding:6px 10px;
+}
+
+/* DUR provenance chip: marks a Data-gaps entry as a DurabilityScore.gaps
+   disclosure (net-cash resilience, mixed-basis, short-history, split-
+   contamination) rather than a pipeline res.gaps entry (EDGAR absence).
+   Same outline-chip vocabulary as basis-badge/the INH chip (mono,
+   uppercase, bordered, no fill) -- sits inside the existing neutral
+   .gaps-list chip as a small provenance badge, not a second nested chip
+   competing for attention. */
+.dur-chip{
+  display:inline-block;margin-right:5px;padding:0 4px;border-radius:4px;
+  font-family:var(--mono);font-size:0.625rem;font-weight:700;
+  letter-spacing:.02em;text-transform:uppercase;vertical-align:middle;
+  color:var(--emphasis);border:1px solid rgba(var(--emphasis-rgb),0.35);
+  cursor:default;
 }
 
 .report-error{padding:16px 24px;color:var(--bad);font-size:0.8125rem}

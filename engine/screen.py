@@ -147,6 +147,13 @@ class ScreenRow:
     delivered_growth_label: str = ""
     quote_source: str = ""
     diluted_shares_gap: bool = False
+    # DurabilityScore.gaps (net-cash resilience, mixed-basis, short-history,
+    # split-contamination, etc.) -- computed by D.score() below but never
+    # carried onto the row before, so it never reached the dashboard. The
+    # full list (not just a count) so the per-ticker fragment/tooltip can
+    # show the actual text; the table itself shows only a presence
+    # indicator, never gap strings inline (see frontend/app.js).
+    durability_gaps: list = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +442,16 @@ def _process_one(
         delivered_growth_label=res.delivered_growth_label,
         quote_source=quote.source,
         diluted_shares_gap="diluted_shares" in res.gaps,
+        # ds.gaps is built internally as list(res.gaps) + extra_gaps
+        # (engine/durability.py::score()) -- a SUPERSET of res.gaps, not a
+        # disjoint list. Keep only the durability-specific additions so
+        # this doesn't double-count pipeline gaps already shown elsewhere.
+        # Dedup assumption: string equality is exact-match only (no
+        # normalization) -- correct today since no gap string is ever
+        # reused verbatim across res.gaps and extra_gaps; a structured
+        # provenance tag (rather than string comparison) is backlogged if
+        # that assumption ever needs to be dropped.
+        durability_gaps=[g for g in ds.gaps if g not in res.gaps],
     ), None
 
 

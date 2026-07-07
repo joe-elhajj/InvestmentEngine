@@ -1269,3 +1269,43 @@ def test_short_history_gap_threshold_read_from_config_not_hardcoded():
     ds_boundary = D.score(res, cfg_boundary)
     assert not any("adjusted-window roic_mean" in g for g in _reinvestment_gaps(ds_boundary)), \
         "exactly at min_history_years must be silent, not below it"
+
+
+# ---------------------------------------------------------------------------
+# ScreenRow.durability_gaps round-trip (ds.gaps rendering wiring)
+# ---------------------------------------------------------------------------
+
+def test_screenrow_carries_durability_gaps():
+    """_process_one must carry ds.gaps onto ScreenRow.durability_gaps --
+    previously computed and discarded. Uses the net-cash resilience
+    fixture (PR #47's known-real ds.gaps producer: 'EBITDA <= 0 with net
+    cash — outside ratio domain, not scored.') as a deterministic
+    real-gap source, cross-checked against an independent D.score() call
+    on the same AnalysisResult."""
+    from unittest.mock import MagicMock, patch
+    from engine.screen import _process_one
+
+    cd = _ebitda_domain_company("SCREENROW", "0000000095", long_term_debt=0.0, cash=200.0)
+    cd.recent_forms = ["10-K"]  # _classify() needs evidence of an annual filer to reach scoring
+    quote = Quote("SCREENROW", price=10.0, shares_outstanding=10.0, market_cap=100.0, source="test")
+
+    mock_client = MagicMock()
+    mock_client.get_company.return_value = cd
+
+    with patch("engine.screen.get_quote", return_value=quote):
+        row, etf_row = _process_one("SCREENROW", mock_client, _BASE_CFG, history_years=15)
+
+    assert etf_row is None
+    assert row is not None
+
+    # Independent cross-check: score the same res directly and compare.
+    # ds.gaps = list(res.gaps) + extra_gaps internally (a superset of
+    # res.gaps, not disjoint) -- ScreenRow.durability_gaps must hold only
+    # the durability-specific additions, not a duplicate of res.gaps.
+    res = _make_res(cd)
+    ds = D.score(res, _BASE_CFG)
+    expected = [g for g in ds.gaps if g not in res.gaps]
+    assert row.durability_gaps == expected
+    assert not (set(row.durability_gaps) & set(res.gaps)), \
+        "durability_gaps must not duplicate any pipeline res.gaps entry"
+    assert any("outside ratio domain, not scored" in g for g in row.durability_gaps)

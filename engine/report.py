@@ -70,7 +70,7 @@ def _derived_source(expression: str, inputs: list[tuple[str, object]]) -> str:
     return f"derived: {expression} | " + " | ".join(parts)
 
 
-def render(res: AnalysisResult, peer_table: list | None = None) -> str:
+def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | None = None) -> str:
     cd = res.company
     q = res.quote
     out: list[str] = []
@@ -270,12 +270,26 @@ def render(res: AnalysisResult, peer_table: list | None = None) -> str:
                 w(f"| {wv:.1%} | " + " | ".join(cells) + " |")
             w("")
 
-    # --- Data gaps ----------------------------------------------------------
+    # --- Data gaps ------------------------------------------------------------
+    # ONE shared "Data gaps" section, not two: res.gaps (pipeline, absence-is-
+    # not-zero) and ds_gaps (DurabilityScore.gaps -- scoring-level disclosures
+    # like the net-cash resilience note, mixed-basis, short-history) merge
+    # here with a [DUR] provenance marker on the durability ones, so a
+    # durability disclosure that fires is finally visible somewhere rather
+    # than existing only in the computed DurabilityScore. ds_gaps defaults to
+    # None (additive parameter) -- any caller not yet passing it renders
+    # exactly as before this change.
     w("## Data gaps / not verified")
-    if res.gaps:
+    all_gaps = list(res.gaps) + [f"[DUR] {g}" for g in (ds_gaps or [])]
+    if all_gaps:
+        legend = (
+            " [DUR]-marked entries are durability-scoring disclosures, "
+            "not pipeline data gaps."
+            if ds_gaps else ""
+        )
         w("The following could not be resolved from EDGAR and were excluded "
-          "from the analysis (do not treat absence as zero):")
-        for g in res.gaps:
+          f"from the analysis (do not treat absence as zero).{legend}")
+        for g in all_gaps:
             w(f"- {g}")
     else:
         w("- None — all targeted concepts resolved.")
