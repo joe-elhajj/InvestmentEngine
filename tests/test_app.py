@@ -511,6 +511,37 @@ class TestAnalyzeFragmentEndpoint:
         assert resp.status_code == 200
         assert '<span class="stat-value stat-value-na">n/a</span>' in resp.text
 
+    def test_durability_gaps_now_reach_the_rendered_fragment(self, client):
+        """ds.gaps (durability-scoring disclosures -- net-cash resilience,
+        mixed-basis, short-history, split-contamination) was computed here
+        but only ds.composite was ever extracted before this change; the
+        rest was silently discarded. Must now merge into the same Data
+        gaps section with the DUR provenance marker."""
+        fake_score = MagicMock(
+            composite=71.4, excluded=False,
+            gaps=["reinvestment_engine: net-cash resilience disclosure"],
+        )
+        with (
+            patch("app.main.run_single_ticker", return_value=_real_analysis_result()),
+            patch("app.main.D.score", return_value=fake_score),
+        ):
+            resp = client.get("/api/analyze/AAPL/fragment")
+        assert resp.status_code == 200
+        assert "reinvestment_engine: net-cash resilience disclosure" in resp.text
+        assert 'class="dur-chip"' in resp.text
+
+    def test_no_durability_gaps_no_dur_chip_rendered(self, client):
+        """Empty ds.gaps must render exactly as before -- no DUR chip, no
+        empty subsection, no layout shift."""
+        fake_score = MagicMock(composite=71.4, excluded=False, gaps=[])
+        with (
+            patch("app.main.run_single_ticker", return_value=_real_analysis_result()),
+            patch("app.main.D.score", return_value=fake_score),
+        ):
+            resp = client.get("/api/analyze/AAPL/fragment")
+        assert resp.status_code == 200
+        assert 'class="dur-chip"' not in resp.text
+
     def test_council_section_present_after_flags_via_the_real_endpoint(self, client):
         """End-to-end regression guard (dark-instrument-redesign branch,
         live-browser review finding #3): the equity fragment served through

@@ -129,6 +129,34 @@
     return cell;
   }
 
+  // Durability-gaps presence indicator (DUR): a small outline chip
+  // prepended to the Durability (composite) score cell's number when
+  // DurabilityScore.gaps is non-empty -- net-cash resilience, mixed-basis,
+  // short-history, split-contamination disclosures that fire during
+  // scoring but, before this change, never reached any user-facing
+  // surface. Reserved slot on EVERY row (present in the DOM but
+  // visibility:hidden when there's nothing to disclose), same pattern as
+  // the Gap column's INH chip -- keeps the score-num's layout invariant
+  // across rows and keeps a gapless row's slot out of the accessibility
+  // tree, rather than announcing a phantom DUR. Full gap text lives in the
+  // tooltip and the per-ticker fragment -- never inline in the table.
+  function appendDurGapsIndicator(compositeCell, durabilityGaps) {
+    var numEl = compositeCell.querySelector(".score-num");
+    if (!numEl) return;
+    var slot = document.createElement("span");
+    slot.className = "dur-gaps-slot";
+    slot.textContent = "DUR";
+    if (durabilityGaps && durabilityGaps.length) {
+      slot.classList.add("dur-gaps-present", "has-tooltip");
+      slot.tabIndex = 0;
+      var tip = document.createElement("div");
+      tip.className = "th-tooltip";
+      tip.textContent = "Durability-scoring disclosures: " + durabilityGaps.join(" | ");
+      slot.appendChild(tip);
+    }
+    numEl.insertBefore(slot, numEl.firstChild);
+  }
+
   // Directional Gap pill. Sign (never inferred by CSS — computed here,
   // same as before) picks the fixed hue class; magnitude only scales the
   // --gap-alpha custom property within that hue, preserving the same
@@ -1228,6 +1256,7 @@
     cellsByKey.ticker = tickerTd;
 
     var compositeTd = scoreCell(row.composite, fmtScore(row.composite), { composite: true, animate: animate, stagger: index });
+    appendDurGapsIndicator(compositeTd, row.durability_gaps);
     tr.appendChild(compositeTd);
     cellsByKey.composite = compositeTd;
 

@@ -303,3 +303,56 @@ class TestBasisDisclosureTooltip:
         tooltip = RH._basis_disclosure_tooltip(res)
         assert "compares implied FCF growth" in tooltip
         assert "No expectations gap is computed" not in tooltip
+
+
+class TestDurabilityGapsWiring:
+    """DurabilityScore.gaps (net-cash resilience, mixed-basis, short-history,
+    split-contamination) fires during scoring but, before this change, never
+    reached any user-facing surface. ds_gaps is an additive optional
+    parameter on both renderers -- merges into the SAME Data gaps section
+    as res.gaps, with a DUR provenance marker, never a second section."""
+
+    def test_render_fragment_merges_ds_gaps_with_dur_chip(self):
+        res = _company_result()
+        res.gaps = ["revenue: no value for period 2025-12-31 (latest available is 2024-12-31, not used)"]
+        frag = RH.render_fragment(res, ds_gaps=["reinvestment_engine: net-cash resilience disclosure"])
+        assert res.gaps[0] in frag
+        assert "reinvestment_engine: net-cash resilience disclosure" in frag
+        assert 'class="dur-chip"' in frag
+        # ONE gaps-list, not two sections
+        assert frag.count('class="gaps-list"') == 1
+        assert frag.count("<summary>Data gaps</summary>") == 1
+
+    def test_render_merges_ds_gaps_with_dur_chip(self):
+        res = _company_result()
+        html = RH.render(res, ds_gaps=["reinvestment_engine: net-cash resilience disclosure"])
+        assert "reinvestment_engine: net-cash resilience disclosure" in html
+        assert 'class="dur-chip"' in html
+
+    def test_ds_gaps_none_identical_to_omitting_the_parameter(self):
+        """ds_gaps defaults to None -- passing it explicitly as None must
+        render byte-identical to not passing it at all (additive-parameter
+        invariant)."""
+        res = _company_result()
+        assert RH.render_fragment(res) == RH.render_fragment(res, ds_gaps=None)
+        assert RH.render(res) == RH.render(res, ds_gaps=None)
+
+    def test_empty_ds_gaps_no_dur_chip_no_legend(self):
+        """Empty ds_gaps list must render EXACTLY as omitting it -- no DUR
+        chip, no legend sentence, no layout shift -- even though res.gaps
+        alone still populates the section."""
+        res = _company_result()
+        res.gaps = ["revenue: no value for period 2025-12-31 (latest available is 2024-12-31, not used)"]
+        frag_without = RH.render_fragment(res)
+        frag_with_empty = RH.render_fragment(res, ds_gaps=[])
+        assert frag_without == frag_with_empty
+        assert 'class="dur-chip"' not in frag_with_empty
+
+    def test_no_gaps_at_all_unaffected_by_ds_gaps_parameter(self):
+        """A ticker with neither res.gaps nor ds_gaps must still show the
+        plain 'None resolved' message -- ds_gaps=None must not manufacture
+        an empty subsection."""
+        frag = RH.render_fragment(_company_result(), ds_gaps=None)
+        assert "None — all targeted concepts resolved." in frag
+        assert "gaps-list" not in frag
+        assert "dur-chip" not in frag

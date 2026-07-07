@@ -531,7 +531,27 @@ async def analyze_fragment(ticker: str):
             overrides = app.state.cfg.get("classification", {}).get("overrides", {})
             ds = D.score(res, app.state.cfg, override_classification=overrides.get(tk))
             composite = ds.composite if not ds.excluded else None
-            rendered = RH.render_fragment(res, peer_table=None, durability_composite=composite)
+            # ds.gaps (durability-scoring disclosures -- net-cash resilience,
+            # mixed-basis, short-history, split-contamination) had never
+            # reached this fragment before; now threaded through to merge
+            # into the same Data gaps section render_fragment already
+            # builds from res.gaps, with a DUR provenance marker.
+            # ds.gaps is built internally as list(res.gaps) + extra_gaps
+            # (engine/durability.py::score()) -- it's a SUPERSET of
+            # res.gaps, not a disjoint list. Passing it whole would render
+            # every pipeline gap twice (once unmarked from res.gaps, once
+            # DUR-marked from ds.gaps). Keep only the durability-specific
+            # additions.
+            # Dedup assumption: string equality is exact-match only (no
+            # normalization) -- correct today since no gap string is ever
+            # reused verbatim across res.gaps and extra_gaps; a structured
+            # provenance tag (rather than string comparison) is backlogged
+            # if that assumption ever needs to be dropped.
+            durability_only_gaps = [g for g in ds.gaps if g not in res.gaps]
+            rendered = RH.render_fragment(
+                res, peer_table=None, durability_composite=composite,
+                ds_gaps=durability_only_gaps,
+            )
     except Exception as e:
         return HTMLResponse(_fragment_error(tk, e), status_code=502)
     return HTMLResponse(rendered)

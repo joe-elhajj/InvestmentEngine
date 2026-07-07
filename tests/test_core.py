@@ -328,6 +328,16 @@ def test_pipeline_and_report(tmp_path):
     assert "Data gaps" in md, "report: includes data-gaps section"
     (tmp_path / "reports_sample_TEST.md").write_text(md)
 
+    # ds_gaps (DurabilityScore.gaps) is additive and optional -- omitting it
+    # must render byte-identical to before this parameter existed; passing
+    # it merges into the SAME Data gaps section with a [DUR] marker, not a
+    # second section.
+    assert md == R.render(res, peer_table, ds_gaps=None), \
+        "ds_gaps=None must render identically to omitting the parameter"
+    md_with_dur = R.render(res, peer_table, ds_gaps=["reinvestment_engine: net-cash resilience disclosure"])
+    assert "[DUR] reinvestment_engine: net-cash resilience disclosure" in md_with_dur
+    assert md_with_dur.count("## Data gaps") == 1
+
 
 # --- 6. None-propagation: no total_assets (item 2 + item 3) ---
 def test_derive_no_total_assets():
