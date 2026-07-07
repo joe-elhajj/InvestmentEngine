@@ -1,0 +1,19 @@
+=== 1. Scenarios reordered in the CONFIG FILE TEXT (bear before bull before base) ===
+File-order reordered -> band still computed correctly: True status: COMPLETE
+(expected: file/dict order is irrelevant -- the code looks up scenarios_cfg.get(name)
+ by FIXED name via _BAND_SCENARIOS, never iterates the dict's own order)
+
+=== 2. Duplicate scenario key in the SAME YAML mapping (bull defined twice) ===
+Parsed bull entry after YAML load (should be the SECOND bull, PyYAML silently keeps the last):
+  {'wacc': 0.2, 'terminal_growth': 0.001}
+No warning, no error anywhere in this chain -- YAML's own last-key-wins semantics,
+invisible to engine/valuation.py and engine/durability.py alike; the application
+never even sees that a duplicate existed.
+
+=== 3. Missing scenario key entirely (config has no 'bear' at all) ===
+band result: None (None expected)
+No exception raised, no log message, no gaps entry anywhere saying WHY --
+indistinguishable from every ticker legitimately not having a computable band.
+
+=== 4. Monotonicity guard: genuinely inverted bull/bear VALUES (re-derived independently) ===
+AssertionError raised as expected (fails loudly): expectations_gap_band: monotonicity violated — implied growth must satisfy bull <= base <= bear, got bull=19.4026% base=10.0000% bear=4.1231%

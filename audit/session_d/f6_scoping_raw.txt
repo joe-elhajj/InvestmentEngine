@@ -1,0 +1,15 @@
+Total untestable: 94
+Missing net_debt: 58
+Missing ebitda: 36
+
+Of the 58 missing net_debt: 27 have the alt lease-debt concept present (likely extraction-miss)
+  -> tickers: ['APH', 'ATO', 'BBY', 'BLDR', 'CAH', 'CPRT', 'CSX', 'DG', 'DOW', 'DVA', 'ECHO', 'EME', 'GM', 'HII', 'HLT', 'KHC', 'KO', 'LVS', 'LYV', 'NCLH', 'NRG', 'PSKY', 'SMCI', 'SYY', 'TECH', 'WMB', 'WSM']
+31 do NOT have it (need individual inspection -- could be genuinely low/no-debt, or a DIFFERENT missed concept)
+  -> tickers: ['AES', 'AKAM', 'ALGN', 'ANET', 'CDNS', 'DASH', 'DDOG', 'DECK', 'DHI', 'DXCM', 'EA', 'EXPD', 'F', 'FFIV', 'GRMN', 'INCY', 'ISRG', 'LULU', 'MNST', 'MPWR', 'NOW', 'NVR', 'PANW', 'PCAR', 'PLTR', 'TTD', 'TXT', 'VEEV', 'VRSN', 'VRTX', 'XYZ']
+
+Missing ebitda (operating_income or dep_amort root cause -- separate mechanism, not scoped at concept level here): 36
+  -> tickers: ['ADM', 'AVY', 'BG', 'BIIB', 'BMY', 'CASY', 'CLX', 'COHR', 'CVX', 'DE', 'DVN', 'EMR', 'ETN', 'GPC', 'HCA', 'IBM', 'IP', 'JCI', 'JNJ', 'KLAC', 'LEN', 'LLY', 'MRK', 'MTD', 'NKE', 'OXY', 'PCG', 'PEG', 'PFE', 'PPG', 'Q', 'SHW', 'SLB', 'SRE', 'SWK', 'ZTS']
+
+=== RE-SCOPE with expanded 9-concept list ===
+28/58 now confirmed extraction-miss (expanded concept list): ['APH', 'ATO', 'BBY', 'BLDR', 'CAH', 'CPRT', 'CSX', 'DG', 'DOW', 'DVA', 'ECHO', 'EME', 'F', 'GM', 'HII', 'HLT', 'KHC', 'KO', 'LVS', 'LYV', 'NCLH', 'NRG', 'PSKY', 'SMCI', 'SYY', 'TECH', 'WMB', 'WSM']
+30/58 still unexplained by any of these concepts: ['AES', 'AKAM', 'ALGN', 'ANET', 'CDNS', 'DASH', 'DDOG', 'DECK', 'DHI', 'DXCM', 'EA', 'EXPD', 'FFIV', 'GRMN', 'INCY', 'ISRG', 'LULU', 'MNST', 'MPWR', 'NOW', 'NVR', 'PANW', 'PCAR', 'PLTR', 'TTD', 'TXT', 'VEEV', 'VRSN', 'VRTX', 'XYZ']

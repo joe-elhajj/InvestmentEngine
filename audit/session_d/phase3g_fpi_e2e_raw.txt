@@ -1,0 +1,28 @@
+=== Step 0: is_fpi() evidence check ===
+is_fpi: True evidence: FPI: 20-F observed
+
+=== Step 1: full pipeline derive() ===
+res.company.ticker: FPITEST
+res.ratios['roic_adjusted']: Metric(name='roic_adjusted', value=0.15889608289069074, note='')
+res.ratios['roic']: Metric(name='roic', value=0.16687798060909165, note='')
+latest.rnd_basis: adjusted  latest.research_asset: ResearchAsset(unamortized_balance=2509.110159600002, current_amortization=597.9501528000003, schedule=[('2021-12-31', 644.2040000000002, 0.2), ('2022-12-31', 708.6244000000004, 0.4), ('2023-12-31', 779.4868400000005, 0.6), ('2024-12-31', 857.4355240000007, 0.8), ('2025-12-31', 943.1790764000008, 1.0)])
+latest.net_debt: 1700.0  latest.ebitda: 1534.7686146000012  ratio: 1.1076588248079742
+
+=== Step 2: full durability score (regime ON, as committed) ===
+ds.gated: False gate_ids: []
+ds.gate_untestable_ids: []
+ds.composite: 71.04620295768105 composite_ungated: 71.04620295768105
+
+reinvestment_engine sub-scores:
+  roic_latest: score=100.00 raw=0.1669 source=NOPAT/IC period 2025-12-31
+  roic_mean: score=87.11 raw=0.1394 source=mean ROIC over 10 years
+  reinvestment_rate: score=75.68 raw=0.3568 source=ΔIC/NOPAT smoothed over 9 transitions
+  compounding_proxy: score=24.87 raw=0.0497 source=mean ROIC (13.94%) × mean reinv rate (35.68%)
+
+ds.gaps (looking for R&D-UNADJ / IFRS abstention disclosure):
+
+=== Step 3: band still computes (unrelated to FPI status) ===
+band_status: COMPLETE fragile: STABLE
+
+=== Step 4: report.py / report_html.py R&D-UNADJ badge (full render path) ===
+  | ROIC (R&D-adj) | 15.9% |

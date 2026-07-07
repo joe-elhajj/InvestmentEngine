@@ -1,0 +1,91 @@
+=== Branch/boundary re-derivation ===
+{
+  "branch1_net_cash_negative_ebitda (RKLB-shaped)": {
+    "net_debt": -100.0,
+    "ebitda": -40.0,
+    "outcome": null
+  },
+  "branch1_net_cash_positive_ebitda": {
+    "net_debt": -100.0,
+    "ebitda": 50.0,
+    "outcome": null
+  },
+  "boundary_net_debt_exactly_zero_positive_ebitda": {
+    "net_debt": 0.0,
+    "ebitda": 50.0,
+    "outcome": null
+  },
+  "boundary_net_debt_exactly_zero_negative_ebitda": {
+    "net_debt": 0.0,
+    "ebitda": -40.0,
+    "outcome": null
+  },
+  "branch2_untestable_missing_net_debt": {
+    "net_debt": null,
+    "ebitda": 50.0,
+    "outcome": {
+      "status": "UNTESTABLE",
+      "cap": null,
+      "reason": "",
+      "gap_text": "balance_sheet_leverage: net_debt/EBITDA gate untestable \u2014 net_debt unavailable at 2023-12-31"
+    }
+  },
+  "branch2_untestable_missing_ebitda": {
+    "net_debt": 100.0,
+    "ebitda": null,
+    "outcome": {
+      "status": "UNTESTABLE",
+      "cap": null,
+      "reason": "",
+      "gap_text": "balance_sheet_leverage: net_debt/EBITDA gate untestable \u2014 ebitda unavailable at 2023-12-31"
+    }
+  },
+  "branch3_positive_debt_negative_ebitda": {
+    "net_debt": 100.0,
+    "ebitda": -10.0,
+    "outcome": {
+      "status": "GATED",
+      "cap": 45.0,
+      "reason": "net debt positive with EBITDA <= 0 (cannot service debt)",
+      "gap_text": null
+    }
+  },
+  "boundary_ebitda_exactly_zero_positive_debt": {
+    "net_debt": 100.0,
+    "ebitda": 0.0,
+    "outcome": {
+      "status": "GATED",
+      "cap": 45.0,
+      "reason": "net debt positive with EBITDA <= 0 (cannot service debt)",
+      "gap_text": null
+    }
+  },
+  "boundary_ratio_exactly_at_threshold_6.0": {
+    "net_debt": 600.0,
+    "ebitda": 100.0,
+    "outcome": null
+  },
+  "boundary_ratio_just_above_threshold": {
+    "net_debt": 601.0,
+    "ebitda": 100.0,
+    "outcome": {
+      "status": "GATED",
+      "cap": 45.0,
+      "reason": "net_debt/ebitda 6.0 > 6.0",
+      "gap_text": null
+    }
+  },
+  "branch5_pass_under_threshold": {
+    "net_debt": 300.0,
+    "ebitda": 100.0,
+    "outcome": null
+  }
+}
+
+=== Two-gate extensibility (independent re-derivation) ===
+both fired: [('gate_a', 45.0), ('gate_b', 30.0)]
+winner (most restrictive): gate_b 30.0
+
+=== UNTESTABLE applies no cap regardless of composite (structural check) ===
+Gate evaluation for UNTESTABLE case never returns a 'cap' field usable by score():
+status: UNTESTABLE cap field: None (cap is None -- score() only applies a cap inside `if fired:`, and UNTESTABLE entries go to the untestable list, never `fired`)

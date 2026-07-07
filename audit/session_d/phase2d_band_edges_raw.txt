@@ -1,0 +1,30 @@
+=== _sign() behavior at exactly zero ===
+_sign(0.0) = 0  _sign(1.0) = 1  _sign(-1.0) = -1
+
+=== gap exactly 0.0 for one scenario, others positive: does FRAGILE fire? ===
+base implied_growth: 0.09999995231628415 bracket_hit: False
+band_status: COMPLETE
+  bull: gap=-0.05876913070678712 sign=-1 converged=True
+  base: gap=0.0 sign=0 converged=True
+  bear: gap=0.09402589797973633 sign=1 converged=True
+fragile: FRAGILE
+rendered display value for base gap (should print '0.0%', never blank/n-a): 0.0%
+
+=== Is this documented as a decision anywhere? ===
+Grep of docs/assumptions.md for 'sign(0)' or zero-gap fragility rationale: (checked separately, see report)
+
+=== Natural bracket-edge convergence (price exactly at the lower bound's fair value) ===
+price set to fvps(g=-20%) exactly: 55.294840297832785
+resulting implied_growth: -0.1999999523162842 bracket_hit: False bracket_bound: None
+(if bracket_hit=False here, this is a NATURAL convergence to the exact edge,
+ not a clamp -- confirms the two code paths, both landing on -0.20, are
+ distinguishable via bracket_hit and are NOT confused with each other)
+
+=== ISOLATED touch-zero test: delivered_growth pegged to BULL's implied growth ===
+(so bull's gap = 0 exactly; base/bear, both having HIGHER implied growth than
+ bull per monotonicity, should BOTH be positive -- no genuine cross-sign
+ disagreement except for bull's exact zero)
+  bull: gap=0.0 sign=0
+  base: gap=0.05876913070678712 sign=1
+  bear: gap=0.15279502868652345 sign=1
+fragile: FRAGILE  <- FRAGILE here means touch-zero ALONE (no genuine disagreement) still fires it

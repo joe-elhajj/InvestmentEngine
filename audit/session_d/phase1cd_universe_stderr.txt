@@ -1,0 +1,2 @@
+Universe file: 503 tickers
+Derived: 502/503 (1 failures)
