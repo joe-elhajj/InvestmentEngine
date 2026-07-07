@@ -578,6 +578,30 @@ td.gap-cell{text-align:right}
 }
 .gap-inherit-slot.inherit-chip .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
 
+/* ---- Expectations-gap fragility chip (FRAG/FRAG?, PR 3): a second
+   reserved slot on the Gap cell, same visibility:hidden pattern as
+   .gap-inherit-slot immediately above -- appended right after it (both
+   still sit to the LEFT of the pill), so the two chips are just two
+   badges in the same pre-pill run rather than competing for one slot.
+   FRAG (frag-present) = FRAGILE: a COMPLETE band whose gap sign flips
+   across bull/base/bear. FRAG? (frag-undeterminable) = a PARTIAL band,
+   where fragility can't be assessed at all -- a visually distinct outline
+   (dashed border) so it never reads as an ordinary passed/failed check. */
+.gap-frag-slot{
+  display:inline-block;margin-right:5px;padding:1px 5px;border-radius:5px;
+  font-family:var(--mono);font-size:0.625rem;font-weight:700;
+  letter-spacing:.02em;text-transform:uppercase;vertical-align:super;
+  border:1px solid transparent;cursor:default;visibility:hidden;
+}
+.gap-frag-slot.frag-present{
+  visibility:visible;color:var(--bad);border-color:rgba(var(--gap-red-rgb),0.4);
+}
+.gap-frag-slot.frag-undeterminable{
+  visibility:visible;color:var(--text-2);border:1px dashed var(--hairline-strong);
+}
+.gap-frag-slot.frag-present .th-tooltip,
+.gap-frag-slot.frag-undeterminable .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
+
 /* ---- Durability-gaps presence indicator (DUR): same reserved-slot
    pattern as .gap-inherit-slot above, applied to the Durability
    (composite) score cell instead of the Gap column. DurabilityScore.gaps
@@ -791,6 +815,40 @@ tr.accordion-row:hover > td{background:var(--paper)}
 
 .report-error{padding:16px 24px;color:var(--bad);font-size:0.8125rem}
 .report-error .report-caption{color:var(--text-3);padding:4px 0 0}
+
+/* ---- Expectations-gap scenario band (PR 3): shared markup from
+   engine/report_html.py's _gap_band_html(), styled separately here (light
+   fragment) vs report_html.py's own embedded <style> (dark full report) --
+   same split as the DUR chip. Fixed axis (-30%..+30%, see
+   _GAP_BAND_AXIS_MIN/MAX) so a gap's position is comparable ticker to
+   ticker, not rescaled per-company. ---- */
+.gap-band{margin-top:16px;padding-bottom:14px}
+.gap-band-strip{margin:8px 14px 18px}
+.gap-band-axis{
+  position:relative;height:6px;background:var(--surface-2);
+  border:1px solid var(--hairline-strong);border-radius:3px;margin:0 8px 26px;
+}
+.gap-band-zero-tick{
+  position:absolute;top:-5px;width:2px;height:16px;background:var(--text-3);
+  transform:translateX(-1px);
+}
+.gap-band-track{position:absolute;top:0;height:6px;background:var(--muted);border-radius:3px}
+.gap-band-point{
+  position:absolute;top:-5px;width:14px;height:14px;border-radius:50%;
+  background:var(--accent);border:2px solid var(--paper);transform:translateX(-7px);
+}
+.gap-band-point-emphasized{
+  width:18px;height:18px;border-width:3px;z-index:2;transform:translateX(-9px);
+}
+.gap-band-point-failed{background:transparent;border:2px dashed var(--bad)}
+.gap-band-labels{display:flex;justify-content:space-between;font-size:0.75rem;color:var(--text-2)}
+.gap-band-label-emphasized{font-weight:700;color:var(--text-1)}
+.gap-band-disclosure{color:var(--emphasis) !important}
+.gap-band-table{width:calc(100% - 28px);border-collapse:collapse;margin:10px 14px 0;font-size:0.75rem}
+.gap-band-table th,.gap-band-table td{
+  padding:4px 8px;text-align:right;border-bottom:1px solid var(--hairline);
+}
+.gap-band-table th:first-child,.gap-band-table td:first-child{text-align:left}
 
 /* ---- Flags (Tier 2, engine/flags.py) — lazy-loaded on first expand,
    see app.js's "toggle" listener on .flags-section. Entries render as

@@ -179,6 +179,19 @@
     slot.className = "gap-inherit-slot";
     slot.textContent = "INH";
     cell.appendChild(slot);
+    // Fragility slot (PR 3, expectations-gap scenario band): a second
+    // reserved slot, same visibility:hidden pattern as .gap-inherit-slot
+    // immediately above -- both sit to the LEFT of the pill, so a FRAG
+    // chip never collides with the INH chip (they're just two chips in
+    // the same pre-pill run) nor with .row-remove-wrap (absolutely
+    // positioned at the cell's own right edge, over the pill itself).
+    // Default hidden text is "FRAG" (the common COMPLETE/FRAGILE case);
+    // appendFragChip() below swaps to "FRAG?" only for the rarer
+    // UNDETERMINABLE (PARTIAL band) case.
+    var fragSlot = document.createElement("span");
+    fragSlot.className = "gap-frag-slot";
+    fragSlot.textContent = "FRAG";
+    cell.appendChild(fragSlot);
     var pill = document.createElement("span");
     if (rawValue === null || rawValue === undefined) {
       pill.className = "gap-pill gap-pill-na";
@@ -230,6 +243,36 @@
     var tip = document.createElement("div");
     tip.className = "th-tooltip";
     tip.textContent = "Inherits: " + reasons.join(", ");
+    slot.appendChild(tip);
+  }
+
+  // Expectations-gap fragility chip (PR 3): fires on the reserved
+  // .gap-frag-slot gapCell() always creates (see above). "FRAGILE" means a
+  // COMPLETE band (all three scenarios converged) whose gap sign flips
+  // across bull/base/bear -- the base-case pill's direction isn't robust to
+  // the WACC/terminal-growth assumption. "UNDETERMINABLE" means a PARTIAL
+  // band (a scenario's bisection missed the bracket) -- fragility can't be
+  // assessed at all, a distinct state from "not fragile," never collapsed
+  // into it. scenarioGaps is the row's expectations_gap_scenarios list
+  // ([{scenario, gap, converged}, ...]) formatted into one tooltip line.
+  function appendFragChip(cell, variant, scenarioGaps) {
+    var slot = cell.querySelector(".gap-frag-slot");
+    if (!slot || !variant) return;
+    var parts = (scenarioGaps || []).map(function (s) {
+      return s.scenario + ": " + (s.converged ? fmtSignedPct(s.gap) : "bracket not converged");
+    });
+    if (variant === "FRAGILE") {
+      slot.classList.add("frag-present", "has-tooltip");
+    } else if (variant === "UNDETERMINABLE") {
+      slot.textContent = "FRAG?";
+      slot.classList.add("frag-undeterminable", "has-tooltip");
+    } else {
+      return;
+    }
+    slot.tabIndex = 0;
+    var tip = document.createElement("div");
+    tip.className = "th-tooltip";
+    tip.textContent = "Scenario gaps — " + parts.join(" | ");
     slot.appendChild(tip);
   }
 
@@ -1347,6 +1390,16 @@
       if (inherited.length) {
         appendInheritChip(gapTd, inherited);
       }
+    }
+    // Expectations-gap scenario band (PR 3): FRAG fires on a COMPLETE band
+    // whose sign flips bull/base/bear; FRAG? fires on a PARTIAL band, where
+    // fragility is UNDETERMINABLE rather than silently "not fragile". No
+    // band at all (NO_BAND -- band_status null) renders nothing extra, same
+    // as every row before this PR.
+    if (row.expectations_gap_band_status === "COMPLETE" && row.expectations_gap_fragile === "FRAGILE") {
+      appendFragChip(gapTd, "FRAGILE", row.expectations_gap_scenarios);
+    } else if (row.expectations_gap_band_status === "PARTIAL") {
+      appendFragChip(gapTd, "UNDETERMINABLE", row.expectations_gap_scenarios);
     }
     cellsByKey.expectations_gap = gapTd;
     tr.appendChild(appendRemoveControl(gapTd, row.ticker, tr, equitiesData, els.equitiesSection, els.equitiesBody));

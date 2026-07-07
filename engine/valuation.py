@@ -122,41 +122,24 @@ class ImpliedGrowthResult:
     lineage: str                  # human-readable description of what was solved
 
 
-def implied_growth(
-    price: Optional[float],
-    shares: Optional[float],
-    net_debt: Optional[float],
-    norm_fcf: Optional[float],
-    config: dict,
+def _implied_growth_bisect(
+    price: float,
+    shares: float,
+    net_debt: float,
+    norm_fcf: float,
+    wacc: float,
+    g_term: float,
+    n: int,
 ) -> Optional[ImpliedGrowthResult]:
     """
-    Reverse DCF: find the constant FCF growth rate g such that
-    two_stage_dcf(norm_fcf, ..., fcf_growth=g).fair_value_per_share == price.
+    Core bisection solve for a single (wacc, terminal_growth) bundle.
+    Callers guarantee price/shares/norm_fcf are truthy and net_debt is not None.
 
-    WACC and terminal_growth are taken from config.valuation.dcf.scenarios.base —
-    systematic assumptions that are never varied per company.  Only g is solved.
-
-    Bisection over [−20 %, +60 %].  Returns None when inputs are insufficient.
-    Returns ImpliedGrowthResult with bracket_hit=True when price falls outside
-    the bracket (reported, not crashed).
-
-    Reuses two_stage_dcf as the forward model — not a reimplementation.
+    Bisection over [−20 %, +60 %]. Returns ImpliedGrowthResult with
+    bracket_hit=True when price falls outside the bracket (reported, not
+    crashed). Reuses two_stage_dcf as the forward model — not a reimplementation.
     """
-    if not (price and price > 0):
-        return None
-    if not (shares and shares > 0):
-        return None
-    if net_debt is None:
-        return None
-    if norm_fcf is None:
-        return None
-
-    dcf_cfg = config.get("valuation", {}).get("dcf", {})
-    base_sc  = dcf_cfg.get("scenarios", {}).get("base", {})
-    wacc     = float(base_sc.get("wacc", 0.09))
-    g_term   = float(base_sc.get("terminal_growth", 0.025))
-    n        = int(dcf_cfg.get("projection_years", 5))
-    assump   = {"wacc": wacc, "terminal_growth": g_term, "projection_years": n}
+    assump = {"wacc": wacc, "terminal_growth": g_term, "projection_years": n}
 
     def _fvps(g: float) -> Optional[float]:
         a = {"projection_years": n, "wacc": wacc, "terminal_growth": g_term, "fcf_growth": g}
@@ -205,6 +188,169 @@ def implied_growth(
         implied_growth=g_mid, bracket_hit=False, bracket_bound=None,
         normalized_fcf=norm_fcf, assumptions=assump,
         lineage=f"bisection solved g={g_mid:.4%} (WACC={wacc:.1%}, terminal_g={g_term:.1%}, n={n})",
+    )
+
+
+def implied_growth(
+    price: Optional[float],
+    shares: Optional[float],
+    net_debt: Optional[float],
+    norm_fcf: Optional[float],
+    config: dict,
+) -> Optional[ImpliedGrowthResult]:
+    """
+    Reverse DCF: find the constant FCF growth rate g such that
+    two_stage_dcf(norm_fcf, ..., fcf_growth=g).fair_value_per_share == price.
+
+    WACC and terminal_growth are taken from config.valuation.dcf.scenarios.base —
+    systematic assumptions that are never varied per company.  Only g is solved.
+
+    Returns None when inputs are insufficient. See _implied_growth_bisect for
+    the shared bisection core (also used by expectations_gap_band to solve
+    the same reverse-DCF under the bull/bear bundles).
+    """
+    if not (price and price > 0):
+        return None
+    if not (shares and shares > 0):
+        return None
+    if net_debt is None:
+        return None
+    if norm_fcf is None:
+        return None
+
+    dcf_cfg = config.get("valuation", {}).get("dcf", {})
+    base_sc  = dcf_cfg.get("scenarios", {}).get("base", {})
+    wacc     = float(base_sc.get("wacc", 0.09))
+    g_term   = float(base_sc.get("terminal_growth", 0.025))
+    n        = int(dcf_cfg.get("projection_years", 5))
+
+    return _implied_growth_bisect(price, shares, net_debt, norm_fcf, wacc, g_term, n)
+
+
+_BAND_SCENARIOS = ("bull", "base", "bear")
+
+
+def _sign(x: float) -> int:
+    return (x > 0) - (x < 0)
+
+
+@dataclass
+class ScenarioGapResult:
+    """One scenario bundle's reverse-DCF solve and resulting expectations gap."""
+    scenario: str                  # "bull" | "base" | "bear"
+    wacc: float
+    terminal_growth: float
+    implied_growth: float          # solved g, or the clamped bracket bound
+    gap: float                     # implied_growth - delivered_growth (always computed;
+                                    # `converged` marks whether this is a real solve)
+    converged: bool                # False when the bisection hit a bracket bound
+    bracket_bound: Optional[str]   # "lower" | "upper" when not converged, else None
+
+
+@dataclass
+class ExpectationsGapBand:
+    """
+    The expectations gap computed under all three OWNED scenario bundles
+    (bull/base/bear), rather than base alone. Only ever constructed when
+    band_status is COMPLETE or PARTIAL — NO_BAND (base failed to converge,
+    or a prerequisite input/delivered_growth is missing) means no object is
+    built at all; today's single-scenario gap is what renders in that case.
+    """
+    band_status: str                        # "COMPLETE" | "PARTIAL"
+    base_gap: float                         # byte-matches today's single-scenario gap
+    delivered_growth: float
+    scenarios: dict                         # {"bull": ScenarioGapResult, "base": ..., "bear": ...}
+    fragile: str                            # "FRAGILE" | "STABLE" | "UNDETERMINABLE"
+
+
+def expectations_gap_band(
+    price: Optional[float],
+    shares: Optional[float],
+    net_debt: Optional[float],
+    norm_fcf: Optional[float],
+    delivered_growth: Optional[float],
+    config: dict,
+) -> Optional[ExpectationsGapBand]:
+    """
+    Runs the reverse-DCF bisection under each of the three owned scenario
+    bundles (bull/base/bear — full (wacc, terminal_growth) pairs read from
+    config.valuation.dcf.scenarios; no WACC-alone sweep, no new config keys).
+    Delivered growth is scenario-invariant and is computed once by the
+    caller, then subtracted three times.
+
+    Returns None (no band at all) when:
+      - any reverse-DCF prerequisite input is missing (mirrors implied_growth's
+        own None-gating), or delivered_growth is None, or
+      - a scenario bundle isn't configured, or
+      - the base scenario itself fails to converge (bracket_hit) — identical
+        to today's no-gap case; the band never manufactures signal where
+        today's single gap does not exist.
+
+    Raises AssertionError if a COMPLETE band violates the monotonicity
+    invariant (bull <= base <= bear implied growth) — that is a computation
+    bug, never a reporting choice.
+    """
+    if not (price and price > 0):
+        return None
+    if not (shares and shares > 0):
+        return None
+    if net_debt is None:
+        return None
+    if norm_fcf is None:
+        return None
+    if delivered_growth is None:
+        return None
+
+    dcf_cfg = config.get("valuation", {}).get("dcf", {})
+    n = int(dcf_cfg.get("projection_years", 5))
+    scenarios_cfg = dcf_cfg.get("scenarios", {})
+
+    results: dict = {}
+    for name in _BAND_SCENARIOS:
+        sc = scenarios_cfg.get(name)
+        if not sc:
+            return None   # bundle not configured — no band possible
+        wacc = float(sc.get("wacc", 0.09))
+        g_term = float(sc.get("terminal_growth", 0.025))
+        igr = _implied_growth_bisect(price, shares, net_debt, norm_fcf, wacc, g_term, n)
+        if igr is None:
+            return None
+        results[name] = ScenarioGapResult(
+            scenario=name, wacc=wacc, terminal_growth=g_term,
+            implied_growth=igr.implied_growth,
+            gap=igr.implied_growth - delivered_growth,
+            converged=not igr.bracket_hit,
+            bracket_bound=igr.bracket_bound,
+        )
+
+    base = results["base"]
+    if not base.converged:
+        return None   # base failed — identical to today's no-gap case
+
+    converged_count = sum(1 for r in results.values() if r.converged)
+    if converged_count == len(_BAND_SCENARIOS):
+        bull_g, base_g, bear_g = (
+            results["bull"].implied_growth, results["base"].implied_growth, results["bear"].implied_growth,
+        )
+        if not (bull_g <= base_g <= bear_g):
+            raise AssertionError(
+                "expectations_gap_band: monotonicity violated — implied growth must "
+                f"satisfy bull <= base <= bear, got bull={bull_g:.4%} base={base_g:.4%} "
+                f"bear={bear_g:.4%}"
+            )
+        band_status = "COMPLETE"
+        signs = {_sign(r.gap) for r in results.values()}
+        fragile = "FRAGILE" if len(signs) > 1 else "STABLE"
+    else:
+        band_status = "PARTIAL"
+        fragile = "UNDETERMINABLE"
+
+    return ExpectationsGapBand(
+        band_status=band_status,
+        base_gap=base.gap,
+        delivered_growth=delivered_growth,
+        scenarios=results,
+        fragile=fragile,
     )
 
 

@@ -312,6 +312,150 @@ def _dcf_section(res: AnalysisResult) -> Optional[dict]:
     return {"scenarios": scenario_rows, "sensitivity": sensitivity}
 
 
+# Expectations-gap scenario band (PR 3): the fixed axis a gap value is
+# positioned against is a CONSTANT across tickers (not rescaled per-company)
+# so the strip is visually comparable row to row, same principle as the
+# durability score bars. Values beyond the axis still show their real
+# number in the label; only the marker's pixel position clamps at the edge.
+_GAP_BAND_AXIS_MIN = -0.30
+_GAP_BAND_AXIS_MAX = 0.30
+
+
+def _gap_band_axis_pct(gap: float) -> float:
+    span = _GAP_BAND_AXIS_MAX - _GAP_BAND_AXIS_MIN
+    pct = (gap - _GAP_BAND_AXIS_MIN) / span * 100.0
+    return max(0.0, min(100.0, pct))
+
+
+def _gap_band_section(res: AnalysisResult) -> Optional[dict]:
+    """
+    Shared data builder for the bull/base/bear expectations-gap band -- same
+    pattern as _dcf_section: each renderer turns this dict into its own
+    markup. None when no band exists (NO_BAND per PR 3's rule: base failed
+    to converge, delivered_growth unavailable, or a bundle isn't
+    configured) -- res.expectations_gap (today's single-scenario gap, shown
+    via _summary()) is untouched either way.
+    """
+    band = res.expectations_gap_band
+    if band is None:
+        return None
+    rows = []
+    for name in ("bull", "base", "bear"):
+        sc = band.scenarios[name]
+        rows.append({
+            "scenario": name,
+            "wacc": _fmt_pct(sc.wacc),
+            "terminal_growth": _fmt_pct(sc.terminal_growth),
+            "implied_growth": _fmt_pct(sc.implied_growth),
+            "gap": _fmt_signed_pct(sc.gap),
+            "gap_raw": sc.gap,
+            "converged": sc.converged,
+            "bracket_bound": sc.bracket_bound,
+            "axis_pct": _gap_band_axis_pct(sc.gap),
+        })
+    disclosure = None
+    if band.band_status == "PARTIAL":
+        failed = [r["scenario"] for r in rows if not r["converged"]]
+        disclosure = (
+            "expectations_gap: " + ", ".join(failed) +
+            " implied growth outside bisection bracket — band incomplete"
+        )
+    return {
+        "band_status": band.band_status,
+        "fragile": band.fragile,
+        "rows": rows,
+        "disclosure": disclosure,
+        "zero_pct": _gap_band_axis_pct(0.0),
+        "delivered_growth": _fmt_pct(band.delivered_growth),
+        "base_gap": _fmt_signed_pct(band.base_gap),
+    }
+
+
+def _gap_band_html(band_data: Optional[dict]) -> str:
+    """
+    Shared markup for the range strip + expanded scenario table -- used by
+    both render() (dark full report) and render_fragment() (light
+    dashboard embed). Colors/spacing come from CSS classes duplicated in
+    each surface's own stylesheet (render()'s embedded <style> vs
+    frontend/styles.css), same precedent as the DUR chip. All interpolated
+    values are engine-formatted numbers/fixed scenario names -- never raw
+    filing text -- so, like _dcf_section's table above, they're inserted
+    unescaped.
+    """
+    if band_data is None:
+        return ""
+    rows = band_data["rows"]
+
+    points_html = ""
+    for r in rows:
+        cls = "gap-band-point gap-band-point-" + r["scenario"]
+        if r["scenario"] == "base":
+            cls += " gap-band-point-emphasized"
+        if not r["converged"]:
+            cls += " gap-band-point-failed"
+        title = (
+            f"{r['scenario']}: {r['gap']}" if r["converged"]
+            else f"{r['scenario']}: bracket {r['bracket_bound']} hit — not converged"
+        )
+        points_html += (
+            f'<div class="{cls}" style="left:{r["axis_pct"]:.1f}%" '
+            f'title="{escape(title)}"></div>'
+        )
+
+    converged_pcts = [r["axis_pct"] for r in rows if r["converged"]]
+    track_html = ""
+    if len(converged_pcts) >= 2:
+        left, right = min(converged_pcts), max(converged_pcts)
+        track_html = f'<div class="gap-band-track" style="left:{left:.1f}%;width:{(right - left):.1f}%"></div>'
+
+    labels_html = "".join(
+        '<span class="gap-band-label'
+        + (" gap-band-label-emphasized" if r["scenario"] == "base" else "") + '">'
+        + escape(r["scenario"]) + " " + escape(r["gap"] if r["converged"] else "n/a")
+        + "</span>"
+        for r in rows
+    )
+
+    disclosure_html = (
+        f'<p class="report-caption gap-band-disclosure">{escape(band_data["disclosure"])}</p>'
+        if band_data["disclosure"] else ""
+    )
+    fragile_html = ""
+    if band_data["fragile"] == "FRAGILE":
+        fragile_html = (
+            '<p class="report-caption gap-band-disclosure">FRAGILE: the sign of the '
+            "expectations gap differs across scenarios — this signal's direction is not "
+            "robust to the WACC/terminal-growth assumption chosen.</p>"
+        )
+    elif band_data["fragile"] == "UNDETERMINABLE":
+        fragile_html = (
+            '<p class="report-caption gap-band-disclosure">Fragility: UNDETERMINABLE — '
+            "a band that can't be fully solved cannot be assessed for scenario-dependence.</p>"
+        )
+
+    table_rows = "".join(
+        f'<tr><td>{escape(r["scenario"])}</td><td>{r["wacc"]}</td><td>{r["terminal_growth"]}</td>'
+        f'<td>{r["implied_growth"]}{" (not converged)" if not r["converged"] else ""}</td>'
+        f'<td>{band_data["delivered_growth"]}</td><td>{r["gap"]}</td></tr>'
+        for r in rows
+    )
+
+    return (
+        '<div class="gap-band">'
+        '<p class="report-caption">Expectations gap — bull/base/bear band</p>'
+        '<div class="gap-band-strip">'
+        f'<div class="gap-band-axis"><div class="gap-band-zero-tick" style="left:{band_data["zero_pct"]:.1f}%"></div>'
+        f'{track_html}{points_html}</div>'
+        f'<div class="gap-band-labels">{labels_html}</div>'
+        "</div>"
+        f"{disclosure_html}{fragile_html}"
+        '<table class="gap-band-table"><thead><tr><th>Scenario</th><th>WACC</th><th>Term. g</th>'
+        "<th>Implied growth</th><th>Delivered growth</th><th>Gap</th></tr></thead>"
+        f"<tbody>{table_rows}</tbody></table>"
+        "</div>"
+    )
+
+
 # DUR provenance chip: marks a Data-gaps entry as a DurabilityScore.gaps
 # disclosure (scoring-level: net-cash resilience, mixed-basis, short-history,
 # split-contamination) rather than a pipeline-level res.gaps entry
@@ -520,7 +664,10 @@ def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | 
                 f"<table><thead>{header}</thead><tbody>{body}</tbody></table>"
             )
 
-    valuation_html = f"{rel_html}{dcf_html}" if (rel_html or dcf_html) else ""
+    gap_band_html = _gap_band_html(_gap_band_section(res))
+    valuation_html = (
+        f"{rel_html}{dcf_html}{gap_band_html}" if (rel_html or dcf_html or gap_band_html) else ""
+    )
 
     gaps = _gaps_list(res, ds_gaps)
     if gaps:
@@ -570,6 +717,19 @@ tbody tr:nth-child(even) {{ background: #111827; }}
 code {{ color: #cbd5e1; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace; white-space: pre-wrap; }}
 .footer {{ color: #94a3b8; font-size: 0.95rem; margin-top: 40px; }}
 .dur-chip {{ display:inline-block;margin-right:6px;padding:1px 5px;border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:0.7rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#fbbf24;border:1px solid rgba(251,191,36,0.35);cursor:default; }}
+.report-caption {{ color: #94a3b8; font-size: 0.9rem; margin: 8px 0; }}
+.gap-band {{ margin-top: 20px; }}
+.gap-band-strip {{ margin: 10px 0 14px; }}
+.gap-band-axis {{ position: relative; height: 8px; background: #1e293b; border-radius: 4px; margin: 0 4px 22px; }}
+.gap-band-zero-tick {{ position: absolute; top: -4px; width: 2px; height: 16px; background: #64748b; transform: translateX(-1px); }}
+.gap-band-track {{ position: absolute; top: 0; height: 8px; background: #334155; border-radius: 4px; }}
+.gap-band-point {{ position: absolute; top: -4px; width: 16px; height: 16px; border-radius: 50%; background: #7dd3fc; border: 2px solid #0f172a; transform: translateX(-8px); }}
+.gap-band-point-emphasized {{ width: 20px; height: 20px; background: #38bdf8; border-width: 3px; transform: translateX(-10px); z-index: 2; }}
+.gap-band-point-failed {{ background: transparent; border: 2px dashed #f87171; }}
+.gap-band-labels {{ display: flex; justify-content: space-between; font-size: 0.85rem; color: #cbd5e1; }}
+.gap-band-label-emphasized {{ font-weight: 700; color: #f8fafc; }}
+.gap-band-disclosure {{ color: #fbbf24; }}
+.gap-band-table {{ margin-top: 10px; }}
 </style>
 </head>
 <body>
@@ -815,7 +975,8 @@ def render_fragment(
     valuation_html = ""
     rvrows = _rel_val_rows(res)
     dcf = _dcf_section(res)
-    if rvrows or dcf:
+    gap_band_html = _gap_band_html(_gap_band_section(res))
+    if rvrows or dcf or gap_band_html:
         content = ""
         if rvrows:
             content += _fr_table(
@@ -871,6 +1032,7 @@ def render_fragment(
                     "(rows=WACC, cols=terminal g)</p>"
                     + _fr_table(head_cells, sens_rows_html)
                 )
+        content += gap_band_html
         valuation_html = _fr_details("Valuation & sensitivity", content)
 
     gaps = _gaps_list(res, ds_gaps)

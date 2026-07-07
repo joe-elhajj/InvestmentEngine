@@ -98,6 +98,8 @@ class AnalysisResult:
     delivered_growth_label: str = ""
     implied_growth_result: Optional[V.ImpliedGrowthResult] = None
     expectations_gap: Optional[float] = None
+    # --- PR 3: expectations gap as a bull/base/bear band, additive to the above ---
+    expectations_gap_band: Optional[V.ExpectationsGapBand] = None
 
 
 # ---------------------------------------------------------------------------
@@ -640,5 +642,23 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         igr = res.implied_growth_result
         if igr is not None and not igr.bracket_hit and res.delivered_growth is not None:
             res.expectations_gap = igr.implied_growth - res.delivered_growth
+
+        # Same reverse-DCF, run under all three owned scenario bundles (PR 3).
+        # Additive only: res.expectations_gap above is untouched by this call.
+        res.expectations_gap_band = V.expectations_gap_band(
+            price=quote.price,
+            shares=quote.shares_outstanding,
+            net_debt=net_debt,
+            norm_fcf=res.normalized_fcf,
+            delivered_growth=res.delivered_growth,
+            config=config,
+        )
+        band = res.expectations_gap_band
+        if band is not None and band.band_status == "PARTIAL":
+            failed = [name for name, sc in band.scenarios.items() if not sc.converged]
+            res.gaps.append(
+                "expectations_gap: " + ", ".join(failed) +
+                " implied growth outside bisection bracket — band incomplete"
+            )
 
     return res

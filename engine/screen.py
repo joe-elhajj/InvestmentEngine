@@ -104,6 +104,25 @@ def _implied_growth_columns(res: AnalysisResult, cd: CompanyData) -> tuple:
     return implied_g, gap, ig_note
 
 
+def _gap_band_columns(res: AnalysisResult) -> tuple:
+    """
+    Pure: derives (band_status, fragile, scenarios) from an already-computed
+    AnalysisResult's expectations_gap_band -- same extraction rationale as
+    _implied_growth_columns above (unit-testable without a full mocked
+    pipeline). band_status/fragile are None and scenarios is [] for NO_BAND
+    (res.expectations_gap_band is None) -- the row's plain `gap` column
+    (from _implied_growth_columns) is unaffected either way.
+    """
+    band = res.expectations_gap_band
+    if band is None:
+        return None, None, []
+    scenarios = [
+        {"scenario": name, "gap": sc.gap, "converged": sc.converged}
+        for name, sc in band.scenarios.items()
+    ]
+    return band.band_status, band.fragile, scenarios
+
+
 # ---------------------------------------------------------------------------
 # Routing outcome per ticker (operating securities)
 # ---------------------------------------------------------------------------
@@ -154,6 +173,14 @@ class ScreenRow:
     # show the actual text; the table itself shows only a presence
     # indicator, never gap strings inline (see frontend/app.js).
     durability_gaps: list = field(default_factory=list)
+    # PR 3: expectations gap as a bull/base/bear band. band_status/fragile are
+    # None for NO_BAND (res.expectations_gap_band is None -- the row's plain
+    # `expectations_gap` pill above renders exactly as it did before this PR;
+    # the band is purely additive). scenarios is empty for NO_BAND, else one
+    # {"scenario","gap","converged"} dict per bull/base/bear for the tooltip.
+    expectations_gap_band_status: Optional[str] = None    # "COMPLETE" | "PARTIAL" | None
+    expectations_gap_fragile: Optional[str] = None        # "FRAGILE" | "STABLE" | "UNDETERMINABLE" | None
+    expectations_gap_scenarios: list = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -410,6 +437,13 @@ def _process_one(
     # Build growth-signal columns
     implied_g, gap, ig_note = _implied_growth_columns(res, cd)
 
+    # PR 3: bull/base/bear expectations-gap band -- additive alongside `gap`
+    # above, which stays untouched. band_status/fragile are None for NO_BAND
+    # (base scenario failed to converge, delivered_growth unavailable, or a
+    # bundle isn't configured); in that case this row carries no band signal,
+    # same as today.
+    band_status, fragile, band_scenarios = _gap_band_columns(res)
+
     # Compose diagnostics flag: combine evidence + ig_note + currency info
     flag_parts: list[str] = []
     if classification == "operating_fpi":
@@ -452,6 +486,9 @@ def _process_one(
         # provenance tag (rather than string comparison) is backlogged if
         # that assumption ever needs to be dropped.
         durability_gaps=[g for g in ds.gaps if g not in res.gaps],
+        expectations_gap_band_status=band_status,
+        expectations_gap_fragile=fragile,
+        expectations_gap_scenarios=band_scenarios,
     ), None
 
 
