@@ -181,6 +181,15 @@ class ScreenRow:
     expectations_gap_band_status: Optional[str] = None    # "COMPLETE" | "PARTIAL" | None
     expectations_gap_fragile: Optional[str] = None        # "FRAGILE" | "STABLE" | "UNDETERMINABLE" | None
     expectations_gap_scenarios: list = field(default_factory=list)
+    # PR 4: balance-sheet gate layer (raw-metric veto on the composite).
+    # gate_status is None for PASS/NOT APPLICABLE -- both render nothing,
+    # the reserved slot stays hidden (see frontend/app.js). composite/
+    # composite_low/composite_high above already carry the GATED (capped)
+    # values from D.score(); composite_ungated preserves the true weighted
+    # number so the dashboard can show both.
+    gate_status: Optional[str] = None            # "GATED" | "UNTESTABLE" | None
+    gate_tooltip: str = ""
+    composite_ungated: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
@@ -444,6 +453,10 @@ def _process_one(
     # same as today.
     band_status, fragile, band_scenarios = _gap_band_columns(res)
 
+    # PR 4: balance-sheet gate layer -- None/"" for PASS/NOT APPLICABLE
+    # (both render nothing; the reserved chip slot stays hidden).
+    gate_status, gate_tooltip = D.gate_status_of(ds)
+
     # Compose diagnostics flag: combine evidence + ig_note + currency info
     flag_parts: list[str] = []
     if classification == "operating_fpi":
@@ -489,6 +502,9 @@ def _process_one(
         expectations_gap_band_status=band_status,
         expectations_gap_fragile=fragile,
         expectations_gap_scenarios=band_scenarios,
+        gate_status=gate_status,
+        gate_tooltip=gate_tooltip,
+        composite_ungated=ds.composite_ungated,
     ), None
 
 

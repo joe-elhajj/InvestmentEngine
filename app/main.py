@@ -548,9 +548,13 @@ async def analyze_fragment(ticker: str):
             # provenance tag (rather than string comparison) is backlogged
             # if that assumption ever needs to be dropped.
             durability_only_gaps = [g for g in ds.gaps if g not in res.gaps]
+            # PR 4: balance-sheet gate layer -- None/"" for PASS/NOT
+            # APPLICABLE, rendering no chip (same as before this PR).
+            gate_status, gate_tooltip = D.gate_status_of(ds)
             rendered = RH.render_fragment(
                 res, peer_table=None, durability_composite=composite,
                 ds_gaps=durability_only_gaps,
+                gate_status=gate_status, gate_tooltip=gate_tooltip,
             )
     except Exception as e:
         return HTMLResponse(_fragment_error(tk, e), status_code=502)
