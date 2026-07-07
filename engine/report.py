@@ -270,6 +270,46 @@ def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | 
                 w(f"| {wv:.1%} | " + " | ".join(cells) + " |")
             w("")
 
+    # --- Expectations gap band (PR 3) ---------------------------------------
+    # Additive alongside the forward DCF table above: the SAME reverse-DCF
+    # solved under all three owned scenario bundles, rather than base alone.
+    # None (no section at all) when NO_BAND -- base failed to converge,
+    # delivered_growth is unavailable, or a bundle isn't configured -- so a
+    # ticker with no band renders byte-identical to before this PR.
+    band = res.expectations_gap_band
+    if band is not None:
+        w("**Expectations gap — bull/base/bear band:**")
+        w(f"Base case: {_pct(band.base_gap, nd=1)} "
+          f"(implied {_pct(band.scenarios['base'].implied_growth)} vs "
+          f"delivered {_pct(band.delivered_growth)})")
+        w("")
+        w("| Scenario | WACC | Term. g | Implied growth | Delivered growth | Gap |")
+        w("|---|---|---|---|---|---|")
+        for name in ("bull", "base", "bear"):
+            sc = band.scenarios[name]
+            ig = _pct(sc.implied_growth)
+            if not sc.converged:
+                ig += f" (bracket {sc.bracket_bound}, not converged)"
+            gap = _pct(sc.gap)
+            if not sc.converged:
+                gap += " *"
+            w(f"| {name} | {_pct(sc.wacc)} | {_pct(sc.terminal_growth)} | {ig} | "
+              f"{_pct(band.delivered_growth)} | {gap} |")
+        if band.band_status == "PARTIAL":
+            failed = [n for n in ("bull", "base", "bear") if not band.scenarios[n].converged]
+            w("")
+            w(f"_\\* {', '.join(failed)} did not converge (bisection bracket exceeded) — "
+              "band incomplete; the gap shown for that scenario is the clamped bracket "
+              "bound, not a real solve._")
+            w("_Fragility: UNDETERMINABLE — a band that can't be fully solved cannot be "
+              "assessed for scenario-dependence._")
+        elif band.fragile == "FRAGILE":
+            w("")
+            w("_FRAGILE: the sign of the expectations gap differs across scenarios — "
+              "this signal's direction is not robust to the WACC/terminal-growth "
+              "assumption chosen; treat the base-case number with caution._")
+        w("")
+
     # --- Data gaps ------------------------------------------------------------
     # ONE shared "Data gaps" section, not two: res.gaps (pipeline, absence-is-
     # not-zero) and ds_gaps (DurabilityScore.gaps -- scoring-level disclosures
