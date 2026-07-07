@@ -623,6 +623,31 @@ td.gap-cell{text-align:right}
 }
 .dur-gaps-slot.dur-gaps-present .th-tooltip{top:auto;bottom:calc(100% + 6px);left:0;transform:none}
 
+/* ---- Balance-sheet gate indicator (GATE/GATE?, PR 4): same reserved-slot
+   pattern as .dur-gaps-slot immediately above, appended after it (see
+   appendGateIndicator in app.js) so it lands to the LEFT of DUR -- the
+   raw-metric veto is the more severe signal and reads first. GATE
+   (gate-slot-fired) is filled/solid (--bad), distinct from every other
+   outline-only chip in this file, because a gated composite is a hard
+   veto, not a disclosure -- it should not blend into the same quiet
+   register as INH/DUR/FRAG. GATE? (gate-slot-untestable) stays outline +
+   dashed, matching FRAG?'s "distinct third state" treatment. */
+.gate-slot{
+  display:inline-block;margin-right:5px;padding:1px 5px;border-radius:5px;
+  font-family:var(--mono);font-size:0.625rem;font-weight:700;
+  letter-spacing:.02em;text-transform:uppercase;vertical-align:super;
+  border:1px solid transparent;cursor:default;visibility:hidden;
+}
+.gate-slot.gate-slot-fired{
+  visibility:visible;color:var(--on-accent,#08110f);background:var(--bad);
+  border-color:var(--bad);
+}
+.gate-slot.gate-slot-untestable{
+  visibility:visible;color:var(--text-2);border:1px dashed var(--hairline-strong);
+}
+.gate-slot.gate-slot-fired .th-tooltip,
+.gate-slot.gate-slot-untestable .th-tooltip{top:auto;bottom:calc(100% + 6px);left:0;transform:none}
+
 /* ---- inline report accordion (clicking an equity/ETF row) ----
    .accordion-content (not the <tr>/<td> themselves — table rows don't
    animate height reliably under the table layout algorithm) is what
@@ -815,6 +840,28 @@ tr.accordion-row:hover > td{background:var(--paper)}
 
 .report-error{padding:16px 24px;color:var(--bad);font-size:0.8125rem}
 .report-error .report-caption{color:var(--text-3);padding:4px 0 0}
+
+/* ---- Balance-sheet gate chip (GATE/GATE?, PR 4): sits beside the
+   Durability stat's value in the fragment's summary strip (see
+   _fr_stat's badge_html param in report_html.py). GATE (gate-chip) = a
+   raw-metric veto fired, composite is capped -- filled amber-red so it
+   reads as more severe than the outline-only DUR/INH/FRAG family, since a
+   gated composite is a hard "do not treat this number as investable-tier"
+   signal, not just a disclosure. GATE? (gate-chip-untestable) = a
+   required raw input was missing -- absence is not a pass, but there's no
+   veto to report either, so it's a dashed, unfilled variant matching
+   FRAG?'s "distinct from both pass and fail" treatment. Native title=
+   tooltip (matches .dur-chip, not the .has-tooltip/.th-tooltip system --
+   this chip isn't on the dashboard table). */
+.gate-chip{
+  display:inline-block;margin-left:6px;padding:1px 6px;border-radius:5px;
+  font-family:var(--mono);font-size:0.6875rem;font-weight:700;
+  letter-spacing:.02em;text-transform:uppercase;vertical-align:middle;
+  color:var(--on-accent,#08110f);background:var(--bad);cursor:default;
+}
+.gate-chip-untestable{
+  color:var(--text-2);background:transparent;border:1px dashed var(--hairline-strong);
+}
 
 /* ---- Expectations-gap scenario band (PR 3): shared markup from
    engine/report_html.py's _gap_band_html(), styled separately here (light

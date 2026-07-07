@@ -527,15 +527,35 @@ def _basis_disclosure_tooltip(res: AnalysisResult) -> str:
     return " ".join(parts)
 
 
+# Balance-sheet gate chip (PR 4): "GATE" when a gate fired (composite is
+# capped -- tooltip carries the lineage string with the ungated value,
+# reason, and threshold), "GATE?" when GATE-UNTESTABLE (a required raw
+# input was missing -- absence is not a pass). Neither PASS nor NOT
+# APPLICABLE render anything, matching the dashboard's reserved-slot
+# convention: nothing to disclose means no badge, not an empty one. Same
+# outline-chip vocabulary as DUR/RND-UNADJ (mono, uppercase, bordered,
+# native title= tooltip like the existing chip family in this module).
+def _gate_chip_html(gate_status: Optional[str], gate_tooltip: str) -> str:
+    if gate_status == "GATED":
+        return f'<span class="gate-chip" title="{escape(gate_tooltip)}">GATE</span> '
+    if gate_status == "UNTESTABLE":
+        return f'<span class="gate-chip gate-chip-untestable" title="{escape(gate_tooltip)}">GATE?</span> '
+    return ""
+
+
 def _summary(
     res: AnalysisResult,
     durability_composite: Optional[float] = None,
+    gate_status: Optional[str] = None,
+    gate_tooltip: str = "",
 ) -> dict:
     """
     One-line/summary-strip data shared by the dark header banner and the
     light fragment's summary strip. `durability_composite` is computed by
     the caller (durability.score() needs `cfg`, which this module doesn't
     take) — None when not available, rendered as n/a, never 0.
+    `gate_status`/`gate_tooltip` are similarly caller-computed (from
+    D.gate_status_of(ds)) — None/"" render no chip at all.
     """
     q = res.quote
     base = res.dcf.get("base") if res.dcf else None
@@ -546,6 +566,7 @@ def _summary(
         "price": _fmt_currency(q.price) if q.price is not None else "n/a",
         "market_cap": _fmt_currency(q.market_cap) if q.market_cap is not None else "n/a",
         "durability_composite": f"{durability_composite:.1f}" if durability_composite is not None else "n/a",
+        "gate_chip_html": _gate_chip_html(gate_status, gate_tooltip),
         "expectations_gap": _fmt_signed_pct(res.expectations_gap) if res.expectations_gap is not None else "n/a",
         "expectations_gap_raw": res.expectations_gap,
         "expectations_gap_tooltip": _basis_disclosure_tooltip(res),
@@ -860,7 +881,10 @@ def _fr_details_with_sources(title: str, content: str, open_: bool = False) -> s
     )
 
 
-def _fr_stat(label: str, value: str, tint: Optional[float] = None, tooltip: Optional[str] = None) -> str:
+def _fr_stat(
+    label: str, value: str, tint: Optional[float] = None, tooltip: Optional[str] = None,
+    badge_html: str = "",
+) -> str:
     style = ""
     if tint is not None:
         magnitude = min(abs(tint), 0.30)
@@ -880,6 +904,7 @@ def _fr_stat(label: str, value: str, tint: Optional[float] = None, tooltip: Opti
     return (
         f'<div class="{cls}"{style}{tabindex_attr}>'
         f'<span class="stat-label">{escape(label)}</span>'
+        f"{badge_html}"
         f'<span class="{value_cls}">{escape(value)}</span>'
         f"{tooltip_html}"
         "</div>"
@@ -891,6 +916,8 @@ def render_fragment(
     peer_table: list | None = None,
     durability_composite: Optional[float] = None,
     ds_gaps: Optional[list[str]] = None,
+    gate_status: Optional[str] = None,
+    gate_tooltip: str = "",
 ) -> str:
     """
     Renders an HTML fragment (no <html>/<head>) styled to match the
@@ -899,14 +926,19 @@ def render_fragment(
     standalone document. Assumes the host page already loads the
     dashboard's stylesheet (same CSS custom properties: --bg, --surface,
     --text-1/2/3, --good/--bad, tabular-nums, etc.).
+    `gate_status`/`gate_tooltip` (PR 4) are additive, caller-computed via
+    D.gate_status_of(ds) — None/"" render exactly as before this PR.
     """
-    summary = _summary(res, durability_composite=durability_composite)
+    summary = _summary(
+        res, durability_composite=durability_composite,
+        gate_status=gate_status, gate_tooltip=gate_tooltip,
+    )
 
     summary_html = (
         '<div class="report-summary">'
         + _fr_stat("Price", summary["price"])
         + _fr_stat("Market Cap", summary["market_cap"])
-        + _fr_stat("Durability", summary["durability_composite"])
+        + _fr_stat("Durability", summary["durability_composite"], badge_html=summary["gate_chip_html"])
         + _fr_stat(
             "Expectations Gap", summary["expectations_gap"], tint=summary["expectations_gap_raw"],
             tooltip=summary["expectations_gap_tooltip"] or None,

@@ -252,6 +252,32 @@ GAAP fallback. It keeps using the fallback-inclusive (Option A) view.
 
 ---
 
+## Durability gates (`config.yaml → durability.gates`)
+
+Linear composite averaging lets a fatal single-dimension failure be masked
+by strong other categories. Gates are raw-metric vetoes that cap the
+composite regardless of the weighted score. They key on raw metrics, not
+sub-scores, because sub-scores carry curve and saturation artifacts between
+the analyst's belief and the trigger; the raw metric is the quantity the
+anchor is written in. Both gated and ungated composites are preserved; the
+gate is a disclosed layer, never a silent rewrite.
+
+### balance_sheet_leverage
+
+| Parameter | Value | Anchor |
+|---|---|---|
+| metric | net debt / EBITDA (trailing, latest fiscal year) | Standard leverage measure: years of earnings to clear net debt |
+| threshold | 6.0x (fires above) | Past the elevated-but-common 3-4x zone and past the most-levered consciously-accepted holding in current coverage (AXON ~4.9x). Above ~6x, a normal earnings drawdown forces refinancing on the market's terms rather than the company's, and forced refinancing at distressed prices is how temporary trouble becomes permanent impairment; no reinvestment quality compensates because the reinvestment engine is shut off exactly when it matters. Flat across sectors by deliberate choice — the gate is a coarse veto, not a fine grade; nuance lives in the durability sub-scores and expectations gap. |
+| cap | 45.0 | Below the composite level at which a position would be considered. A gated name cannot enter the quality tier no matter how strong its other categories; the ungated score remains visible so the cap-vs-ungated gap is itself the signal to consciously reassess. |
+| negative-EBITDA rule | positive net debt + EBITDA <= 0 gates unconditionally | A company that owes money with no earnings to service it is strictly worse than a high ratio; the ratio would compute negative and falsely read as "below threshold". |
+| net-cash route-around | net debt < 0 -> gate not applicable | No leverage risk exists; the gate does not run and no badge shows (a "passed" badge on a fortress balance sheet would train the eye to ignore the badge). |
+
+Review cadence: threshold reviewed if the credit-cycle backdrop shifts
+materially (not to rescue a specific name). Gate list is extensible;
+dilution and ROIC-floor gates are backlogged pending their own anchors.
+
+---
+
 ## Classification overrides (`config.yaml → classification.overrides`)
 
 Analyst-owned overrides for security classification.  An override of `"operating"`

@@ -96,6 +96,15 @@ durability:
   rnd_capitalization:
     enabled: true
     amortization_years: 5
+  # Raw-metric veto layer on top of the weighted composite (PR 4) — see
+  # docs/assumptions.md's "Durability gates" section for the anchor behind
+  # every value below. A LIST so future gates (dilution, ROIC-floor —
+  # both backlogged) slot in without re-architecture; ships with one entry.
+  gates:
+    - id: balance_sheet_leverage
+      metric: net_debt_ebitda
+      threshold: 6.0
+      cap: 45.0
 
 web:
   # Local FastAPI web layer (app/) — operational, not an analyst assumption.

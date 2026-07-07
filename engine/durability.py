@@ -73,6 +73,45 @@ _DEFAULT_RND_CAPITALIZATION: dict = {
     "amortization_years": 5,
 }
 
+# Gates ship with NO defaults baked in here -- unlike weights/thresholds/
+# score_band/rnd_capitalization above, a gate's threshold/cap ARE owned
+# assumptions (docs/assumptions.md) that must live in config.yaml, not as a
+# code fallback. An empty gates list (the default when the section is
+# omitted) means no gate runs -- backward-compatible for any config that
+# predates this PR.
+_GATE_REQUIRED_KEYS = {"id", "metric", "threshold", "cap"}
+_GATE_SUPPORTED_METRICS = {"net_debt_ebitda"}
+
+
+def _resolve_gates(dur: dict) -> list[dict]:
+    """
+    Strict, loud validation of durability.gates (a LIST, so _merge_strict's
+    flat-dict merge doesn't apply) -- same "typo must be loud, not a silent
+    no-op" philosophy as _merge_strict above.
+    """
+    gates_raw = dur.get("gates", [])
+    if not isinstance(gates_raw, list):
+        raise ValueError("config.yaml durability.gates must be a list")
+    gates: list[dict] = []
+    for g in gates_raw:
+        if not isinstance(g, dict):
+            raise ValueError(f"config.yaml durability.gates entry {g!r} must be a mapping")
+        missing = _GATE_REQUIRED_KEYS - set(g)
+        unknown = set(g) - _GATE_REQUIRED_KEYS
+        if missing or unknown:
+            raise ValueError(
+                f"config.yaml durability.gates entry {g!r} is malformed "
+                f"(missing: {sorted(missing)}, unrecognized: {sorted(unknown)}). "
+                f"Expected keys: {sorted(_GATE_REQUIRED_KEYS)}."
+            )
+        if g["metric"] not in _GATE_SUPPORTED_METRICS:
+            raise ValueError(
+                f"config.yaml durability.gates entry {g['id']!r} has unsupported "
+                f"metric {g['metric']!r}. Supported: {sorted(_GATE_SUPPORTED_METRICS)}."
+            )
+        gates.append(dict(g))
+    return gates
+
 
 def _merge_strict(dur: dict, section_name: str, defaults: dict) -> dict:
     """
@@ -108,10 +147,12 @@ def _resolve_config(cfg: dict) -> dict:
     thresholds = _merge_strict(dur, "thresholds", _DEFAULT_THRESHOLDS)
     score_band = _merge_strict(dur, "score_band", _DEFAULT_SCORE_BAND)
     rnd_capitalization = _merge_strict(dur, "rnd_capitalization", _DEFAULT_RND_CAPITALIZATION)
+    gates = _resolve_gates(dur)
     universe_version = cfg.get("universe", {}).get("version", "unversioned")
     return {
         "weights": weights, "thresholds": thresholds, "score_band": score_band,
         "rnd_capitalization": rnd_capitalization,
+        "gates": gates,
         "universe_version": universe_version,
     }
 
@@ -156,6 +197,30 @@ class DurabilityScore:
     excluded: bool = False
     exclusion_reason: str = ""
     gaps: list[str] = field(default_factory=list)
+    # --- PR 4: balance-sheet gate layer, additive on top of the above ---
+    # composite_ungated is the true weighted composite BEFORE any gate cap
+    # -- always populated (equal to `composite` itself when no gate fires),
+    # so "both gated and ungated numbers survive" holds unconditionally,
+    # not only in the gated case. None only in the excluded/no-metrics
+    # early-return paths, which never reach gate evaluation at all.
+    composite_ungated: Optional[float] = None
+    gated: bool = False
+    gate_ids: list[str] = field(default_factory=list)
+    gate_lineage: str = ""
+    gate_untestable_ids: list[str] = field(default_factory=list)
+    gate_untestable_lineage: str = ""
+
+
+@dataclass
+class GateOutcome:
+    """Internal result of evaluating one durability.gates config entry
+    against a company's latest raw metrics -- never a public API type,
+    folded into DurabilityScore's gate_* fields by score()."""
+    gate_id: str
+    status: str              # "GATED" | "UNTESTABLE"
+    cap: Optional[float] = None      # set only when status == "GATED"
+    reason: str = ""                 # human-readable clause, no ungated value yet
+    gap_text: Optional[str] = None   # set only when status == "UNTESTABLE"
 
 
 # ---------------------------------------------------------------------------
@@ -648,6 +713,74 @@ def _score_quality(
     return sub
 
 
+# ---------------------------------------------------------------------------
+# Gate layer (PR 4): raw-metric veto on top of the weighted composite
+# ---------------------------------------------------------------------------
+
+def _evaluate_gate(gate: dict, annual: dict[str, YearlyDerived]) -> Optional[GateOutcome]:
+    """
+    Evaluate one durability.gates config entry against the latest
+    YearlyDerived's RAW metrics -- the SAME latest.net_debt / latest.ebitda
+    _score_resilience above reads, at the same latest period (sorted(annual)
+    last entry). Gates key on raw metrics, never sub-scores: a sub-score's
+    curve/saturation already lies between the analyst's threshold belief and
+    the number it fires on; the raw metric is what the anchor in
+    docs/assumptions.md is written in.
+
+    Returns None for NOT APPLICABLE (net cash -- no leverage risk exists) or
+    PASS (ratio at or under threshold). Returns a GateOutcome for GATED or
+    UNTESTABLE otherwise. Decision order is load-bearing (net-cash checked
+    BEFORE the negative-EBITDA case) -- see docstring order in the caller.
+    """
+    if gate["metric"] != "net_debt_ebitda":
+        raise ValueError(f"_evaluate_gate: unsupported metric {gate['metric']!r}")
+
+    periods = sorted(annual)
+    if not periods:
+        return None
+    latest = annual[periods[-1]]
+    nd, ebitda = latest.net_debt, latest.ebitda
+    gate_id = gate["id"]
+    threshold = float(gate["threshold"])
+    cap = float(gate["cap"])
+
+    # 1. Net cash: no leverage risk exists -- category error to gate it.
+    if nd is not None and nd < 0:
+        return None
+
+    # 2. Absence-is-not-zero: a missing input is UNTESTABLE, never a pass.
+    if nd is None or ebitda is None:
+        missing = "net_debt" if nd is None else "ebitda"
+        return GateOutcome(
+            gate_id=gate_id, status="UNTESTABLE",
+            gap_text=(
+                f"{gate_id}: net_debt/EBITDA gate untestable — {missing} "
+                f"unavailable at {periods[-1]}"
+            ),
+        )
+
+    # 3. Positive net debt, EBITDA <= 0: strictly worse than any high ratio
+    #    (owes money, no earnings to service it) -- the ratio would compute
+    #    negative here and falsely read as "below threshold", so this must
+    #    be checked BEFORE the ratio comparison, not fall through to it.
+    if nd > 0 and ebitda <= 0:
+        return GateOutcome(
+            gate_id=gate_id, status="GATED", cap=cap,
+            reason="net debt positive with EBITDA <= 0 (cannot service debt)",
+        )
+
+    # 4. Over-levered.
+    ratio = nd / ebitda
+    if ratio > threshold:
+        return GateOutcome(
+            gate_id=gate_id, status="GATED", cap=cap,
+            reason=f"net_debt/ebitda {ratio:.1f} > {threshold:.1f}",
+        )
+
+    # 5. Pass.
+    return None
+
+
 def _score_resilience(annual: dict[str, YearlyDerived]) -> tuple[list[SubScore], list[str]]:
     """Category 3: Balance-sheet resilience.
 
@@ -974,6 +1107,24 @@ def _check_invariants(score: DurabilityScore) -> None:
         )
 
 
+def gate_status_of(ds: "DurabilityScore") -> tuple[Optional[str], str]:
+    """
+    Pure: (gate_status, tooltip) for a DurabilityScore -- "GATED" |
+    "UNTESTABLE" | None (no chip, either PASS or NOT APPLICABLE, which are
+    indistinguishable from the outside and both render nothing). GATED
+    takes priority when a hypothetical future gate list has one gate fire
+    and another go untestable on the same ticker -- the actionable,
+    already-resolved veto is shown over an open question. Single source of
+    truth so report_html.py / screen.py / report.py never each reimplement
+    this priority rule.
+    """
+    if ds.gated:
+        return "GATED", ds.gate_lineage
+    if ds.gate_untestable_ids:
+        return "UNTESTABLE", ds.gate_untestable_lineage
+    return None, ""
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -1226,7 +1377,63 @@ def score(
         is_stable=is_stable,
         stability_delta=stability_delta,
         gaps=list(res.gaps) + extra_gaps,
+        composite_ungated=composite,
     )
 
+    # _check_invariants independently recomputes composite from the
+    # category weights/composites, so it must run against the TRUE weighted
+    # composite -- BEFORE any gate cap is applied below. Gating is a
+    # deliberate override layered on top of an already-validated number,
+    # not a rewrite of the weighted-average math itself.
     _check_invariants(result)
+
+    # Balance-sheet gate layer (PR 4): raw-metric veto, evaluated on
+    # `annual` (the SAME dict _score_resilience read latest.net_debt /
+    # latest.ebitda from above) -- never on a sub-score, which carries
+    # curve/saturation artifacts the raw anchor in docs/assumptions.md
+    # doesn't. Config-driven LIST so future gates (dilution, ROIC-floor --
+    # both backlogged) slot in without re-architecture.
+    fired: list[GateOutcome] = []
+    untestable: list[GateOutcome] = []
+    for gate_cfg in dcfg["gates"]:
+        outcome = _evaluate_gate(gate_cfg, annual)
+        if outcome is None:
+            continue
+        if outcome.status == "GATED":
+            fired.append(outcome)
+        else:
+            untestable.append(outcome)
+            result.gaps.append(outcome.gap_text)
+
+    if fired:
+        # Most restrictive (lowest) cap wins when more than one gate fires.
+        winner = min(fired, key=lambda o: o.cap)
+        result.gated = True
+        result.gate_ids = [o.gate_id for o in fired]
+        result.gate_lineage = (
+            "; ".join(f"GATED[{o.gate_id}]: {o.reason} -> composite capped {o.cap:.1f}" for o in fired)
+            + f" (ungated {result.composite_ungated:.1f})"
+        )
+        # Cap sits on the composite (and its band) ONLY -- category/sub-
+        # score values above are untouched; the gap between strong
+        # sub-scores and a capped composite IS the signal.
+        #
+        # min(), not an unconditional override: a company can simultaneously
+        # be over-levered AND already score poorly on its own merits (weak
+        # fundamentals and high leverage are, if anything, correlated) --
+        # confirmed live during PR verification (AXON at a lowered test
+        # threshold: ungated composite 39.4, cap 45.0). A veto exists to cap
+        # an artificially high composite that leverage risk would otherwise
+        # mislead through; it must never RAISE an already-low score. The
+        # chip/lineage still fire on the raw-metric condition regardless --
+        # the disclosure is about the leverage, not about whether the cap
+        # happened to change the number.
+        result.composite = min(result.composite, winner.cap)
+        result.composite_low = min(result.composite_low, winner.cap)
+        result.composite_high = min(result.composite_high, winner.cap)
+
+    if untestable:
+        result.gate_untestable_ids = [o.gate_id for o in untestable]
+        result.gate_untestable_lineage = "; ".join(o.gap_text for o in untestable)
+
     return result

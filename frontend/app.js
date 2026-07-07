@@ -157,6 +157,41 @@
     numEl.insertBefore(slot, numEl.firstChild);
   }
 
+  // Balance-sheet gate indicator (GATE/GATE?, PR 4): a second reserved
+  // chip on the Durability (composite) score cell, same visibility:hidden
+  // reserved-slot pattern as appendDurGapsIndicator immediately above --
+  // called AFTER it so this slot's insertBefore lands to the LEFT of the
+  // DUR chip (GATE is the more severe, actionable signal: a raw-metric
+  // veto capping the composite, vs DUR's scoring-level disclosure). GATE
+  // (gate-slot-fired) = a gate fired, composite/band are the capped
+  // values; tooltip carries the full lineage string (reason, threshold,
+  // and the ungated composite). GATE? (gate-slot-untestable) = a required
+  // raw input was missing -- absence is not a pass, a distinct state from
+  // both PASS and GATED, never collapsed into "no chip". PASS/NOT
+  // APPLICABLE (gateStatus null) render nothing -- both are indistinguishable
+  // from the outside and neither is a disclosure.
+  function appendGateIndicator(compositeCell, gateStatus, gateTooltip) {
+    var numEl = compositeCell.querySelector(".score-num");
+    if (!numEl) return;
+    var slot = document.createElement("span");
+    slot.className = "gate-slot";
+    slot.textContent = "GATE";
+    if (gateStatus === "GATED") {
+      slot.classList.add("gate-slot-fired", "has-tooltip");
+    } else if (gateStatus === "UNTESTABLE") {
+      slot.textContent = "GATE?";
+      slot.classList.add("gate-slot-untestable", "has-tooltip");
+    }
+    if (gateStatus === "GATED" || gateStatus === "UNTESTABLE") {
+      slot.tabIndex = 0;
+      var tip = document.createElement("div");
+      tip.className = "th-tooltip";
+      tip.textContent = gateTooltip || "";
+      slot.appendChild(tip);
+    }
+    numEl.insertBefore(slot, numEl.firstChild);
+  }
+
   // Directional Gap pill. Sign (never inferred by CSS — computed here,
   // same as before) picks the fixed hue class; magnitude only scales the
   // --gap-alpha custom property within that hue, preserving the same
@@ -1300,6 +1335,7 @@
 
     var compositeTd = scoreCell(row.composite, fmtScore(row.composite), { composite: true, animate: animate, stagger: index });
     appendDurGapsIndicator(compositeTd, row.durability_gaps);
+    appendGateIndicator(compositeTd, row.gate_status, row.gate_tooltip);
     tr.appendChild(compositeTd);
     cellsByKey.composite = compositeTd;
 
