@@ -1,0 +1,152 @@
+{
+  "AAPL": {
+    "composite": 73.79,
+    "composite_ungated": 73.79,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": "COMPLETE",
+    "expectations_gap_fragile": "STABLE",
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "AMAT": {
+    "composite": 77.71,
+    "composite_ungated": 77.71,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": "COMPLETE",
+    "expectations_gap_fragile": "STABLE",
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "AMZN": {
+    "composite": 75.8,
+    "composite_ungated": 75.8,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": null,
+    "expectations_gap_fragile": null,
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "AXON": {
+    "composite": 39.38,
+    "composite_ungated": 39.38,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": null,
+    "expectations_gap_fragile": null,
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "BE": {
+    "composite": 27.88,
+    "composite_ungated": 27.88,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": null,
+    "expectations_gap_fragile": null,
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "CAT": {
+    "composite": 63.25,
+    "composite_ungated": 63.25,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": "COMPLETE",
+    "expectations_gap_fragile": "STABLE",
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "COST": {
+    "composite": 77.46,
+    "composite_ungated": 77.46,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": "COMPLETE",
+    "expectations_gap_fragile": "STABLE",
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "CRM": {
+    "composite": 55.89,
+    "composite_ungated": 55.89,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": "COMPLETE",
+    "expectations_gap_fragile": "STABLE",
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "GOOGL": {
+    "composite": 76.39,
+    "composite_ungated": 76.39,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": "COMPLETE",
+    "expectations_gap_fragile": "FRAGILE",
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "META": {
+    "composite": 76.75,
+    "composite_ungated": 76.75,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": "COMPLETE",
+    "expectations_gap_fragile": "FRAGILE",
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "MSFT": {
+    "composite": 77.61,
+    "composite_ungated": 77.61,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": "COMPLETE",
+    "expectations_gap_fragile": "STABLE",
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "NVDA": {
+    "composite": 80.26,
+    "composite_ungated": 80.26,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": "COMPLETE",
+    "expectations_gap_fragile": "FRAGILE",
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "RKLB": {
+    "composite": 16.81,
+    "composite_ungated": 16.81,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": null,
+    "expectations_gap_fragile": null,
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "TSLA": {
+    "composite": 55.38,
+    "composite_ungated": 55.38,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": null,
+    "expectations_gap_fragile": null,
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  },
+  "V": {
+    "composite": 82.18,
+    "composite_ungated": 82.18,
+    "config_hash": "39d382192c5e4f4f",
+    "expectations_gap_band_status": "COMPLETE",
+    "expectations_gap_fragile": "FRAGILE",
+    "gate_status_ids": [],
+    "gate_untestable_ids": [],
+    "gated": false
+  }
+}

@@ -1,0 +1,2020 @@
+{
+  "baseline_composite": 73.7915159443676,
+  "baseline_gaps_count": 2,
+  "latest_period": "2025-09-27",
+  "results": {
+    "none_injection": {
+      "capex": {
+        "SUSPICIOUS_undisclosed_change": true,
+        "composite_changed": true,
+        "composite_delta": 0.012185066410282275,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 12715000000,
+        "snapshot": {
+          "composite": 73.80370101077789,
+          "composite_high": 73.80370101077789,
+          "composite_low": 73.80370101077789,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.75981949309288,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {
+          "optionality_proxies.capex_revenue_proxy": [
+            95.3942675007846,
+            95.75981949309288
+          ]
+        }
+      },
+      "capital_employed": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 193610000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "cash": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 35934000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "cfo": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 111482000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "current_assets": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 147957000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "current_liabilities": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 165631000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "dep_amort": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 11698000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "ebit": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 133050000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "ebitda": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 144748000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "fcf": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 98767000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "gross_margin": {
+        "SUSPICIOUS_undisclosed_change": true,
+        "composite_changed": true,
+        "composite_delta": -0.003001409270254385,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 0.4690516410716045,
+        "snapshot": {
+          "composite": 73.78851453509735,
+          "composite_high": 73.78851453509735,
+          "composite_low": 73.78851453509735,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.18660598247926,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {
+          "quality_persistence.gross_margin_trend": [
+            50.246634167884096,
+            50.18660598247926
+          ]
+        }
+      },
+      "gross_profit": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 195201000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "interest_expense": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": null,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "invested_capital": {
+        "SUSPICIOUS_undisclosed_change": true,
+        "composite_changed": true,
+        "composite_delta": -0.05113382352388385,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 128477000000,
+        "snapshot": {
+          "composite": 73.74038212084372,
+          "composite_high": 73.74038212084372,
+          "composite_low": 73.74038212084372,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 59.707292251645484,
+            "quality_persistence.roic_trend": 52.070006588464224,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 12.260791929580428,
+            "reinvestment_engine.reinvestment_rate": 46.470471949159254,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {
+          "quality_persistence.roic_stability_cv": [
+            57.666488411565396,
+            59.707292251645484
+          ],
+          "quality_persistence.roic_trend": [
+            52.15142534524249,
+            52.070006588464224
+          ],
+          "reinvestment_engine.compounding_proxy": [
+            13.731096409038448,
+            12.260791929580428
+          ],
+          "reinvestment_engine.reinvestment_rate": [
+            46.988208505554155,
+            46.470471949159254
+          ]
+        }
+      },
+      "liquid_assets": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 132420000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "net_debt": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [
+          "balance_sheet_leverage: net_debt/EBITDA gate untestable \u2014 net_debt unavailable at 2025-09-27"
+        ],
+        "original_value": -41742000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "balance_sheet_leverage: net_debt/EBITDA gate untestable \u2014 net_debt unavailable at 2025-09-27",
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 3,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "net_income": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 112010000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "nopat": {
+        "SUSPICIOUS_undisclosed_change": true,
+        "composite_changed": true,
+        "composite_delta": -0.05113382352388385,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 105109500000.0,
+        "snapshot": {
+          "composite": 73.74038212084372,
+          "composite_high": 73.74038212084372,
+          "composite_low": 73.74038212084372,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 59.707292251645484,
+            "quality_persistence.roic_trend": 52.070006588464224,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 12.260791929580428,
+            "reinvestment_engine.reinvestment_rate": 46.470471949159254,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {
+          "quality_persistence.roic_stability_cv": [
+            57.666488411565396,
+            59.707292251645484
+          ],
+          "quality_persistence.roic_trend": [
+            52.15142534524249,
+            52.070006588464224
+          ],
+          "reinvestment_engine.compounding_proxy": [
+            13.731096409038448,
+            12.260791929580428
+          ],
+          "reinvestment_engine.reinvestment_rate": [
+            46.988208505554155,
+            46.470471949159254
+          ]
+        }
+      },
+      "operating_income": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 133050000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "operating_margin": {
+        "SUSPICIOUS_undisclosed_change": true,
+        "composite_changed": true,
+        "composite_delta": -0.004585635720260939,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 0.31970799762591884,
+        "snapshot": {
+          "composite": 73.78693030864734,
+          "composite_high": 73.78693030864734,
+          "composite_low": 73.78693030864734,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.85612983339547,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {
+          "quality_persistence.operating_margin_trend": [
+            49.94784254780059,
+            49.85612983339547
+          ]
+        }
+      },
+      "research_asset": {
+        "SUSPICIOUS_undisclosed_change": true,
+        "composite_changed": true,
+        "composite_delta": -0.14910307768897724,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": "ResearchAsset(unamortized_balance=92478200000.0, current_amortization=21890000000.0, schedule=[('2021-09-25', 21914000000, 0.2), ('2022-09-24', 26251000000, 0.4), ('2023-09-30', 29915000000, 0.6), ('2024-09-28', 31370000000, 0.8), ('2025-09-27', 34550000000, 1.0)])",
+        "snapshot": {
+          "composite": 73.64241286667863,
+          "composite_high": 73.64241286667863,
+          "composite_low": 73.64241286667863,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 12.260791929580428,
+            "reinvestment_engine.reinvestment_rate": 46.470471949159254,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {
+          "reinvestment_engine.compounding_proxy": [
+            13.731096409038448,
+            12.260791929580428
+          ],
+          "reinvestment_engine.reinvestment_rate": [
+            46.988208505554155,
+            46.470471949159254
+          ]
+        }
+      },
+      "revenue": {
+        "SUSPICIOUS_undisclosed_change": true,
+        "composite_changed": true,
+        "composite_delta": 0.05388806169847271,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 416161000000,
+        "snapshot": {
+          "composite": 73.84540400606608,
+          "composite_high": 73.84540400606608,
+          "composite_low": 73.84540400606608,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.77440631284566,
+            "optionality_proxies.capex_revenue_proxy": 95.75981949309288,
+            "optionality_proxies.rnd_revenue_proxy": 25.138622239792962,
+            "optionality_proxies.rnd_trend_proxy": 52.34182827471835,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {
+          "capital_discipline.sbc_revenue_ratio": [
+            86.28232339212344,
+            86.77440631284566
+          ],
+          "optionality_proxies.capex_revenue_proxy": [
+            95.3942675007846,
+            95.75981949309288
+          ],
+          "optionality_proxies.rnd_revenue_proxy": [
+            26.230072556708055,
+            25.138622239792962
+          ],
+          "optionality_proxies.rnd_trend_proxy": [
+            52.21366124240765,
+            52.34182827471835
+          ]
+        }
+      },
+      "rnd": {
+        "SUSPICIOUS_undisclosed_change": true,
+        "composite_changed": true,
+        "composite_delta": -0.18121252050912062,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 34550000000,
+        "snapshot": {
+          "composite": 73.61030342385848,
+          "composite_high": 73.61030342385848,
+          "composite_low": 73.61030342385848,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 25.138622239792962,
+            "optionality_proxies.rnd_trend_proxy": 52.34182827471835,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 12.260791929580428,
+            "reinvestment_engine.reinvestment_rate": 46.470471949159254,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {
+          "optionality_proxies.rnd_revenue_proxy": [
+            26.230072556708055,
+            25.138622239792962
+          ],
+          "optionality_proxies.rnd_trend_proxy": [
+            52.21366124240765,
+            52.34182827471835
+          ],
+          "reinvestment_engine.compounding_proxy": [
+            13.731096409038448,
+            12.260791929580428
+          ],
+          "reinvestment_engine.reinvestment_rate": [
+            46.988208505554155,
+            46.470471949159254
+          ]
+        }
+      },
+      "sbc": {
+        "SUSPICIOUS_undisclosed_change": true,
+        "composite_changed": true,
+        "composite_delta": 0.07381243810833382,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 12863000000,
+        "snapshot": {
+          "composite": 73.86532838247594,
+          "composite_high": 73.86532838247594,
+          "composite_low": 73.86532838247594,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.77440631284566,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {
+          "capital_discipline.sbc_revenue_ratio": [
+            86.28232339212344,
+            86.77440631284566
+          ]
+        }
+      },
+      "total_assets": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 359241000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "total_debt": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 90678000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      },
+      "total_equity": {
+        "SUSPICIOUS_undisclosed_change": false,
+        "composite_changed": false,
+        "composite_delta": 0.0,
+        "crashed": false,
+        "new_gaps": [],
+        "original_value": 73733000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        },
+        "sub_scores_changed": {}
+      }
+    },
+    "zero_injection": {
+      "capex": {
+        "IDENTICAL_TO_NONE_INJECTION": false,
+        "composite_vs_baseline": -0.03394786579659126,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 12715000000,
+        "snapshot": {
+          "composite": 73.75756807857101,
+          "composite_high": 73.75756807857101,
+          "composite_low": 73.75756807857101,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 94.37583152688669,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "capital_employed": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 193610000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "cash": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 35934000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "cfo": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 111482000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "current_assets": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 147957000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "current_liabilities": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 165631000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "dep_amort": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 11698000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "ebit": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 133050000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "ebitda": {
+        "IDENTICAL_TO_NONE_INJECTION": false,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 1,
+        "original_value": 144748000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "net_debt_ebitda: EBITDA <= 0 with net cash \u2014 outside ratio domain, not scored.",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 3,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "fcf": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 98767000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "gross_margin": {
+        "IDENTICAL_TO_NONE_INJECTION": false,
+        "composite_vs_baseline": -0.0376914926389702,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 0.4690516410716045,
+        "snapshot": {
+          "composite": 73.75382445172863,
+          "composite_high": 73.75382445172863,
+          "composite_low": 73.75382445172863,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 49.49280431510471,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "gross_profit": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 195201000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "interest_expense": {
+        "IDENTICAL_TO_NONE_INJECTION": false,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": null,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.interest_coverage": 100.0,
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "invested_capital": {
+        "IDENTICAL_TO_NONE_INJECTION": false,
+        "composite_vs_baseline": -1.7500523209525767,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 128477000000,
+        "snapshot": {
+          "composite": 72.04146362341503,
+          "composite_high": 72.04146362341503,
+          "composite_low": 72.04146362341503,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 59.707292251645484,
+            "quality_persistence.roic_trend": 52.070006588464224,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 0.0,
+            "reinvestment_engine.reinvestment_rate": 36.07901724635716,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "liquid_assets": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 132420000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "net_debt": {
+        "IDENTICAL_TO_NONE_INJECTION": false,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": -41742000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "net_income": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 112010000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "nopat": {
+        "IDENTICAL_TO_NONE_INJECTION": false,
+        "composite_vs_baseline": -3.7400772942849017,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 105109500000.0,
+        "snapshot": {
+          "composite": 70.0514386500827,
+          "composite_high": 70.0514386500827,
+          "composite_low": 70.0514386500827,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 49.82413070951927,
+            "quality_persistence.roic_trend": 51.01415952236918,
+            "quality_persistence.roic_years_above_threshold": 92.85714285714286,
+            "reinvestment_engine.compounding_proxy": 29.130689573549965,
+            "reinvestment_engine.reinvestment_rate": 56.65881180005691,
+            "reinvestment_engine.roic_latest": 35.810426729038284,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "operating_income": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 133050000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "operating_margin": {
+        "IDENTICAL_TO_NONE_INJECTION": false,
+        "composite_vs_baseline": -0.03713647615965954,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 0.31970799762591884,
+        "snapshot": {
+          "composite": 73.75437946820794,
+          "composite_high": 73.75437946820794,
+          "composite_low": 73.75437946820794,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.20511302460766,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "revenue": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.05388806169847271,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 416161000000,
+        "snapshot": {
+          "composite": 73.84540400606608,
+          "composite_high": 73.84540400606608,
+          "composite_low": 73.84540400606608,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.77440631284566,
+            "optionality_proxies.capex_revenue_proxy": 95.75981949309288,
+            "optionality_proxies.rnd_revenue_proxy": 25.138622239792962,
+            "optionality_proxies.rnd_trend_proxy": 52.34182827471835,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "rnd": {
+        "IDENTICAL_TO_NONE_INJECTION": false,
+        "composite_vs_baseline": -0.05269799736610992,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 34550000000,
+        "snapshot": {
+          "composite": 73.7388179470015,
+          "composite_high": 73.7388179470015,
+          "composite_low": 73.7388179470015,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 23.462714090473433,
+            "optionality_proxies.rnd_trend_proxy": 51.369002292723565,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 14.150217604443316,
+            "reinvestment_engine.reinvestment_rate": 47.4717884190094,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "sbc": {
+        "IDENTICAL_TO_NONE_INJECTION": false,
+        "composite_vs_baseline": 0.2060683749798784,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 12863000000,
+        "snapshot": {
+          "composite": 73.99758431934748,
+          "composite_high": 73.99758431934748,
+          "composite_low": 73.99758431934748,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 87.65611255865595,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "total_assets": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 359241000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "total_debt": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 90678000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      },
+      "total_equity": {
+        "IDENTICAL_TO_NONE_INJECTION": true,
+        "composite_vs_baseline": 0.0,
+        "crashed": false,
+        "gaps_vs_baseline_delta": 0,
+        "original_value": 73733000000,
+        "snapshot": {
+          "composite": 73.7915159443676,
+          "composite_high": 73.7915159443676,
+          "composite_low": 73.7915159443676,
+          "gaps": [
+            "interest_expense: no value for period 2025-09-27 (latest available is 2023-09-30, not used)",
+            "share_count_cagr: probable share-count discontinuity (likely a filing-vintage splice \u2014 later comparatives split-adjusted, older years stranded pre-split \u2014 or a genuine unadjusted split) between FY2011 and FY2012 \u2014 unadjusted diluted-share series rejected, not scored as dilution \u2014 seam filings: FY2011 from 10-K 0001193125-13-416534 filed 2013-10-30, FY2012 from 10-K 0001193125-14-383437 filed 2014-10-27"
+          ],
+          "gaps_count": 2,
+          "gated": false,
+          "sub_scores": {
+            "balance_sheet_resilience.negative_fcf_years": 100.0,
+            "balance_sheet_resilience.net_debt_ebitda": 100.0,
+            "capital_discipline.sbc_revenue_ratio": 86.28232339212344,
+            "optionality_proxies.capex_revenue_proxy": 95.3942675007846,
+            "optionality_proxies.rnd_revenue_proxy": 26.230072556708055,
+            "optionality_proxies.rnd_trend_proxy": 52.21366124240765,
+            "quality_persistence.gross_margin_trend": 50.246634167884096,
+            "quality_persistence.operating_margin_trend": 49.94784254780059,
+            "quality_persistence.roic_stability_cv": 57.666488411565396,
+            "quality_persistence.roic_trend": 52.15142534524249,
+            "quality_persistence.roic_years_above_threshold": 100.0,
+            "reinvestment_engine.compounding_proxy": 13.731096409038448,
+            "reinvestment_engine.reinvestment_rate": 46.988208505554155,
+            "reinvestment_engine.roic_latest": 100.0,
+            "reinvestment_engine.roic_mean": 100.0
+          }
+        }
+      }
+    }
+  },
+  "ticker": "AAPL"
+}
