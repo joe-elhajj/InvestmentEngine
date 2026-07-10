@@ -169,14 +169,19 @@ _WIN_WINDOW_RE = re.compile(r"window: (\d+)y actual vs (\d+)y requested")
 
 def _rnd_unadj_note(res: AnalysisResult) -> Optional[str]:
     """
-    Row-level R&D-UNADJ note -- a NEW signal (this PR), unlike the other
-    five provenance chips below. Mirrors the exact precedence already
-    used at the ratio-table Site C in report.py/report_html.py (fix/
-    rnd-badge-layout): no_rnd first (nothing was ever adjustable, no
-    note), then the stamped rnd_regime (fix/f14-rnd-disclosure). None
-    when the regime APPLIES -- adjustment actually happened, nothing to
-    disclose -- or when rnd_regime was never stamped at all (an
-    AnalysisResult built without going through derive()).
+    Row-level R&D-UNADJ reason -- a NEW signal (fix/rnd-badge-layout era),
+    unlike the other five provenance chips below. Mirrors the exact
+    precedence already used at the ratio-table Site C in report.py/
+    report_html.py: no_rnd first (nothing was ever adjustable, no note),
+    then the stamped rnd_regime (fix/f14-rnd-disclosure). None when the
+    regime APPLIES -- adjustment actually happened, nothing to disclose
+    -- or when rnd_regime was never stamped at all (an AnalysisResult
+    built without going through derive()).
+
+    feature/chip-legend: returns just the ROW-SPECIFIC reason ("IFRS
+    filer" / "regime disabled in config"), not the full sentence -- the
+    generic "R&D capitalization skipped" framing now lives once, in the
+    legend, sourced from CLAUDE.md's own badge vocabulary.
     """
     if res.rnd_regime is None or res.rnd_regime is RndRegime.APPLIES:
         return None
@@ -184,8 +189,8 @@ def _rnd_unadj_note(res: AnalysisResult) -> Optional[str]:
     if state == "no_rnd":
         return None
     if res.rnd_regime is RndRegime.ABSTAINED_IFRS_FPI:
-        return "R&D capitalization not applied (IFRS filer)"
-    return "R&D capitalization not applied (regime disabled in config)"
+        return "IFRS filer"
+    return "regime disabled in config"
 
 
 def _provenance_notes(
@@ -195,15 +200,17 @@ def _provenance_notes(
     implied_growth_note: Optional[str],
     durability_gaps: Optional[list],
     rnd_unadj_reason: Optional[str],
-) -> list[tuple[str, str]]:
+) -> list[tuple[str, Optional[str]]]:
     """
     Pure: the single source of truth for which of MKT/WIN/REV/INH/DUR/RND
-    are active for a row, and their short detail text -- ported verbatim
-    from frontend/app.js's own hasMkt/hasWin/hasRev/appendInheritChip/
-    appendDurGapsIndicator conditions and existing short-form strings
-    (originally built only for INH's own tooltip; now the single source
-    for the aggregate "dot + count" chip too), so this decision is
-    unit-tested without a JS test framework (none exists in this repo).
+    are active for a row, and their ROW-SPECIFIC detail (never a generic
+    definition -- see feature/chip-legend: the legend is now the ONE
+    place definitions live, sourced from CLAUDE.md's badge vocabulary;
+    duplicating that prose into every row's tooltip is exactly the "two
+    copies" this split avoids). Ported from frontend/app.js's own former
+    hasMkt/hasWin/hasRev/appendInheritChip/appendDurGapsIndicator
+    conditions, so this decision is unit-tested without a JS test
+    framework (none exists in this repo).
 
     Verdict chips (FRAG/GATE/GATE?/FRAG?) are a completely different
     signal class (durability veto / gap-sign robustness under bull-base-
@@ -213,33 +220,34 @@ def _provenance_notes(
     Returns a list of (code, detail) pairs, in the SAME left-to-right
     order app.js used to place the individual badges (MKT, WIN, REV,
     INH, DUR, RND) -- empty when nothing is active; absence-is-not-zero,
-    never a phantom entry for a None/falsy input.
+    never a phantom entry for a None/falsy input. detail is None for
+    codes with no row-specific variation (MKT/REV/INH/DUR always mean
+    the same thing regardless of ticker) -- the frontend renders the
+    bare code in that case, per the brief's own call ("if a chip has no
+    row-specific detail, the bare code is fine").
     """
-    notes: list[tuple[str, str]] = []
+    notes: list[tuple[str, Optional[str]]] = []
     gated = bool(implied_growth_note)
 
     has_mkt = quote_source == "yfinance" and bool(diluted_shares_gap)
     if has_mkt:
-        notes.append(("MKT", "implied uses vendor-tier share count"))
+        notes.append(("MKT", None))
 
     has_win = bool(delivered_growth_label and "window:" in delivered_growth_label)
     if has_win:
         m = _WIN_WINDOW_RE.search(delivered_growth_label)
-        win_detail = (
-            f"delivered window {m.group(1)}y vs {m.group(2)}y requested"
-            if m else "delivered uses an extended CAGR window"
-        )
+        win_detail = f"{m.group(1)}y vs {m.group(2)}y" if m else None
         notes.append(("WIN", win_detail))
 
     has_rev = bool(delivered_growth_label and delivered_growth_label.startswith("revenue CAGR"))
     if has_rev:
-        notes.append(("REV", "delivered is revenue CAGR, not FCF"))
+        notes.append(("REV", None))
 
     if not gated and (has_mkt or has_win or has_rev):
-        notes.append(("INH", "gap inherits an upstream MKT/WIN/REV caveat"))
+        notes.append(("INH", None))
 
     if durability_gaps:
-        notes.append(("DUR", "durability-scoring disclosures present"))
+        notes.append(("DUR", None))
 
     if rnd_unadj_reason:
         notes.append(("RND", rnd_unadj_reason))

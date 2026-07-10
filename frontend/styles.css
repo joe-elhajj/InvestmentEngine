@@ -720,9 +720,11 @@ td.gap-cell{text-align:right}
   cursor:default;vertical-align:middle;
 }
 .prov-chip:hover{color:var(--ink);border-color:var(--signal-text)}
-/* .th-tooltip's default white-space:normal collapses the \n between
-   notes -- pre-line renders each "CODE — detail" pair on its own line. */
-.prov-tooltip{white-space:pre-line;text-align:left}
+/* feature/chip-legend: no .prov-tooltip override needed anymore -- the
+   tooltip is now one joined line ("WIN (14y vs 5y) · INH · DUR"), not
+   multiple \n-separated definition sentences, so .th-tooltip's own
+   default white-space:normal (wraps naturally at its 280px max-width)
+   and text-align:left are already correct as-is. */
 
 /* ---- Expectations-gap fragility chip (FRAG/FRAG?, PR 3): a reserved
    slot on the Gap cell, visibility:hidden pattern (in the DOM, hidden
@@ -1306,6 +1308,42 @@ tbody tr:hover .row-remove{opacity:1}
 }
 .usage-table tbody td.l{text-align:left;color:var(--chrome-text-dim)}
 .usage-modal .surface{background:transparent;border:none;box-shadow:none}
+
+/* ---- Chip legend (feature/chip-legend): a static reference panel for
+   what every chip code means, reusing the same .modal/.modal-body shell
+   as the usage modal above -- this is the ONE place full definitions
+   live (sourced from CLAUDE.md's own "Badge/chip vocabulary" section,
+   not invented copy); the on-row chips and their tooltips stay codes +
+   row-specific detail only, never re-duplicating this prose. Verdict
+   and Provenance are two separate <dl> groups so the section label
+   reads once per group, not once per code. Contrast (computed):
+   .legend-code-verdict (on-accent on --bad) 6.92:1 -- same pairing as
+   the live GATE/FRAG chips, unchanged; .legend-code-verdict-untestable
+   (chrome-text-dim on chrome-bg) 9.04:1; .legend-code-prov (signal-text
+   on chrome-bg) 13.46:1 -- a new pairing (signal-text was previously
+   only verified against --surface/--surface-2), computed here since
+   this is the first place it renders against chrome-bg; dd text
+   (chrome-text on chrome-bg) 18.12:1, reused from the header wordmark. */
+.legend-section-label{
+  font-size:0.6875rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--chrome-text-dim);margin:0 0 8px;
+}
+.legend-section-label:not(:first-child){margin-top:20px}
+.legend-list{margin:0}
+.legend-item{
+  display:flex;gap:12px;align-items:baseline;padding:7px 0;
+  border-bottom:1px solid var(--chrome-border);
+}
+.legend-item:last-child{border-bottom:none}
+.legend-item dt{flex:none;margin:0;min-width:104px}
+.legend-item dd{margin:0;font-size:0.8125rem;color:var(--chrome-text);line-height:1.45}
+.legend-code{
+  display:inline-block;padding:1px 6px;border-radius:5px;font-family:var(--mono);
+  font-size:0.6875rem;font-weight:700;letter-spacing:.02em;white-space:nowrap;
+}
+.legend-code-verdict{color:var(--on-accent,#08110f);background:var(--bad)}
+.legend-code-verdict-untestable{color:var(--chrome-text-dim);border:1px dashed var(--chrome-border)}
+.legend-code-prov{color:var(--signal-text);border:1px solid rgba(var(--signal-rgb),0.4)}
 
 .hidden{display:none !important}
 

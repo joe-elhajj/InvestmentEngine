@@ -7,11 +7,16 @@ to 5 separate small per-cell badges in frontend/app.js's renderEquitiesRow
 (hasMkt/hasWin/hasRev/appendInheritChip/appendDurGapsIndicator) -- with no
 JS test framework in this repo to assert against that rendering directly.
 This PR moves the AGGREGATION LOGIC (which of the 6 provenance notes are
-active, and their short text) into engine/screen.py::_provenance_notes(),
-a pure function ported 1:1 from app.js's existing conditions and reusing
-its existing short-form strings (built for the old INH tooltip) verbatim
--- so the decision is testable, and app.js becomes a thin renderer of
-row.provenance_notes (dot+count chip, tooltip = one line per note).
+active, and their row-specific detail) into engine/screen.py::
+_provenance_notes(), a pure function ported 1:1 from app.js's existing
+conditions -- so the decision is testable, and app.js becomes a thin
+renderer of row.provenance_notes.
+
+feature/chip-legend (follow-up): _provenance_notes()' detail field is
+now ROW-SPECIFIC ONLY (None for MKT/REV/INH/DUR, which never vary by
+row) -- the generic "what does this code mean" definitions that used to
+live inline in each detail string moved OUT, to a legend modal, sourced
+from CLAUDE.md's own badge vocabulary. One place, not two copies.
 
 Verdict chips (FRAG/GATE/GATE?/FRAG?) are NOT provenance and are not
 touched by _provenance_notes at all -- there is no shared code path, so
@@ -55,7 +60,12 @@ def test_row_with_three_notes_yields_three_entries_with_correct_codes():
     assert len(notes) == 3
 
 
-def test_all_three_note_strings_are_specific_and_present():
+def test_row_specific_detail_only_where_it_varies_by_row():
+    """feature/chip-legend: detail is None (bare code) for MKT/INH -- they
+    never carry row-specific information, only the generic definition
+    now living solely in the legend. WIN keeps its row-specific window
+    years as a SHORT fragment (no more "delivered window ... requested"
+    sentence -- that generic framing moved to the legend too)."""
     notes = _provenance_notes(
         quote_source="yfinance",
         diluted_shares_gap=True,
@@ -65,9 +75,9 @@ def test_all_three_note_strings_are_specific_and_present():
         rnd_unadj_reason=None,
     )
     by_code = dict(notes)
-    assert "vendor-tier share count" in by_code["MKT"]
-    assert "14y" in by_code["WIN"] and "5y" in by_code["WIN"]
-    assert "upstream" in by_code["INH"].lower() or "mkt/win/rev" in by_code["INH"].lower()
+    assert by_code["MKT"] is None
+    assert by_code["WIN"] == "14y vs 5y"
+    assert by_code["INH"] is None
 
 
 def test_row_with_zero_notes_yields_empty_list():
@@ -104,10 +114,18 @@ def test_rev_and_dur_and_rnd_all_independently_fire():
         delivered_growth_label="revenue CAGR (FCF history non-positive or unavailable)",
         implied_growth_note="n/a — some reason",  # gated -> INH does NOT fire even though REV present
         durability_gaps=["net-cash resilience disclosure"],
-        rnd_unadj_reason="R&D capitalization not applied (IFRS filer)",
+        rnd_unadj_reason="IFRS filer",  # _rnd_unadj_note()'s own (now-shortened) return shape
     )
     codes = [c for c, _ in notes]
     assert codes == ["REV", "DUR", "RND"], f"expected REV, DUR, RND (no INH -- gated), got: {codes}"
+    by_code = dict(notes)
+    assert by_code["REV"] is None
+    assert by_code["DUR"] is None
+    assert by_code["RND"] == "IFRS filer", (
+        "RND's detail must be the short, row-specific reason only -- the "
+        "generic 'R&D capitalization skipped' framing now lives in the "
+        "legend, not duplicated here"
+    )
 
 
 def test_gated_row_never_shows_inh_even_with_mkt_and_win_present():
