@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from engine.edgar import Fact, classify_rnd_series, is_fpi
-from engine.pipeline import AnalysisResult
+from engine.edgar import Fact, classify_rnd_series
+from engine.pipeline import AnalysisResult, RndRegime, rnd_regime_reason_text
 
 
 def _pct(x, nd=1):
@@ -37,27 +37,6 @@ def _ratio(m):
         note = f" ({m.note})" if (m is not None and m.note) else ""
         return f"n/a{note}"
     return f"{m.value:.2f}"
-
-
-def _rnd_unadj_reason(res: AnalysisResult) -> str | None:
-    """
-    R&D-UNADJ badge reason for the R&D-capitalization-adjusted ROIC row, or
-    None when there's nothing to disclose. Per docs/assumptions.md's
-    calibration principle 3 (abstain and disclose): a legitimate absence of
-    R&D (NO_RND) is silent — zero adjustment is normal there, not an
-    exception state — while an IFRS filer or an insufficient/gapped R&D
-    history abstains loudly, with a reason distinguishing which.
-    """
-    fpi, _ = is_fpi(res.company)
-    if fpi:
-        return "IFRS filer — pending disposition"
-    state, _ = classify_rnd_series(res.company)
-    if state == "no_rnd":
-        return None
-    m = res.ratios.get("roic_adjusted")
-    if m is not None and m.value is not None:
-        return None  # adjustment succeeded -- no badge needed
-    return "insufficient history"
 
 
 def _derived_source(expression: str, inputs: list[tuple[str, object]]) -> str:
@@ -202,18 +181,38 @@ def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | 
             val = _pct(m.value) if is_pct else f"{m.value:.2f}"
         w(f"| {label} | {val} |")
         if key == "roic":
-            # Dual ROIC (Damodaran R&D capitalization) -- displayed whenever
-            # computable regardless of durability.rnd_capitalization.enabled
-            # (that flag gates only the durability score's consumption; see
-            # engine/durability.py). No row at all for a legitimate NO_RND
-            # company -- zero adjustment is normal there, not an exception.
+            # Dual ROIC (Damodaran R&D capitalization). Two layers compose
+            # here, in precedence order: (1) no R&D series at all -- nothing
+            # was ever adjustable, so no row, not a badge, exactly like a
+            # legitimate NO_RND company always got; (2) res.rnd_regime
+            # (stamped once by pipeline.derive(), see engine/pipeline.py) is
+            # ABSTAINED -- regime disabled in config, or an IFRS filer -- so
+            # a badge with THAT reason, regardless of whether roic_adjusted
+            # happened to compute; (3) roic_adjusted didn't compute for some
+            # other reason (e.g. a short/gapped window) -- a badge saying so;
+            # (4) otherwise, the bare percentage.
             adj = r.get("roic_adjusted")
-            if adj is not None and adj.value is not None:
-                w(f"| ROIC (R&D-adj) | {_pct(adj.value)} |")
+            state, _ = classify_rnd_series(res.company)
+            if state == "no_rnd":
+                pass
+            elif res.rnd_regime is None:
+                # Loud, not a badge: an unstamped AnalysisResult means we were
+                # never told this filer's FPI/regime status, so we cannot
+                # safely choose between a badge and a bare percentage --
+                # guessing risks reproducing F-14 itself (a real percentage
+                # shown for a company that should have abstained).
+                raise ValueError(
+                    "AnalysisResult.rnd_regime is None but roic_adjusted has a decision to "
+                    "render -- call pipeline.derive() (which stamps rnd_regime) rather than "
+                    "constructing AnalysisResult directly when R&D data is present"
+                )
+            elif res.rnd_regime is not RndRegime.APPLIES:
+                reason = rnd_regime_reason_text(res.rnd_regime)
+                w(f"| ROIC (R&D-adj) | n/a — **R&D-UNADJ** ({reason}) |")
+            elif adj is None or adj.value is None:
+                w("| ROIC (R&D-adj) | n/a — **R&D-UNADJ** (insufficient history) |")
             else:
-                reason = _rnd_unadj_reason(res)
-                if reason:
-                    w(f"| ROIC (R&D-adj) | n/a — **R&D-UNADJ** ({reason}) |")
+                w(f"| ROIC (R&D-adj) | {_pct(adj.value)} |")
     w("")
 
     # --- Peer comparison ----------------------------------------------------

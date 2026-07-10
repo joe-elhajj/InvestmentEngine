@@ -9,12 +9,13 @@ pipeline, never on raw "analyze TICKER" guesswork.
 
 from __future__ import annotations
 
+import enum
 import statistics
 from dataclasses import dataclass, field
 from typing import Optional
 
 from engine import metrics as M
-from engine.edgar import CompanyData
+from engine.edgar import CompanyData, is_fpi
 from engine.market import Quote
 from engine import valuation as V
 
@@ -75,6 +76,93 @@ class YearlyDerived:
 
 
 # ---------------------------------------------------------------------------
+# R&D-capitalization regime applicability -- LAYER 1 ONLY.
+#
+# This decides whether the regime applies to a company AT ALL: is it
+# switched on in config, and is the filer an FPI. It does NOT decide
+# whether a given year's R&D window actually resolves -- that per-year
+# availability check (n_adjusted_total) is LAYER 2, owned entirely by
+# engine/durability.py's score() (the `if n_adjusted_total > 0:` branch),
+# and is left untouched by this predicate on purpose: routing a
+# no-adjustment-path company through the matched-window view on layer-1
+# grounds alone would coerce its genuine GAAP figures to None (see
+# durability.py's own module-level comment on this exact failure mode).
+#
+# Placement: here, in pipeline.py, not in durability.py, even though
+# durability.py owns the only consumer that matters for scoring.
+# durability.py already imports AnalysisResult from this module (see
+# durability.py's own imports), and both renderers (report.py,
+# report_html.py) already import AnalysisResult from here too -- so this
+# module is the one every consumer of this predicate already depends on,
+# with no new edge introduced. The reverse placement would require
+# derive() (here) to import FROM durability.py to stamp AnalysisResult
+# during derive() -- and durability.py already imports FROM pipeline.py,
+# so that would be circular.
+# ---------------------------------------------------------------------------
+
+# Single source of truth for the rnd_capitalization section's defaults --
+# durability.py's _resolve_config merges config.yaml onto this SAME dict
+# (imported, not redefined) for its own _DEFAULT_RND_CAPITALIZATION, and
+# rnd_regime_applies below reads its `enabled` default from it too. One
+# constant, both importers, no third literal that could silently drift.
+RND_CAPITALIZATION_DEFAULTS: dict = {
+    "enabled": False,             # regime OFF by default -- see docs/assumptions.md
+    "amortization_years": 5,
+}
+
+
+class RndRegime(enum.Enum):
+    """
+    Exactly one of three states -- never a (bool, reason: str | None) pair,
+    which can drift out of sync with itself (an `applies=True` with a
+    non-None reason, say). The reason is inherent to which member this is,
+    not a separately settable field.
+    """
+    APPLIES = "applies"
+    ABSTAINED_REGIME_DISABLED = "abstained_regime_disabled"
+    ABSTAINED_IFRS_FPI = "abstained_ifrs_fpi"
+
+
+_RND_REGIME_REASON_TEXT: dict[RndRegime, str] = {
+    RndRegime.ABSTAINED_REGIME_DISABLED: "R&D capitalization regime disabled in config",
+    RndRegime.ABSTAINED_IFRS_FPI: (
+        "IFRS filer — R&D capitalization skipped (IAS 38 already capitalizes "
+        "development costs to an unknown degree; stacking this adjustment on "
+        "top would produce an error of ambiguous sign)"
+    ),
+}
+
+
+def rnd_regime_reason_text(regime: RndRegime) -> Optional[str]:
+    """Disclosure text for an ABSTAINED regime state; None for APPLIES
+    (nothing to disclose at this layer)."""
+    return _RND_REGIME_REASON_TEXT.get(regime)
+
+
+def rnd_regime_applies(cd: CompanyData, cfg: dict) -> RndRegime:
+    """
+    Pure layer-1 predicate: does the R&D-capitalization regime apply to
+    this company at all? Reads only rnd_capitalization.enabled and
+    is_fpi(cd) -- never R&D data availability (layer 2).
+
+    Precedence: regime_disabled outranks ifrs_fpi. If the regime is off
+    globally, nothing is adjusted for anyone; an FPI in that state is in
+    exactly the same position as a domestic filer, so surfacing "IFRS
+    filer" would falsely single it out as the reason nothing was
+    adjusted. The IFRS reason only applies when the regime is otherwise
+    live.
+    """
+    enabled = bool(cfg.get("durability", {}).get("rnd_capitalization", {})
+                   .get("enabled", RND_CAPITALIZATION_DEFAULTS["enabled"]))
+    if not enabled:
+        return RndRegime.ABSTAINED_REGIME_DISABLED
+    fpi, _ = is_fpi(cd)
+    if fpi:
+        return RndRegime.ABSTAINED_IFRS_FPI
+    return RndRegime.APPLIES
+
+
+# ---------------------------------------------------------------------------
 # AnalysisResult — the full output of derive()
 # ---------------------------------------------------------------------------
 
@@ -100,6 +188,9 @@ class AnalysisResult:
     expectations_gap: Optional[float] = None
     # --- PR 3: expectations gap as a bull/base/bear band, additive to the above ---
     expectations_gap_band: Optional[V.ExpectationsGapBand] = None
+    # --- PR A (F-14 fix): layer-1 R&D-regime applicability, stamped once by
+    # derive() so renderers read it instead of each acquiring their own cfg ---
+    rnd_regime: Optional[RndRegime] = None
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +490,7 @@ def derive_annual_series(cd: CompanyData, config: dict) -> dict[str, YearlyDeriv
 
 def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     res = AnalysisResult(company=cd, quote=quote)
+    res.rnd_regime = rnd_regime_applies(cd, config)
     res.gaps = list(cd.unresolved)
 
     val_cfg = config.get("valuation", {})
