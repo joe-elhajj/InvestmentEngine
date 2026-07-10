@@ -11,10 +11,12 @@ a full mocked EDGAR/quote/durability pipeline just to reach it.
 
 from __future__ import annotations
 
+import dataclasses
+
 from engine.edgar import CompanyData
 from engine.market import Quote
 from engine.pipeline import AnalysisResult
-from engine.screen import _implied_growth_columns
+from engine.screen import _empty_row, _implied_growth_columns
 from engine.valuation import ImpliedGrowthResult
 
 
@@ -103,3 +105,36 @@ class TestUnaffectedPaths:
         assert implied_g == 0.12
         assert gap == 0.03
         assert note == ""
+
+
+class TestScreenRowName:
+    """
+    feature/search-by-name: ScreenRow.name is threaded from CompanyData.name
+    (EDGAR), already fetched for every row that got as far as an EDGAR
+    lookup succeeding -- zero new network calls. None only for rows that
+    never resolved a CompanyData at all; must propagate as None, never a
+    coerced empty string, through both construction and JSON
+    serialization (dataclasses.asdict(), which /api/screen's
+    _serialize_screen uses verbatim).
+    """
+
+    def test_empty_row_carries_name_through_when_given(self):
+        row = _empty_row("TEST", "skipped: some reason", name="Test Co")
+        assert row.name == "Test Co"
+
+    def test_empty_row_name_defaults_to_none(self):
+        row = _empty_row("TEST", "no EDGAR registrant, not classifiable as fund")
+        assert row.name is None
+
+    def test_none_name_survives_asdict_as_none_not_empty_string(self):
+        """/api/screen's _serialize_screen calls dataclasses.asdict() verbatim
+        -- confirms a None name round-trips as None (renders as "ticker
+        alone" in the frontend), never silently coerced to ""."""
+        row = _empty_row("TEST", "some reason")
+        d = dataclasses.asdict(row)
+        assert d["name"] is None
+
+    def test_real_name_survives_asdict(self):
+        row = _empty_row("TEST", "some reason", name="Test Co")
+        d = dataclasses.asdict(row)
+        assert d["name"] == "Test Co"

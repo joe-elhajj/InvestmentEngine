@@ -16,10 +16,11 @@
       <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
         <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
       </svg>
-      <input id="search-input" type="text" placeholder="Search ticker…"
-             autocomplete="off" spellcheck="false" maxlength="10">
+      <input id="search-input" type="text" placeholder="Search ticker or company…"
+             autocomplete="off" spellcheck="false" maxlength="60">
       <span id="search-status" class="search-status" aria-live="polite"></span>
     </div>
+    <ul id="search-candidates" class="search-candidates hidden" role="listbox"></ul>
     <div id="search-confirm" class="search-confirm hidden">
       <span id="search-confirm-text" class="search-confirm-text"></span>
       <span id="search-classification-badge" class="classification-badge pending">pending</span>

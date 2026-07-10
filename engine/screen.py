@@ -190,6 +190,13 @@ class ScreenRow:
     gate_status: Optional[str] = None            # "GATED" | "UNTESTABLE" | None
     gate_tooltip: str = ""
     composite_ungated: Optional[float] = None
+    # Company name (feature/search-by-name): threaded from CompanyData.name
+    # (EDGAR) -- already fetched for every row that got as far as an EDGAR
+    # lookup succeeding (see _process_one), so this costs zero new network
+    # calls. None only for rows that never resolved a CompanyData at all
+    # (ticker absent from the SEC ticker map entirely) -- absence-is-not-
+    # zero, never a coerced "".
+    name: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +299,8 @@ def _classify(ticker: str, cd: CompanyData, overrides: dict) -> tuple[str, str]:
 def _empty_row(ticker: str, flag: str, excluded: bool = False,
                completeness: Optional[float] = None,
                config_hash: Optional[str] = None,
-               universe_version: str = "") -> ScreenRow:
+               universe_version: str = "",
+               name: Optional[str] = None) -> ScreenRow:
     return ScreenRow(
         ticker=ticker,
         composite=None, composite_low=None, composite_high=None,
@@ -303,6 +311,7 @@ def _empty_row(ticker: str, flag: str, excluded: bool = False,
         implied_fcf_growth=None, delivered_fcf_growth=None,
         expectations_gap=None, implied_growth_note="",
         quality_value_score=None, flag=flag, excluded=excluded,
+        name=name,
     )
 
 
@@ -406,12 +415,12 @@ def _process_one(
 
     if classification == "skip":
         return _empty_row(ticker, f"skipped: {evidence}",
-                          universe_version=universe_version), None
+                          universe_version=universe_version, name=cd.name), None
 
     # For "unclassified" — include in operating rows with flag, don't try to score
     if classification == "unclassified":
         return _empty_row(ticker, evidence,
-                          universe_version=universe_version), None
+                          universe_version=universe_version, name=cd.name), None
 
     # "operating_domestic", "operating_fpi", or override → attempt scoring
     # Pass the override flag so durability.score() can bypass financial-SIC exclusion
@@ -421,7 +430,7 @@ def _process_one(
         ds = D.score(res, cfg, override_classification=overrides.get(ticker.upper()))
     except Exception as e:
         return _empty_row(ticker, f"error:{type(e).__name__}: {e}",
-                          universe_version=universe_version), None
+                          universe_version=universe_version, name=cd.name), None
 
     if ds.excluded:
         # Probe yfinance before finalising as Excluded.  Catches commodity ETFs
@@ -436,7 +445,7 @@ def _process_one(
         return _empty_row(
             ticker, ds.exclusion_reason, excluded=True,
             completeness=ds.data_completeness, config_hash=ds.config_hash,
-            universe_version=universe_version,
+            universe_version=universe_version, name=cd.name,
         ), None
 
     def _cat(name: str) -> Optional[float]:
@@ -505,6 +514,7 @@ def _process_one(
         gate_status=gate_status,
         gate_tooltip=gate_tooltip,
         composite_ungated=ds.composite_ungated,
+        name=cd.name,
     ), None
 
 

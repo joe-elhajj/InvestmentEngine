@@ -298,7 +298,15 @@ def delete_from_watchlist(ticker: str):
 # Search — instant EDGAR ticker-map preflight, no data fetch
 # ---------------------------------------------------------------------------
 
-def _lookup_ticker_name(ticker: str) -> Optional[str]:
+def _ensure_ticker_names() -> dict[str, Optional[str]]:
+    """
+    Lazily fetch+cache the full SEC ticker->title map for the process
+    lifetime (same SEC_TICKERS_URL company_tickers.json source
+    /api/search's name field already used). Both the exact-match lookup
+    below and /api/search_candidates share this one fetch — searching by
+    name costs zero new network calls, since this dict already covers the
+    entire SEC ticker universe once populated.
+    """
     if app.state.ticker_names is None:
         resp = app.state.client.session.get(SEC_TICKERS_URL, timeout=30)
         resp.raise_for_status()
@@ -306,7 +314,47 @@ def _lookup_ticker_name(ticker: str) -> Optional[str]:
         app.state.ticker_names = {
             row["ticker"].upper(): row.get("title") for row in data.values()
         }
-    return app.state.ticker_names.get(ticker)
+    return app.state.ticker_names
+
+
+def _lookup_ticker_name(ticker: str) -> Optional[str]:
+    return _ensure_ticker_names().get(ticker)
+
+
+@app.get("/api/search_candidates/{query}")
+def search_candidates(query: str, limit: int = 8):
+    """
+    Ticker-prefix OR company-name-substring match, case-insensitive, over
+    the same ticker->title map /api/search already fetches. Ticker-prefix
+    hits are ranked first (typing "AAPL" should surface Apple itself, not
+    an unrelated company whose name happens to contain "aapl"), then
+    name-substring hits, alphabetically within each group. Returns at most
+    `limit` {ticker, name} pairs for the frontend's dropdown -- this is a
+    candidate list for the EXISTING exact-match confirm/add flow
+    (/api/search/{ticker}), not a replacement for it.
+    """
+    q = query.strip()
+    if not q:
+        return {"candidates": []}
+    try:
+        names = _ensure_ticker_names()
+    except Exception:
+        # Same degrade-to-empty philosophy as /api/search: a network
+        # hiccup fetching the ticker map itself should never raise here.
+        return {"candidates": []}
+    q_upper = q.upper()
+    q_lower = q.lower()
+    prefix_hits = []
+    substring_hits = []
+    for ticker, name in sorted(names.items()):
+        if ticker.startswith(q_upper):
+            prefix_hits.append({"ticker": ticker, "name": name})
+        elif name and q_lower in name.lower():
+            substring_hits.append({"ticker": ticker, "name": name})
+        if len(prefix_hits) >= limit:
+            break
+    candidates = (prefix_hits + substring_hits)[:limit]
+    return {"candidates": candidates}
 
 
 @app.get("/api/search/{ticker}")
