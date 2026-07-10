@@ -491,8 +491,8 @@ class TestNormalizedFcfWindow:
         )
         assert len(all_pairs) == 6
 
-        nfcf_all, _ = _normalized_fcf(annual, window=len(all_pairs))  # all 6
-        nfcf_win, lineage = _normalized_fcf(annual, window=5)          # last 5
+        nfcf_all, _, _ = _normalized_fcf(annual, window=len(all_pairs))  # all 6
+        nfcf_win, lineage, _ = _normalized_fcf(annual, window=5)          # last 5
 
         latest_rev = annual[max(annual)].revenue
         expected_margin = statistics.median([m for _, m in all_pairs[-5:]])
@@ -504,14 +504,14 @@ class TestNormalizedFcfWindow:
 
     def test_window_1_uses_single_year(self):
         annual = self._annual_series()
-        nfcf, lineage = _normalized_fcf(annual, window=1)
+        nfcf, lineage, _ = _normalized_fcf(annual, window=1)
         assert nfcf is not None
         assert "window=1" in lineage
 
     def test_window_larger_than_history_uses_all(self):
         annual = self._annual_series()  # 6 years
-        nfcf_10, _ = _normalized_fcf(annual, window=10)
-        nfcf_all, _ = _normalized_fcf(annual, window=len(annual))
+        nfcf_10, _, _ = _normalized_fcf(annual, window=10)
+        nfcf_all, _, _ = _normalized_fcf(annual, window=len(annual))
         # Both use all available data when window > len(annual)
         assert nfcf_10 is not None
         assert abs((nfcf_10 or 0) - (nfcf_all or 0)) < 1e-6

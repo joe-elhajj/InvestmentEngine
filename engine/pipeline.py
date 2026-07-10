@@ -191,6 +191,14 @@ class AnalysisResult:
     # --- PR A (F-14 fix): layer-1 R&D-regime applicability, stamped once by
     # derive() so renderers read it instead of each acquiring their own cfg ---
     rnd_regime: Optional[RndRegime] = None
+    # --- fix/implied-growth-abstention: WHY implied_growth_result stayed
+    # None, stamped once by derive() so screen.py's _implied_growth_columns()
+    # never has to guess (the fixed bug: every None here used to render as
+    # "FCF non-positive" regardless of the true cause). None only when
+    # implied_growth_result actually resolved, OR when this AnalysisResult
+    # was constructed directly rather than through derive() -- the latter
+    # is the same "unstamped" shape RndRegime's own None-guard handles. ---
+    implied_growth_abstain_reason: Optional["ImpliedGrowthAbstainReason"] = None
 
 
 # ---------------------------------------------------------------------------
@@ -382,10 +390,33 @@ def _build_year_entry(
 # B-series helpers: normalized FCF, delivered growth
 # ---------------------------------------------------------------------------
 
+class ImpliedGrowthAbstainReason(enum.Enum):
+    """
+    Layer-1 reason tag for why derive() never computed
+    AnalysisResult.implied_growth_result at all -- stamped once (see
+    AnalysisResult.implied_growth_abstain_reason) so screen.py's
+    _implied_growth_columns() renders the TRUE cause instead of guessing.
+    The fixed bug: every None here used to render as "FCF non-positive"
+    regardless of actual cause -- e.g. a real positive normalized_fcf
+    blocked only by a missing net_debt, or a total data desert with no
+    FCF/revenue pairs to compute a margin from at all.
+
+    bracket_hit is deliberately NOT a member here: hitting the bisection
+    bracket IS a computed result (implied_growth_result is NOT None), not
+    an abstention -- see _gap_bracket_bound in screen.py, which reads
+    ImpliedGrowthResult.bracket_bound directly instead.
+    """
+    CURRENCY_GATED = "currency_gated"              # reporting_currency != USD
+    NO_DATA = "no_data"                            # no FCF/revenue pairs to compute a margin from
+    FCF_NONPOSITIVE = "fcf_nonpositive"             # a margin WAS computed, and it's <= 0
+    NET_DEBT_MISSING = "net_debt_missing"
+    PRICE_SHARES_MISSING = "price_shares_missing"  # market-vendor-tier quote unavailable
+
+
 def _normalized_fcf(
     annual: dict[str, YearlyDerived],
     window: int = 5,
-) -> tuple[Optional[float], str]:
+) -> tuple[Optional[float], str, Optional[ImpliedGrowthAbstainReason]]:
     """
     Normalized FCF = median(FCF margin over last `window` fiscal years) × latest revenue.
 
@@ -393,7 +424,12 @@ def _normalized_fcf(
     than a full 15-year history that may include a different business model.
     Configurable via valuation.normalized_fcf_years (default 5).
 
-    Returns (value, lineage).  Returns (None, reason) when median margin ≤ 0.
+    Returns (value, lineage, abstain_reason). abstain_reason is None
+    exactly when value is not None (nothing to abstain from); otherwise
+    it's NO_DATA (no pairs at all, or the latest period's revenue itself
+    is absent -- there was nothing to compute FROM) or FCF_NONPOSITIVE (a
+    margin WAS computed, and rejected as <= 0) -- these are NOT the same
+    claim, and conflating them is the bug this reason tag exists to fix.
     """
     all_pairs = sorted(
         [
@@ -406,7 +442,7 @@ def _normalized_fcf(
     pairs = all_pairs[-window:]  # keep only the last `window` fiscal years
 
     if not pairs:
-        return None, "normalized_fcf: no FCF/revenue pairs in annual series"
+        return None, "normalized_fcf: no FCF/revenue pairs in annual series", ImpliedGrowthAbstainReason.NO_DATA
 
     margins = [m for _, m in pairs]
     periods = [pe for pe, _ in pairs]
@@ -415,11 +451,11 @@ def _normalized_fcf(
     if median_margin <= 0:
         return None, (
             f"normalized_fcf: median FCF margin {median_margin:.2%} ≤ 0 — not meaningful"
-        )
+        ), ImpliedGrowthAbstainReason.FCF_NONPOSITIVE
 
     latest = annual[max(annual)]
     if latest.revenue is None:
-        return None, "normalized_fcf: latest revenue absent"
+        return None, "normalized_fcf: latest revenue absent", ImpliedGrowthAbstainReason.NO_DATA
 
     val = median_margin * latest.revenue
     lineage = (
@@ -427,7 +463,7 @@ def _normalized_fcf(
         f"revenue {latest.revenue:.0f} "
         f"(window={window}, periods: {', '.join(p[:4] for p in periods)})"
     )
-    return val, lineage
+    return val, lineage, None
 
 
 def _delivered_growth(
@@ -516,7 +552,7 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         res.gaps.remove("gross_profit")
 
     # Normalized FCF and delivered growth (both depend only on annual series)
-    nfcf_val, nfcf_lineage = _normalized_fcf(annual, window=fcf_window)
+    nfcf_val, nfcf_lineage, nfcf_abstain_reason = _normalized_fcf(annual, window=fcf_window)
     res.normalized_fcf = nfcf_val
     if nfcf_val is None:
         res.gaps.append(nfcf_lineage)
@@ -678,6 +714,10 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
             "no FX conversion performed"
         )
         res.gaps.append(ccy_gap)
+        res.implied_growth_abstain_reason = ImpliedGrowthAbstainReason.CURRENCY_GATED
+        res.gaps.append(
+            f"implied_growth: reporting currency {reporting_ccy} vs USD market data"
+        )
         res.rel_val = V.RelativeValuation(pe=None, ev_ebitda=None, fcf_yield=None)
         return res
 
@@ -719,11 +759,28 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         res.gaps.append("dcf: base FCF unavailable or non-positive")
 
     # Implied growth (reverse DCF) and expectations gap
-    # Uses normalized_fcf (B1) as the base FCF; systematic WACC/terminal_g from config.
-    if (res.normalized_fcf is not None
-            and net_debt is not None
-            and quote.price and quote.price > 0
-            and quote.shares_outstanding and quote.shares_outstanding > 0):
+    # Uses normalized_fcf (B1) as the base FCF; systematic WACC/terminal_g from
+    # config. Restructured as explicit if/elif/else (fix/implied-growth-
+    # abstention) so each non-computing path stamps its OWN true cause onto
+    # implied_growth_abstain_reason and gap-logs it -- the original single
+    # AND-condition collapsed all four preconditions into one silent None,
+    # which screen.py's _implied_growth_columns() then had to guess at
+    # (always "FCF non-positive", regardless of which precondition actually
+    # failed). Branch order = priority when more than one would fail
+    # (normalized_fcf first, since it's the base input; then net_debt; then
+    # the market-vendor-tier quote) -- logically equivalent to the original
+    # AND-condition's negation, so the success path below is unchanged.
+    if res.normalized_fcf is None:
+        res.implied_growth_abstain_reason = nfcf_abstain_reason
+        res.gaps.append(f"implied_growth: {nfcf_lineage}")
+    elif net_debt is None:
+        res.implied_growth_abstain_reason = ImpliedGrowthAbstainReason.NET_DEBT_MISSING
+        res.gaps.append("implied_growth: net_debt unavailable")
+    elif not (quote.price and quote.price > 0
+              and quote.shares_outstanding and quote.shares_outstanding > 0):
+        res.implied_growth_abstain_reason = ImpliedGrowthAbstainReason.PRICE_SHARES_MISSING
+        res.gaps.append("implied_growth: price or share count unavailable (market-vendor tier)")
+    else:
         res.implied_growth_result = V.implied_growth(
             price=quote.price,
             shares=quote.shares_outstanding,
@@ -732,7 +789,15 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
             config=config,
         )
         igr = res.implied_growth_result
-        if igr is not None and not igr.bracket_hit and res.delivered_growth is not None:
+        if igr.bracket_hit:
+            # A REAL result, not an abstention -- the market price is
+            # off-scale rich/cheap even at the model's growth ceiling/
+            # floor. Still worth a gap-log line (T4): "gaps reads
+            # complete without cross-inference" applies to this path too,
+            # even though it renders differently (see _gap_bracket_bound
+            # in screen.py) from a genuine absence.
+            res.gaps.append(f"implied_growth: {igr.lineage}")
+        elif res.delivered_growth is not None:
             res.expectations_gap = igr.implied_growth - res.delivered_growth
 
         # Same reverse-DCF, run under all three owned scenario bundles (PR 3).

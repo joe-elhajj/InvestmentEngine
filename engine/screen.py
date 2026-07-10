@@ -41,7 +41,7 @@ from typing import Optional
 
 from engine.edgar import CompanyData, EdgarClient
 from engine.market import get_quote
-from engine.pipeline import AnalysisResult, derive
+from engine.pipeline import AnalysisResult, derive, ImpliedGrowthAbstainReason
 from engine import durability as D
 from engine.etf import EtfProfile, fetch_etf_profile, FUND_QUOTE_TYPES
 
@@ -65,6 +65,36 @@ _IG_NOTE_FCF_NON_POSITIVE = (
     "implied growth cannot be computed (no positive FCF base to grow "
     "from)."
 )
+_IG_NOTE_NO_DATA = (
+    "Reverse-DCF: no FCF/revenue data available to compute a normalized "
+    "FCF base from at all — implied growth cannot be computed."
+)
+_IG_NOTE_NET_DEBT_MISSING = (
+    "Reverse-DCF: net_debt is unavailable, so the reverse-DCF's "
+    "enterprise-value bridge cannot be built — implied growth cannot be "
+    "computed (normalized FCF is a real, positive base)."
+)
+_IG_NOTE_PRICE_SHARES_MISSING = (
+    "Reverse-DCF: price or share count unavailable (market-vendor tier) "
+    "— implied growth cannot be computed."
+)
+
+# fix/implied-growth-abstention: one branch per recognized abstain_reason,
+# each naming a SPECIFIC, verified-true cause -- no fallback branch that
+# guesses. The dict form (rather than if/elif chasing the enum) makes "is
+# every member handled" visually checkable at a glance, and a genuinely
+# unrecognized value (including None, when implied_growth_result is also
+# None -- an AnalysisResult built without going through derive()) falls
+# through to the .get() default below, an honest "unresolved", never a
+# specific wrong claim.
+_IG_ABSTAIN_NOTE = {
+    ImpliedGrowthAbstainReason.NO_DATA: f"n/a — {_IG_NOTE_NO_DATA}",
+    ImpliedGrowthAbstainReason.FCF_NONPOSITIVE: f"n/a — {_IG_NOTE_FCF_NON_POSITIVE}",
+    ImpliedGrowthAbstainReason.NET_DEBT_MISSING: f"n/a — {_IG_NOTE_NET_DEBT_MISSING}",
+    ImpliedGrowthAbstainReason.PRICE_SHARES_MISSING: f"n/a — {_IG_NOTE_PRICE_SHARES_MISSING}",
+    # CURRENCY_GATED is deliberately absent here -- its note needs `cd`
+    # (the actual reporting currency), so it's built inline below instead.
+}
 
 
 def _implied_growth_columns(res: AnalysisResult, cd: CompanyData) -> tuple:
@@ -74,17 +104,26 @@ def _implied_growth_columns(res: AnalysisResult, cd: CompanyData) -> tuple:
     extracted out of _score_ticker() so the n/a-reason text can be unit
     tested directly without standing up a full mocked EDGAR/quote/
     durability pipeline.
+
+    ig_note reads res.implied_growth_abstain_reason (stamped once by
+    pipeline.derive()) instead of re-deriving or guessing the cause here
+    -- the fixed bug: every implied_growth_result is None case used to
+    render as "FCF non-positive" regardless of which of five different
+    preconditions actually failed.
     """
     igr = res.implied_growth_result
     if igr is None:
         implied_g = None
-        if cd.reporting_currency != "USD":
+        reason = res.implied_growth_abstain_reason
+        if reason is ImpliedGrowthAbstainReason.CURRENCY_GATED:
             ig_note = (
                 f"n/a — valuation gated: reporting currency {cd.reporting_currency} "
                 "vs USD market data"
             )
         else:
-            ig_note = f"n/a — {_IG_NOTE_FCF_NON_POSITIVE}"
+            ig_note = _IG_ABSTAIN_NOTE.get(
+                reason, "n/a — unresolved: implied-growth abstention reason not recorded"
+            )
     elif igr.bracket_hit and igr.bracket_bound == "upper":
         implied_g = None
         ig_note = f"n/a — {_IG_NOTE_BRACKET_UPPER_HIT}"
@@ -102,6 +141,21 @@ def _implied_growth_columns(res: AnalysisResult, cd: CompanyData) -> tuple:
 
     gap = res.expectations_gap if (igr is not None and not igr.bracket_hit) else None
     return implied_g, gap, ig_note
+
+
+def _gap_bracket_bound(res: AnalysisResult) -> Optional[str]:
+    """
+    "upper" | "lower" when the reverse-DCF's bisection hit the bracket
+    edge -- a REAL computed result (the market price is off-scale rich/
+    cheap even at the model's growth ceiling/floor), not an absence --
+    else None. Threaded onto ScreenRow so the dashboard's Gap cell can
+    render a distinct marker instead of blending this into the same n/a
+    bucket as genuine absence (missing data, currency gate, etc).
+    """
+    igr = res.implied_growth_result
+    if igr is not None and igr.bracket_hit:
+        return igr.bracket_bound
+    return None
 
 
 def _gap_band_columns(res: AnalysisResult) -> tuple:
@@ -197,6 +251,12 @@ class ScreenRow:
     # (ticker absent from the SEC ticker map entirely) -- absence-is-not-
     # zero, never a coerced "".
     name: Optional[str] = None
+    # fix/implied-growth-abstention: "upper" | "lower" | None -- see
+    # _gap_bracket_bound(). A bracket hit is a REAL computed result (price
+    # off-scale rich/cheap even at the model's growth ceiling/floor), not
+    # an absence; this lets the Gap cell render a distinct marker instead
+    # of blending it into the same n/a pill as genuine absence.
+    gap_bracket_bound: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -515,6 +575,7 @@ def _process_one(
         gate_tooltip=gate_tooltip,
         composite_ungated=ds.composite_ungated,
         name=cd.name,
+        gap_bracket_bound=_gap_bracket_bound(res),
     ), None
 
 

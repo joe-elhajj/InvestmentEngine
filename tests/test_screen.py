@@ -15,7 +15,7 @@ import dataclasses
 
 from engine.edgar import CompanyData
 from engine.market import Quote
-from engine.pipeline import AnalysisResult
+from engine.pipeline import AnalysisResult, ImpliedGrowthAbstainReason
 from engine.screen import _empty_row, _implied_growth_columns
 from engine.valuation import ImpliedGrowthResult
 
@@ -28,12 +28,13 @@ def _cd(reporting_currency="USD") -> CompanyData:
     )
 
 
-def _res(implied_growth_result=None, expectations_gap=None) -> AnalysisResult:
+def _res(implied_growth_result=None, expectations_gap=None, implied_growth_abstain_reason=None) -> AnalysisResult:
     quote = Quote("TEST", price=100.0, shares_outstanding=10.0, market_cap=1000.0, source="test")
     return AnalysisResult(
         company=_cd(), quote=quote,
         implied_growth_result=implied_growth_result,
         expectations_gap=expectations_gap,
+        implied_growth_abstain_reason=implied_growth_abstain_reason,
     )
 
 
@@ -65,8 +66,18 @@ class TestBracketUpperHitNote:
 
 
 class TestFcfNonPositiveNote:
+    """fix/implied-growth-abstention: this note must fire ONLY when
+    implied_growth_abstain_reason is explicitly FCF_NONPOSITIVE -- not,
+    as before the fix, whenever implied_growth_result happened to be None
+    and the reporter was USD (that was the misattribution bug: a real
+    positive normalized_fcf blocked by a missing net_debt, or a total
+    data desert, both rendered as "FCF is zero or negative")."""
+
     def test_note_is_the_rewritten_self_explanatory_text(self):
-        res = _res(implied_growth_result=None)  # igr is None → FCF path (USD reporter)
+        res = _res(
+            implied_growth_result=None,
+            implied_growth_abstain_reason=ImpliedGrowthAbstainReason.FCF_NONPOSITIVE,
+        )
         implied_g, gap, note = _implied_growth_columns(res, _cd(reporting_currency="USD"))
         assert implied_g is None
         assert gap is None
@@ -77,7 +88,10 @@ class TestFcfNonPositiveNote:
         )
 
     def test_old_terse_string_is_gone(self):
-        res = _res(implied_growth_result=None)
+        res = _res(
+            implied_growth_result=None,
+            implied_growth_abstain_reason=ImpliedGrowthAbstainReason.FCF_NONPOSITIVE,
+        )
         _, _, note = _implied_growth_columns(res, _cd(reporting_currency="USD"))
         assert "not meaningful" not in note
 
@@ -88,7 +102,10 @@ class TestUnaffectedPaths:
     named."""
 
     def test_currency_gate_note_unchanged(self):
-        res = _res(implied_growth_result=None)
+        res = _res(
+            implied_growth_result=None,
+            implied_growth_abstain_reason=ImpliedGrowthAbstainReason.CURRENCY_GATED,
+        )
         _, _, note = _implied_growth_columns(res, _cd(reporting_currency="TWD"))
         assert note == "n/a — valuation gated: reporting currency TWD vs USD market data"
 

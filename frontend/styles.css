@@ -559,6 +559,18 @@ td.gap-cell{text-align:right}
 .gap-pill-neg{color:var(--good);background:rgba(var(--gap-green-rgb),var(--gap-alpha,0.16))}
 .gap-pill-pos{color:var(--bad);background:rgba(var(--gap-red-rgb),var(--gap-alpha,0.16))}
 .gap-pill-na{color:var(--text-3);background:rgba(255,255,255,0.08);font-weight:600;font-style:normal}
+/* ---- Bracket-hit pills (fix/implied-growth-abstention): a bisection
+   bracket hit is a REAL result (market price off-scale rich/cheap even
+   at the model's +60%/-20% growth ceiling/floor), not an absence -- it
+   must not blend into .gap-pill-na's "nothing was computed" bucket.
+   Same fixed alpha as the ordinary pos/neg pills at their own minimum
+   (0.16) rather than magnitude-scaled -- there's no magnitude to scale
+   by here, the bracket edge IS the value. Same sign convention as
+   gap-pill-pos/neg above: upper (more growth priced in than the model's
+   ceiling) is bearish/red, lower (less growth priced in than the
+   model's floor) is bullish/green. */
+.gap-pill-bracket-upper{color:var(--bad);background:rgba(var(--gap-red-rgb),0.16)}
+.gap-pill-bracket-lower{color:var(--good);background:rgba(var(--gap-green-rgb),0.16)}
 
 /* ---- Basis-disclosure badge (Session B): a small superscript marker on
    Implied g / Delivered g / Gap cells declaring that a number's basis is

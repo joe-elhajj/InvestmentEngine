@@ -170,7 +170,7 @@ def test_normalized_fcf_median_math():
     """Median of [0.05, 0.10, 0.15, 0.20, 0.25] = 0.15 × latest revenue = 150."""
     margins = [0.05, 0.10, 0.15, 0.20, 0.25]
     annual = _annual_with_fcf_margins(margins, revenue=1000.0)
-    val, lineage = _normalized_fcf(annual)
+    val, lineage, _ = _normalized_fcf(annual)
     assert val is not None
     assert abs(val - 150.0) < 1e-9, f"expected 150.0, got {val}"
     assert "0.150" in lineage or "15.0" in lineage  # median margin is mentioned
@@ -180,7 +180,7 @@ def test_normalized_fcf_erratic_series():
     """Erratic FCF: margins [-0.2, 0.05, 0.4, 0.08, 0.12] → median = 0.08 → 80.0."""
     margins = [-0.20, 0.05, 0.40, 0.08, 0.12]
     annual = _annual_with_fcf_margins(margins, revenue=1000.0)
-    val, lineage = _normalized_fcf(annual)
+    val, lineage, _ = _normalized_fcf(annual)
     assert val is not None
     assert abs(val - 80.0) < 1e-9
 
@@ -192,14 +192,14 @@ def test_normalized_fcf_non_positive_median_returns_none():
     # median of sorted [-0.30, -0.10, -0.02, 0.04, 0.05] = -0.02
     margins = [-0.30, -0.10, -0.02, 0.04, 0.05]
     annual = _annual_with_fcf_margins(margins, revenue=1000.0)
-    val, lineage = _normalized_fcf(annual)
+    val, lineage, _ = _normalized_fcf(annual)
     assert val is None
     assert "≤ 0" in lineage or "non-positive" in lineage.lower() or "0" in lineage
 
 
 def test_normalized_fcf_empty_series():
     """Empty annual series → (None, reason)."""
-    val, lineage = _normalized_fcf({})
+    val, lineage, _ = _normalized_fcf({})
     assert val is None
 
 
@@ -219,7 +219,7 @@ def test_expectations_gap_positive_when_overvalued():
 
     # Compute a price that embeds 10 pp more growth than delivered
     target_g = dg + 0.10
-    norm_fcf_val, _ = _normalized_fcf(annual)
+    norm_fcf_val, _, _ = _normalized_fcf(annual)
     assert norm_fcf_val is not None
 
     # Use latest net_debt from annual
@@ -248,7 +248,7 @@ def test_expectations_gap_negative_when_undervalued():
     assert dg is not None
 
     target_g = max(dg - 0.10, -0.15)  # floor to avoid bracket
-    norm_fcf_val, _ = _normalized_fcf(annual)
+    norm_fcf_val, _, _ = _normalized_fcf(annual)
     assert norm_fcf_val is not None
     latest = annual[max(annual)]
     net_debt = latest.net_debt if latest.net_debt is not None else 0.0
@@ -441,7 +441,7 @@ def test_golden_normalized_fcf_uses_median():
     cd = _strong_cd()
     annual = derive_annual_series(cd, _DCF_CFG)
     # Default window = 5 years (C1)
-    nfcf, lineage = _normalized_fcf(annual, window=5)
+    nfcf, lineage, _ = _normalized_fcf(annual, window=5)
     assert nfcf is not None
 
     # Compute expected using the same 5-year window
