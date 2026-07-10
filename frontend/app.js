@@ -198,7 +198,14 @@
   // 0.06-0.16 alpha range the previous inline-style version used. A null
   // gap renders a distinct neutral pill (not the plain italic "n/a" used
   // elsewhere) — the brief's own call for this column specifically.
-  function gapCell(rawValue, displayValue) {
+  // fix/implied-growth-abstention: bracketBound is "upper" | "lower" | null
+  // -- set only when the reverse-DCF's bisection hit the bracket edge, a
+  // REAL computed result (market price off-scale rich/cheap even at the
+  // model's growth ceiling/floor), never set for genuine absence (missing
+  // data, currency gate, etc). Rendered as a distinct pill instead of the
+  // plain n/a pill so it never reads as "nothing was computed" when
+  // something very much was.
+  function gapCell(rawValue, displayValue, bracketBound) {
     var cell = document.createElement("td");
     cell.className = "gap-cell";
     // Inherit-chip slot: reserved on EVERY gap cell (before the pill), with
@@ -229,8 +236,26 @@
     cell.appendChild(fragSlot);
     var pill = document.createElement("span");
     if (rawValue === null || rawValue === undefined) {
-      pill.className = "gap-pill gap-pill-na";
-      pill.textContent = "n/a";
+      if (bracketBound === "upper" || bracketBound === "lower") {
+        // Sign convention matches the pos/neg pills below: upper bracket
+        // (price implies MORE growth than the model's ceiling) is bearish
+        // -- red; lower bracket (price implies LESS growth than the
+        // model's floor, i.e. priced for a worse outcome than modeled) is
+        // bullish -- green. See gap-pill-pos/neg's own sign-convention
+        // comment in styles.css for the full rationale.
+        pill.className = "gap-pill " + (bracketBound === "upper" ? "gap-pill-bracket-upper" : "gap-pill-bracket-lower");
+        pill.textContent = bracketBound === "upper" ? ">60%" : "<-20%";
+        pill.title = bracketBound === "upper"
+          ? "Market-implied growth exceeds the model's +60% solver ceiling -- fair " +
+            "value at 60% growth is still below the current price (off-scale rich). " +
+            "This is a real result, not missing data."
+          : "Market-implied growth is below the model's -20% solver floor -- fair " +
+            "value at -20% growth is still above the current price (off-scale cheap). " +
+            "This is a real result, not missing data.";
+      } else {
+        pill.className = "gap-pill gap-pill-na";
+        pill.textContent = "n/a";
+      }
     } else {
       pill.className = "gap-pill " + (rawValue > 0 ? "gap-pill-pos" : "gap-pill-neg");
       pill.textContent = displayValue;
@@ -1416,7 +1441,7 @@
     cellsByKey.delivered_fcf_growth = deliveredTd;
 
     var gapVal = gated ? null : row.expectations_gap;
-    var gapTd = gapCell(gapVal, gated ? null : fmtSignedPct(row.expectations_gap));
+    var gapTd = gapCell(gapVal, gated ? null : fmtSignedPct(row.expectations_gap), row.gap_bracket_bound);
     // Inheritance marker: the Gap is implied minus delivered, so it
     // silently inherits whichever upstream caveats apply to either
     // component. Only shown when the Gap itself is a real, computed number
