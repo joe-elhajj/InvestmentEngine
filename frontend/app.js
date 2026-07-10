@@ -73,6 +73,13 @@
   // computed." `displayValue` is always fmtScore()'s output, unchanged —
   // this function only ever adds a visual bar alongside a number that was
   // already going to be shown; it never changes what number is shown.
+  // feature/signal-hierarchy: single source of truth for the composite's
+  // band cutoffs, named rather than left as bare literals inline below --
+  // this was already the ONLY place these numbers appear (not scattered
+  // per-row), naming them is a clarity nudge, not a behavior change.
+  var COMPOSITE_BAND_LOW = 40;   // below this: amber, a genuine concern worth flagging
+  var COMPOSITE_BAND_HIGH = 70;  // above this: teal, comfortably durable
+
   function scoreCell(rawValue, displayValue, opts) {
     opts = opts || {};
     if (rawValue === null || rawValue === undefined) {
@@ -104,8 +111,8 @@
     // .score-fill) so the eye ranks by bar LENGTH, not by color — a
     // rainbow per metric would undercut that.
     if (opts.composite) {
-      if (pct < 40) fill.classList.add("score-fill-band-low");
-      else if (pct > 70) fill.classList.add("score-fill-band-high");
+      if (pct < COMPOSITE_BAND_LOW) fill.classList.add("score-fill-band-low");
+      else if (pct > COMPOSITE_BAND_HIGH) fill.classList.add("score-fill-band-high");
     }
 
     if (opts.animate) {
@@ -198,6 +205,15 @@
   // 0.06-0.16 alpha range the previous inline-style version used. A null
   // gap renders a distinct neutral pill (not the plain italic "n/a" used
   // elsewhere) — the brief's own call for this column specifically.
+  //
+  // SIGN CONVENTION IS DELIBERATELY INVERTED vs. a naive finance UI, and
+  // is CORRECT as shipped -- DO NOT "FIX" THE LINE BELOW. rawValue > 0
+  // means the market is pricing in MORE growth than delivered -- bearish,
+  // maps to gap-pill-pos/--bad/red. rawValue <= 0 means delivered growth
+  // met or beat what's priced in -- bullish, maps to gap-pill-neg/--good/
+  // green. See the matching pin in styles.css beside .gap-pill-pos/neg
+  // for the full rationale.
+  //
   // fix/implied-growth-abstention: bracketBound is "upper" | "lower" | null
   // -- set only when the reverse-DCF's bisection hit the bracket edge, a
   // REAL computed result (market price off-scale rich/cheap even at the
@@ -1366,6 +1382,18 @@
   function renderEquitiesRow(row, index, animate) {
     var tr = document.createElement("tr");
     var cellsByKey = {};
+
+    // Row-level attention wash (feature/signal-hierarchy): GATED and
+    // FRAGILE are both tier-1 by the visual-hierarchy brief's own
+    // ordering ("anything gated or fragile"), so they share ONE row-level
+    // "look here first" signal instead of only living in their own small
+    // chips (.gate-slot-fired / .gap-frag-slot.frag-present, both
+    // unchanged and still the disambiguating detail once you look). Not
+    // GATE?/untestable or FRAG?/undeterminable -- "can't evaluate" is not
+    // a veto, it stays chip-only.
+    if (row.gate_status === "GATED" || row.expectations_gap_fragile === "FRAGILE") {
+      tr.classList.add("row-attention");
+    }
 
     var tickerTd = tickerCell(row.ticker, true, row.name);
     tr.appendChild(tickerTd);

@@ -430,6 +430,20 @@ tbody tr:last-child td{border-bottom:none}
 tbody tr:hover td{background:rgba(var(--signal-rgb),0.08)}
 #equities-table tbody tr,
 #etf-table tbody tr{cursor:pointer}
+
+/* ---- Row-level attention wash (feature/signal-hierarchy): unifies GATED
+   and FRAGILE into one "look here first" signal at the ROW level, not
+   just their existing per-cell chips (.gate-slot-fired, .gap-frag-slot.
+   frag-present -- both unchanged, still the disambiguating detail once
+   you look). inset box-shadow, not background: it layers independently
+   of tbody tr:hover's background rule immediately above, so hovering an
+   attention row still shows both effects instead of one clobbering the
+   other. No dimension/padding change on any cell -- row height and
+   column widths are untouched, so the 1475px pill-edge alignment (PR #48)
+   holds. */
+tbody tr.row-attention td{
+  box-shadow:inset 0 0 0 1000px rgba(var(--gap-red-rgb),0.055);
+}
 td.l{text-align:left;white-space:normal}
 /* Sorted column: a faint signal tint on every cell so it's visually
    obvious what's ordering the table, not just the header. Sits below the
@@ -535,10 +549,21 @@ td.score-cell{padding-top:11px;padding-bottom:9px}
   height:3px;margin-top:6px;border-radius:999px;overflow:hidden;
   background:rgba(255,255,255,0.10);
 }
-.score-fill{height:100%;border-radius:999px;background:var(--signal);transition:width 400ms var(--ease-out)}
+/* feature/signal-hierarchy: sub-score fill opacity 0.72 (composite,
+   below, restores 1.0) -- composite is tier-3 in the eye-ordering brief,
+   sub-scores are tier-4 ("everything else recedes"); this is the one
+   differentiator beyond the composite's already-thicker 4px track. Bar
+   LENGTH stays the scannable signal (still 0-100% width, untouched) --
+   only the fill's own tone recedes, never the numeral (font-weight/color
+   on .score-num is untouched) and never the track (still the same
+   low-opacity white). 0.72 over the low-opacity-white track clears the
+   3:1 non-text contrast minimum (WCAG 1.4.11, the correct SC for a
+   decorative/data-viz bar, not the 4.5:1 text minimum) -- see the
+   contrast table in this PR's notes. */
+.score-fill{height:100%;border-radius:999px;background:var(--signal);opacity:0.72;transition:width 400ms var(--ease-out)}
 td.score-cell.score-composite .score-num{font-weight:700;color:var(--ink)}
 td.score-cell.score-composite .score-track{height:4px}
-td.score-cell.score-composite .score-fill{background:var(--emphasis)}
+td.score-cell.score-composite .score-fill{background:var(--emphasis);opacity:1}
 td.score-cell.score-composite .score-fill.score-fill-band-high{background:var(--signal)}
 td.score-cell.score-composite .score-fill.score-fill-band-low{background:var(--emphasis)}
 
@@ -549,7 +574,19 @@ td.score-cell.score-composite .score-fill.score-fill-band-low{background:var(--e
    scales the --gap-alpha custom property within that hue, so directional
    meaning and its intensity are visually separable. Tint alpha (0.10-0.20)
    tuned for dark: good/bad text still clears 5.2-7:1 against their own
-   tinted pill background (see contrast table at the top of this file). */
+   tinted pill background (see contrast table at the top of this file).
+
+   SIGN CONVENTION IS DELIBERATELY INVERTED vs. a naive finance UI, and
+   is CORRECT as shipped -- DO NOT "FIX" THIS. Gap = implied growth minus
+   delivered growth. A POSITIVE gap means the market is pricing in MORE
+   growth than the company has actually delivered -- that's a bearish
+   setup (priced for more than it's earning), so positive maps to --bad/
+   red (.gap-pill-pos below). A NEGATIVE gap means the company is
+   delivering MORE than the market has priced in -- bullish, so negative
+   maps to --good/green (.gap-pill-neg below). This is the opposite of
+   "green means positive number" but it is the correct mapping for what
+   the number MEANS. See the matching pin in app.js's gapCell(), where
+   the sign->class decision is actually made. */
 td.gap-cell{text-align:right}
 .gap-pill{
   display:inline-block;padding:3px 9px;border-radius:999px;
@@ -636,7 +673,16 @@ td.gap-cell{text-align:right}
    FRAG (frag-present) = FRAGILE: a COMPLETE band whose gap sign flips
    across bull/base/bear. FRAG? (frag-undeterminable) = a PARTIAL band,
    where fragility can't be assessed at all -- a visually distinct outline
-   (dashed border) so it never reads as an ordinary passed/failed check. */
+   (dashed border) so it never reads as an ordinary passed/failed check.
+   feature/signal-hierarchy: FRAG (frag-present) is now FILLED SOLID,
+   same treatment as .gate-slot-fired below -- FRAG and GATE are both
+   tier-1 by the hierarchy brief's own ordering ("anything gated or
+   fragile"), so they must read at the same visual weight; FRAG was
+   previously outline-only, the same quiet register as the merely-
+   informational INH/DUR chips, which under-signaled it relative to its
+   actual severity. Padding/border-width/font-size unchanged from the
+   outline version -- only color/background added -- so this never
+   reflows the slot or the pill it sits beside (PR #48's alignment). */
 .gap-frag-slot{
   display:inline-block;margin-right:5px;padding:1px 5px;border-radius:5px;
   font-family:var(--mono);font-size:0.625rem;font-weight:700;
@@ -644,7 +690,8 @@ td.gap-cell{text-align:right}
   border:1px solid transparent;cursor:default;visibility:hidden;
 }
 .gap-frag-slot.frag-present{
-  visibility:visible;color:var(--bad);border-color:rgba(var(--gap-red-rgb),0.4);
+  visibility:visible;color:var(--on-accent,#08110f);background:var(--bad);
+  border-color:var(--bad);
 }
 .gap-frag-slot.frag-undeterminable{
   visibility:visible;color:var(--text-2);border:1px dashed var(--hairline-strong);
