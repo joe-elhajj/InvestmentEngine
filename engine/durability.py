@@ -38,10 +38,16 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Optional
 
-from engine.pipeline import AnalysisResult, YearlyDerived
+from engine.pipeline import (
+    AnalysisResult,
+    RND_CAPITALIZATION_DEFAULTS,
+    RndRegime,
+    YearlyDerived,
+    rnd_regime_applies,
+)
 from engine import metrics as M
 from engine import peers as P
-from engine.edgar import classify_rnd_series, is_fpi
+from engine.edgar import classify_rnd_series
 from engine.universe import UniverseDistribution
 
 
@@ -68,10 +74,10 @@ _DEFAULT_SCORE_BAND: dict[str, float] = {
     "optimistic_impute": 75.0,
 }
 
-_DEFAULT_RND_CAPITALIZATION: dict = {
-    "enabled": False,             # regime OFF by default -- see docs/assumptions.md
-    "amortization_years": 5,
-}
+# Imported, not redefined -- engine.pipeline.RND_CAPITALIZATION_DEFAULTS is
+# the single source of truth this section merges onto; rnd_regime_applies
+# (also in pipeline.py) reads its `enabled` fallback from the same object.
+_DEFAULT_RND_CAPITALIZATION = RND_CAPITALIZATION_DEFAULTS
 
 # Gates ship with NO defaults baked in here -- unlike weights/thresholds/
 # score_band/rnd_capitalization above, a gate's threshold/cap ARE owned
@@ -1261,9 +1267,13 @@ def score(
     # or the regime toggle: IAS 38 already capitalizes development costs to
     # an unknown degree, so stacking this adjustment on top would produce an
     # error of ambiguous sign.
-    rnd_cfg = dcfg["rnd_capitalization"]
-    ticker_is_fpi, _fpi_evidence = is_fpi(res.company)
-    use_rnd_adjusted_roic = bool(rnd_cfg["enabled"]) and not ticker_is_fpi
+    # Layer 1 (does the regime apply at all) is the shared predicate in
+    # pipeline.py -- called here with THIS call's own `config`, not
+    # `res.rnd_regime` (the stamp derive() set when res was built), so a
+    # rescore against a different config can never silently reuse a stale
+    # decision. Layer 2 (does an adjustment path actually exist this year --
+    # n_adjusted_total, below) is unchanged and still lives entirely here.
+    use_rnd_adjusted_roic = rnd_regime_applies(res.company, config) is RndRegime.APPLIES
 
     if use_rnd_adjusted_roic:
         # Matched-window ROIC (Option C, PR 2a) applies ONLY where an

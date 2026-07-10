@@ -279,13 +279,12 @@ def test_f13_gate_lineage_reflects_actual_cap_behavior():
 
 
 # ---------------------------------------------------------------------------
-# F-14 (xfail) — R&D-UNADJ badge never fires for an FPI with usable R&D data
+# F-14 (FIXED, PR A) — R&D-UNADJ badge now fires for an FPI with usable R&D
+# data. report.py/report_html.py's Site C now reads res.rnd_regime (stamped
+# once by pipeline.derive() via rnd_regime_applies()) before ever looking at
+# whether roic_adjusted computed -- see engine/pipeline.py's RndRegime.
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(reason="F-14: report.py/report_html.py check roic_adjusted availability "
-                           "before checking is_fpi(), so the FPI abstention badge never fires "
-                           "when the FPI has a usable R&D series.",
-                    strict=True)
 def test_f14_fpi_with_rnd_data_shows_unadj_badge():
     cd = CompanyData(ticker="FPITEST", cik="9999999999", name="Foreign Test Co",
                       sic="3674", sic_description="Semiconductors")
