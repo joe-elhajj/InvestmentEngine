@@ -29,6 +29,14 @@
   </div>
 
   <div class="topnav-actions">
+    <button id="legend-btn" class="btn btn-icon" aria-label="Chip legend">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="9"/>
+        <path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 3.5"/>
+        <line x1="12" y1="16.5" x2="12" y2="16.6"/>
+      </svg>
+      <span>Legend</span>
+    </button>
     <button id="export-csv-btn" class="btn btn-icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 19h16"/>
@@ -171,6 +179,62 @@
     <p class="modal-footnote">
       Usage tracked in ~/.investment_engine/watchlist.db. Cached calls not billed.
       Prices from config.yaml at call time.
+    </p>
+  </div>
+</div>
+
+<div id="legend-modal-overlay" class="modal-overlay hidden">
+  <div class="modal legend-modal">
+    <div class="modal-head">
+      <div class="modal-title">Chip Legend</div>
+      <button id="legend-modal-close" class="modal-close" type="button" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="legend-section-label">Verdict</p>
+      <dl class="legend-list">
+        <div class="legend-item">
+          <dt><code class="legend-code legend-code-verdict">FRAG</code></dt>
+          <dd>Fragile — the expectations-gap band's sign flips across bull/base/bear scenarios.</dd>
+        </div>
+        <div class="legend-item">
+          <dt><code class="legend-code legend-code-verdict">GATE</code></dt>
+          <dd>Gated — the balance-sheet gate fired, composite capped.</dd>
+        </div>
+        <div class="legend-item">
+          <dt><code class="legend-code legend-code-verdict-untestable">GATE? / FRAG?</code></dt>
+          <dd>Could not evaluate that check — the raw inputs needed didn't resolve; absence is never treated as a pass.</dd>
+        </div>
+      </dl>
+      <p class="legend-section-label">Provenance</p>
+      <dl class="legend-list">
+        <div class="legend-item">
+          <dt><code class="legend-code legend-code-prov">MKT</code></dt>
+          <dd>Market-vendor input — a headline figure rests on a market-vendor-tier input (e.g. yfinance share count), not EDGAR.</dd>
+        </div>
+        <div class="legend-item">
+          <dt><code class="legend-code legend-code-prov">WIN</code></dt>
+          <dd>Nonstandard measurement window — delivered growth uses an extended/non-standard CAGR window.</dd>
+        </div>
+        <div class="legend-item">
+          <dt><code class="legend-code legend-code-prov">REV</code></dt>
+          <dd>Revenue-basis caveat — delivered growth is a revenue-CAGR fallback, not FCF.</dd>
+        </div>
+        <div class="legend-item">
+          <dt><code class="legend-code legend-code-prov">INH</code></dt>
+          <dd>Inherited upstream caveat — the Gap column inherits an MKT/WIN/REV caveat from one of its inputs.</dd>
+        </div>
+        <div class="legend-item">
+          <dt><code class="legend-code legend-code-prov">DUR</code></dt>
+          <dd>Durability-scoring disclosure — a DurabilityScore.gaps disclosure (net-cash resilience, mixed-basis, short-history, split-contamination).</dd>
+        </div>
+        <div class="legend-item">
+          <dt><code class="legend-code legend-code-prov">R&amp;D-UNADJ</code></dt>
+          <dd>R&amp;D capitalization skipped — not applied because the filer is IFRS, or the regime is disabled in config.</dd>
+        </div>
+      </dl>
+    </div>
+    <p class="modal-footnote">
+      Full per-row detail (e.g. the exact window years) is one hover away on each chip — this legend defines what the codes mean.
     </p>
   </div>
 </div>

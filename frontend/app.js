@@ -278,6 +278,13 @@
   // a solid glyph carries more visual weight at this chip's small size,
   // part of the same legibility bump as the chip's color (see .prov-chip
   // in styles.css for the full rationale + contrast numbers).
+  //
+  // feature/chip-legend: the tooltip is now codes + row-specific detail
+  // ONLY -- "WIN (14y vs 5y) · INH · DUR" -- not full definition
+  // sentences. What each code MEANS lives once, in the legend modal
+  // (openLegendModal below, sourced from CLAUDE.md's badge vocabulary),
+  // not duplicated here per row. A code with no row-specific detail
+  // (n.detail is null/None from _provenance_notes()) renders bare.
   function appendProvenanceChip(tickerTdEl, notes) {
     if (!notes || !notes.length) return;
     var chip = document.createElement("span");
@@ -285,10 +292,10 @@
     chip.tabIndex = 0;
     chip.textContent = "•" + notes.length;
     var tip = document.createElement("div");
-    tip.className = "th-tooltip prov-tooltip";
+    tip.className = "th-tooltip";
     tip.textContent = notes.map(function (n) {
-      return n.code + " — " + n.detail;
-    }).join("\n");
+      return n.detail ? n.code + " (" + n.detail + ")" : n.code;
+    }).join(" · ");
     chip.appendChild(tip);
     tickerTdEl.appendChild(chip);
   }
@@ -365,6 +372,9 @@
     usageModalOverlay: document.getElementById("usage-modal-overlay"),
     usageModalBody: document.getElementById("usage-modal-body"),
     usageModalClose: document.getElementById("usage-modal-close"),
+    legendBtn: document.getElementById("legend-btn"),
+    legendModalOverlay: document.getElementById("legend-modal-overlay"),
+    legendModalClose: document.getElementById("legend-modal-close"),
   };
 
   var currentSearchTicker = null; // ticker the search confirm card currently refers to
@@ -1989,6 +1999,25 @@
   });
   document.addEventListener("keydown", function (ev) {
     if (ev.key === "Escape" && !els.usageModalOverlay.classList.contains("hidden")) closeUsageModal();
+  });
+
+  // Chip legend (feature/chip-legend): fully static content, already in
+  // index.html (no per-session data, unlike the usage modal, so no
+  // fetch/render step needed) -- open/close just toggles .hidden, same
+  // pattern as the usage modal above.
+  function openLegendModal() {
+    els.legendModalOverlay.classList.remove("hidden");
+  }
+  function closeLegendModal() {
+    els.legendModalOverlay.classList.add("hidden");
+  }
+  els.legendBtn.addEventListener("click", openLegendModal);
+  els.legendModalClose.addEventListener("click", closeLegendModal);
+  els.legendModalOverlay.addEventListener("click", function (ev) {
+    if (ev.target === els.legendModalOverlay) closeLegendModal();
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "Escape" && !els.legendModalOverlay.classList.contains("hidden")) closeLegendModal();
   });
 
   // ---- boot ----
