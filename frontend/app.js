@@ -273,13 +273,17 @@
   // ::_provenance_notes()), so this function only renders what's already
   // been decided -- never re-derives the mkt/win/rev/inh/dur/rnd
   // conditions itself. Renders nothing at all when the list is empty --
-  // absence of caveats is absence of chip, never a "◦0".
+  // absence of caveats is absence of chip, never a "•0".
+  // fix/nav-text-legibility: filled bullet "•" (was the hollow "◦") --
+  // a solid glyph carries more visual weight at this chip's small size,
+  // part of the same legibility bump as the chip's color (see .prov-chip
+  // in styles.css for the full rationale + contrast numbers).
   function appendProvenanceChip(tickerTdEl, notes) {
     if (!notes || !notes.length) return;
     var chip = document.createElement("span");
     chip.className = "prov-chip has-tooltip";
     chip.tabIndex = 0;
-    chip.textContent = "◦" + notes.length;
+    chip.textContent = "•" + notes.length;
     var tip = document.createElement("div");
     tip.className = "th-tooltip prov-tooltip";
     tip.textContent = notes.map(function (n) {

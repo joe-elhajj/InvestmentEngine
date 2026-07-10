@@ -78,6 +78,15 @@
    — dark themes fail most often on muted text, and this pass narrows
    its margin more than any other token.
 
+   fix/nav-text-legibility (follow-up): the lighter pass above softened
+   three NAVIGATIONAL elements (not data) too far. Brightened, computed:
+     .prov-chip text/border    --text-3 -> --signal-text : surface 11.04:1, surface-2 9.98:1 (was 5.36 / 4.85)
+     column headers (th)       --chrome-text-dim -> --chrome-text : chrome-bg 18.12:1 (was 8.77 -- already AA, lifted for crispness, not a failure fix)
+     .tk-name (company name)   --text-3 -> --muted : surface 6.45:1 (was 5.36)
+   Data cells, the elevation ladder, accent saturation, verdict chips,
+   sign colors, and the row-attention wash are untouched by this
+   follow-up -- legibility lift on navigational text only.
+
    Solid-fill controls (btn-primary, confirm-yes, etc.) use --on-accent
    (a near-black, #08110f) as their text color, not white — white-on-teal/
    white-on-red both fail badly on these BRIGHT, dark-mode-tuned accent
@@ -364,11 +373,21 @@ thead th.sorted .sort-arrow{color:var(--signal-text)}
    `position:sticky` header here renders detached/floating mid-card. Removed
    cleanly rather than kept half-working; unrelated to and unaffected by
    this dark reskin. */
+/* fix/nav-text-legibility: column-header text lifted from
+   --chrome-text-dim (8.77:1 on --chrome-bg -- already AA, but reads
+   soft for a label that should be crisp) to --chrome-text, the same
+   near-white already used for the header wordmark ("header wordmark/
+   text" in the contrast table above) -- 18.12:1 on --chrome-bg,
+   computed. Reused, not new: this is the existing bright chrome token,
+   just extended to column headers too. .sorted's own color override
+   below is untouched and unaffected -- same selector, same specificity
+   relationship as before this change, only the base (unsorted) color
+   moved. */
 #equities-table > thead th,
 #etf-table > thead th,
 #excluded-table > thead th,
 #diagnostics-table > thead th{
-  color:var(--chrome-text-dim);background:var(--chrome-bg);
+  color:var(--chrome-text);background:var(--chrome-bg);
   border-bottom:1px solid var(--chrome-border);
 }
 .sort-arrow{margin-left:4px;font-size:0.7em;color:var(--signal-text)}
@@ -512,13 +531,18 @@ tbody tr:hover td.tk .expand-hint{opacity:1}
    by-name): td.tk's own font-family (--mono, for the ticker) would
    otherwise cascade onto this too, so .tk-name resets back to the
    dashboard's default proportional stack -- a company name in mono
-   digits-width type reads oddly next to a ticker. Muted/smaller so the
-   ticker (the actual row identity) stays the visual anchor; truncates
-   rather than wrapping so row height never changes. */
+   digits-width type reads oddly next to a ticker. Smaller so the ticker
+   (the actual row identity) stays the visual anchor; truncates rather
+   than wrapping so row height never changes.
+   fix/nav-text-legibility: color lifted one step, --text-3 -> --muted
+   (6.45:1 on --surface, computed) -- names were reading too soft to
+   scan; --muted still sits clearly below --ink (the ticker's own color,
+   via td.tk's base rule), so ticker > name stays the visual hierarchy,
+   just both a notch brighter than before. */
 td.tk .tk-name{
   display:inline-block;margin-left:8px;vertical-align:middle;
   font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif;
-  font-weight:400;font-size:0.75rem;color:var(--text-3);
+  font-weight:400;font-size:0.75rem;color:var(--muted);
   max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 
@@ -667,20 +691,35 @@ td.gap-cell{text-align:right}
    per-cell badges are gone; MKT/WIN/REV/INH/DUR/RND now collapse into
    ONE dot+count marker beside the ticker (see appendProvenanceChip in
    app.js, fed by row.provenance_notes from engine/screen.py::
-   _provenance_notes()). Deliberately quiet/outline -- a tier below the
-   verdict chips (GATE/FRAG below) -- text-3, not emphasis/amber, and no
-   fill, since this is informational provenance, not a veto or a
-   robustness flag. Renders only when notes.length >= 1 -- there is no
-   reserved/hidden slot for this one (unlike the verdict chips), since it
-   sits in the ticker cell, not a fixed-width numeric column, so a
-   missing chip costs no alignment. */
+   _provenance_notes()). Deliberately OUTLINE, no fill, tier BELOW the
+   verdict chips (GATE/FRAG below, which are filled solid) -- this is
+   informational provenance, not a veto or a robustness flag, so it must
+   never compete with those for attention. Renders only when notes.length
+   >= 1 -- there is no reserved/hidden slot for this one (unlike the
+   verdict chips), since it sits in the ticker cell, not a fixed-width
+   numeric column, so a missing chip costs no alignment.
+
+   fix/nav-text-legibility: text/border lifted from --text-3 (too soft to
+   register as a navigational element next to the ticker) to
+   --signal-text -- the primary teal accent's AA-safe text variant,
+   already used elsewhere for "this is live/notable but not urgent"
+   (sorted-column headers, the active-sort caret). Signal-text was
+   chosen specifically because it's visually DISTINCT from GATE/FRAG's
+   red fill -- findable at a glance without reading as the same class of
+   signal. Filled bullet "•" (was the hollow "◦") + font-weight 700 (was
+   600, now matching GATE/FRAG's own weight) gives the dot itself enough
+   ink to register at this chip's small size. Contrast: signal-text on
+   --surface 11.04:1, on --surface-2 9.98:1 (computed; this chip only
+   ever renders against --surface in the current table, --surface-2 is
+   checked for robustness against future reuse) -- both comfortably
+   clear AA with wide margin. */
 .prov-chip{
   display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;
-  font-family:var(--mono);font-size:0.6875rem;font-weight:600;
-  color:var(--text-3);border:1px solid var(--hairline-strong);
+  font-family:var(--mono);font-size:0.6875rem;font-weight:700;
+  color:var(--signal-text);border:1px solid rgba(var(--signal-rgb),0.4);
   cursor:default;vertical-align:middle;
 }
-.prov-chip:hover{color:var(--muted);border-color:var(--text-3)}
+.prov-chip:hover{color:var(--ink);border-color:var(--signal-text)}
 /* .th-tooltip's default white-space:normal collapses the \n between
    notes -- pre-line renders each "CODE — detail" pair on its own line. */
 .prov-tooltip{white-space:pre-line;text-align:left}
