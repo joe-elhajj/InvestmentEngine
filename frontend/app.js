@@ -325,6 +325,7 @@
   var els = {
     searchInput: document.getElementById("search-input"),
     searchStatus: document.getElementById("search-status"),
+    searchCandidates: document.getElementById("search-candidates"),
     searchConfirm: document.getElementById("search-confirm"),
     searchConfirmText: document.getElementById("search-confirm-text"),
     searchClassificationBadge: document.getElementById("search-classification-badge"),
@@ -369,10 +370,22 @@
   // expandable=true adds the hover chevron + tooltip that hints the row
   // opens an accordion; excluded rows pass false since there's nothing to
   // expand (durability scoring never ran for them).
-  function tickerCell(ticker, expandable) {
+  // name is None-safe (feature/search-by-name): a missing company name
+  // (e.g. a row that never resolved a CompanyData at all) renders the
+  // ticker alone -- absence propagates, never a coerced "" or "Unknown".
+  function tickerCell(ticker, expandable, name) {
     var cell = document.createElement("td");
     cell.className = "tk";
-    cell.textContent = ticker;
+    var symbol = document.createElement("span");
+    symbol.className = "tk-symbol";
+    symbol.textContent = ticker;
+    cell.appendChild(symbol);
+    if (name) {
+      var nameSpan = document.createElement("span");
+      nameSpan.className = "tk-name";
+      nameSpan.textContent = name;
+      cell.appendChild(nameSpan);
+    }
     if (expandable) {
       var hint = document.createElement("span");
       hint.className = "expand-hint";
@@ -1329,7 +1342,7 @@
     var tr = document.createElement("tr");
     var cellsByKey = {};
 
-    var tickerTd = tickerCell(row.ticker, true);
+    var tickerTd = tickerCell(row.ticker, true, row.name);
     tr.appendChild(tickerTd);
     cellsByKey.ticker = tickerTd;
 
@@ -1488,7 +1501,7 @@
     // No accordion here — durability scoring didn't run for excluded
     // tickers, so there's no analysis to expand.
     var tr = document.createElement("tr");
-    tr.appendChild(tickerCell(row.ticker));
+    tr.appendChild(tickerCell(row.ticker, false, row.name));
     var reasonCell = td(humanizeReason(row.flag), { cls: "l" });
     // sectionEl is null here (unlike equities/etf): Excluded's SECTION
     // never auto-hides on empty, only its inner content swaps to the
@@ -1693,6 +1706,48 @@
     setClassificationBadge("pending", true);
   }
 
+  function hideSearchCandidates() {
+    els.searchCandidates.innerHTML = "";
+    els.searchCandidates.classList.add("hidden");
+  }
+
+  // Renders the ticker-or-name candidate dropdown (feature/search-by-name).
+  // A candidate's name is None-safe: a missing name (yfinance/EDGAR gap)
+  // renders the ticker alone, never an empty string or "Unknown" -- absence
+  // propagates, per the same convention as every other renderer in this app.
+  function renderSearchCandidates(candidates) {
+    els.searchCandidates.innerHTML = "";
+    if (!candidates.length) {
+      hideSearchCandidates();
+      return;
+    }
+    candidates.forEach(function (c) {
+      var li = document.createElement("li");
+      li.className = "search-candidate";
+      li.setAttribute("role", "option");
+      var tickerSpan = document.createElement("span");
+      tickerSpan.className = "search-candidate-ticker";
+      tickerSpan.textContent = c.ticker;
+      li.appendChild(tickerSpan);
+      if (c.name) {
+        var nameSpan = document.createElement("span");
+        nameSpan.className = "search-candidate-name";
+        nameSpan.textContent = c.name;
+        li.appendChild(nameSpan);
+      }
+      // mousedown, not click: fires before the input's blur handler would
+      // otherwise hide this list out from under the click.
+      li.addEventListener("mousedown", function (ev) {
+        ev.preventDefault();
+        els.searchInput.value = c.ticker;
+        hideSearchCandidates();
+        els.searchInput.dispatchEvent(new Event("input"));
+      });
+      els.searchCandidates.appendChild(li);
+    });
+    els.searchCandidates.classList.remove("hidden");
+  }
+
   // Fetches the resolved equity/ETF classification for the confirm card's
   // badge. Fired right after a search finds a ticker; the badge starts on
   // "pending" and updates in place once this resolves — classification
@@ -1715,13 +1770,18 @@
   }
 
   els.searchInput.addEventListener("input", function () {
-    var raw = els.searchInput.value.trim().toUpperCase();
+    // Ticker matching stays case-insensitive (raw, uppercased) -- company
+    // names are not, so the candidates lookup below uses the trimmed
+    // input as typed.
+    var rawInput = els.searchInput.value.trim();
+    var raw = rawInput.toUpperCase();
     if (searchDebounce) clearTimeout(searchDebounce);
     els.searchStatus.textContent = "";
     els.searchStatus.className = "search-status";
     resetSearchConfirm();
+    hideSearchCandidates();
 
-    if (!raw) return;
+    if (!rawInput) return;
 
     searchDebounce = setTimeout(function () {
       apiGet("/api/search/" + encodeURIComponent(raw))
@@ -1745,13 +1805,36 @@
           els.searchStatus.textContent = "✗";
           els.searchStatus.className = "search-status not-found";
         });
+
+      // Ticker-or-name candidate dropdown (feature/search-by-name) --
+      // independent of the exact-match confirm flow above; either can
+      // resolve first, and either can come back empty while the other
+      // doesn't (e.g. "apple" matches no ticker prefix but matches
+      // Apple Inc.'s name).
+      apiGet("/api/search_candidates/" + encodeURIComponent(rawInput))
+        .then(function (res) {
+          if (els.searchInput.value.trim() !== rawInput) return; // stale response
+          renderSearchCandidates(res.candidates || []);
+        })
+        .catch(function () {
+          hideSearchCandidates();
+        });
     }, 300);
   });
 
   els.searchInput.addEventListener("keydown", function (ev) {
-    if (ev.key === "Enter" && currentSearchTicker) {
+    if (ev.key === "Escape") {
+      hideSearchCandidates();
+    } else if (ev.key === "Enter" && currentSearchTicker) {
       addSearchedTickerToWatchlist();
     }
+  });
+
+  els.searchInput.addEventListener("blur", function () {
+    // Slight delay: a candidate row's mousedown handler (which fires
+    // before blur) needs to run first, or the click would land on a
+    // list that's already gone.
+    setTimeout(hideSearchCandidates, 150);
   });
 
   els.searchAddBtn.addEventListener("click", addSearchedTickerToWatchlist);
@@ -1772,6 +1855,7 @@
       })
       .then(function () {
         resetSearchConfirm();
+        hideSearchCandidates();
         els.searchInput.value = "";
         els.searchStatus.textContent = "";
         runScreen();

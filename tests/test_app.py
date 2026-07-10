@@ -332,6 +332,67 @@ class TestSearchEndpoint:
 
 
 # ---------------------------------------------------------------------------
+# GET /api/search_candidates/{query}
+# ---------------------------------------------------------------------------
+
+_FAKE_TICKER_NAMES = {
+    "AAPL": "Apple Inc.",
+    "AAPB": "Some Other Prefix Match Co",
+    "MSFT": "Microsoft Corporation",
+    "GOOGL": "Alphabet Inc.",
+    "PEAR": "Pear Therapeutics, Inc.",
+}
+
+
+class TestSearchCandidatesEndpoint:
+    def test_ticker_prefix_match(self, client):
+        with patch("app.main._ensure_ticker_names", return_value=_FAKE_TICKER_NAMES):
+            resp = client.get("/api/search_candidates/AAP")
+        assert resp.status_code == 200
+        candidates = resp.json()["candidates"]
+        tickers = [c["ticker"] for c in candidates]
+        assert "AAPL" in tickers and "AAPB" in tickers
+        assert all(t.startswith("AAP") for t in tickers)
+
+    def test_company_name_substring_match_case_insensitive(self, client):
+        with patch("app.main._ensure_ticker_names", return_value=_FAKE_TICKER_NAMES):
+            resp = client.get("/api/search_candidates/alphabet")
+        assert resp.status_code == 200
+        candidates = resp.json()["candidates"]
+        assert {"ticker": "GOOGL", "name": "Alphabet Inc."} in candidates
+
+    def test_ticker_prefix_hits_rank_before_name_substring_hits(self, client):
+        # "pear" is both a ticker prefix (PEAR) and would substring-match
+        # nothing else here -- prefix hits must come first regardless.
+        with patch("app.main._ensure_ticker_names", return_value=_FAKE_TICKER_NAMES):
+            resp = client.get("/api/search_candidates/pear")
+        candidates = resp.json()["candidates"]
+        assert candidates[0]["ticker"] == "PEAR"
+
+    def test_empty_query_returns_no_candidates(self, client):
+        with patch("app.main._ensure_ticker_names", return_value=_FAKE_TICKER_NAMES):
+            resp = client.get("/api/search_candidates/ ")
+        assert resp.json() == {"candidates": []}
+
+    def test_no_match_returns_empty_list(self, client):
+        with patch("app.main._ensure_ticker_names", return_value=_FAKE_TICKER_NAMES):
+            resp = client.get("/api/search_candidates/zzzznomatch")
+        assert resp.json() == {"candidates": []}
+
+    def test_respects_limit(self, client):
+        many = {f"T{i:03d}": f"Ticker Company {i}" for i in range(20)}
+        with patch("app.main._ensure_ticker_names", return_value=many):
+            resp = client.get("/api/search_candidates/T?limit=3")
+        assert len(resp.json()["candidates"]) == 3
+
+    def test_network_failure_degrades_to_empty_list(self, client):
+        with patch("app.main._ensure_ticker_names", side_effect=RuntimeError("network down")):
+            resp = client.get("/api/search_candidates/AAPL")
+        assert resp.status_code == 200
+        assert resp.json() == {"candidates": []}
+
+
+# ---------------------------------------------------------------------------
 # GET /api/analyze/{ticker}
 # ---------------------------------------------------------------------------
 

@@ -459,6 +459,44 @@ td.tk .expand-hint{
   transition:opacity .15s ease,transform .15s ease;
 }
 tbody tr:hover td.tk .expand-hint{opacity:1}
+
+/* ---- Company name, secondary text beside the ticker (feature/search-
+   by-name): td.tk's own font-family (--mono, for the ticker) would
+   otherwise cascade onto this too, so .tk-name resets back to the
+   dashboard's default proportional stack -- a company name in mono
+   digits-width type reads oddly next to a ticker. Muted/smaller so the
+   ticker (the actual row identity) stays the visual anchor; truncates
+   rather than wrapping so row height never changes. */
+td.tk .tk-name{
+  display:inline-block;margin-left:8px;vertical-align:middle;
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",Roboto,sans-serif;
+  font-weight:400;font-size:0.75rem;color:var(--text-3);
+  max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+
+/* ---- Search-by-name candidate dropdown: same floating-card vocabulary
+   as .search-confirm (position, surface, hairline, shadow) immediately
+   below in this file, but a scrollable option list instead of a single
+   confirm card. mousedown-selects (see app.js) rather than click, so
+   selection fires before the input's blur handler would hide this list
+   out from under it. */
+.search-candidates{
+  position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);
+  width:100%;max-width:360px;max-height:260px;overflow-y:auto;
+  list-style:none;margin:0;padding:6px 0;
+  background:var(--surface);border:1px solid var(--hairline-strong);border-radius:var(--radius-md);
+  box-shadow:0 12px 32px rgba(0,0,0,0.5);z-index:12;
+}
+.search-candidate{
+  display:flex;align-items:baseline;gap:8px;padding:6px 14px;cursor:pointer;
+  font-size:0.8125rem;color:var(--ink);
+}
+.search-candidate:hover{background:var(--paper)}
+.search-candidate-ticker{font-family:var(--mono);font-weight:700;flex:none}
+.search-candidate-name{
+  color:var(--text-3);font-size:0.75rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 tr.row-expanded td.tk .expand-hint{opacity:1;transform:rotate(90deg)}
 td.na{color:var(--text-3);font-style:italic;font-weight:400;font-variant-numeric:normal}
 
