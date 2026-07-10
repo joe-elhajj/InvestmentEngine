@@ -863,6 +863,25 @@ tr.accordion-row:hover > td{background:var(--paper)}
   color:var(--text-2);background:transparent;border:1px dashed var(--hairline-strong);
 }
 
+/* ---- R&D-UNADJ abstention chip (PR fix/rnd-badge-layout): sits in the
+   ROIC(R&D-adj) ratio-table cell (see _ratio_rows in report_html.py) when
+   res.rnd_regime is ABSTAINED (regime disabled in config, or an IFRS
+   filer). Same .basis-badge amber-emphasis vocabulary as MKT/WIN/REV --
+   this IS the disclosure for the cell, not a secondary inherited caveat,
+   so it gets the filled treatment, not .inherit-chip's outline-only one.
+   Native title= tooltip (matches .dur-chip/.gate-chip, not the
+   .has-tooltip/.th-tooltip system -- this chip isn't on the dashboard
+   screener table, it's the single-ticker ratio table). The full IAS 38
+   rationale (~180 chars) lives in the tooltip; the visible text is the
+   short reason only -- inline, it blew out the table's width (live-
+   verified on ASML). */
+.rnd-unadj-chip{
+  display:inline-block;padding:1px 5px;border-radius:5px;
+  font-family:var(--mono);font-size:0.75rem;font-weight:700;
+  color:var(--emphasis);background:rgba(var(--emphasis-rgb),0.14);
+  border:1px solid rgba(var(--emphasis-rgb),0.3);cursor:default;
+}
+
 /* ---- Expectations-gap scenario band (PR 3): shared markup from
    engine/report_html.py's _gap_band_html(), styled separately here (light
    fragment) vs report_html.py's own embedded <style> (dark full report) --

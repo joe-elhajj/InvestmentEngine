@@ -16,6 +16,17 @@ from datetime import datetime
 from engine.edgar import Fact, classify_rnd_series
 from engine.pipeline import AnalysisResult, RndRegime, rnd_regime_reason_text
 
+# Short cell text for an ABSTAINED rnd_regime, paired with the full
+# rationale from rnd_regime_reason_text() (pipeline.py) as a footnote
+# beneath the ratio table -- the full IAS 38 rationale (~180 chars) blew
+# out the table's width inline (live-verified on ASML). Renderer-owned,
+# not pipeline.py's concern: pipeline.py owns WHY the regime doesn't
+# apply, not how a Markdown table decides to lay that reason out.
+_RND_REGIME_REASON_SHORT: dict[RndRegime, str] = {
+    RndRegime.ABSTAINED_REGIME_DISABLED: "regime disabled",
+    RndRegime.ABSTAINED_IFRS_FPI: "IFRS filer",
+}
+
 
 def _pct(x, nd=1):
     return f"{x*100:.{nd}f}%" if x is not None else "n/a"
@@ -171,6 +182,7 @@ def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | 
     ]
     w("| Metric | Value |")
     w("|---|---|")
+    rnd_unadj_footnote: str | None = None
     for label, key, is_pct in order:
         m = r.get(key)
         if m is None:
@@ -190,7 +202,10 @@ def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | 
             # a badge with THAT reason, regardless of whether roic_adjusted
             # happened to compute; (3) roic_adjusted didn't compute for some
             # other reason (e.g. a short/gapped window) -- a badge saying so;
-            # (4) otherwise, the bare percentage.
+            # (4) otherwise, the bare percentage. The ABSTAINED case prints
+            # the SHORT reason inline and stashes the full IAS 38 rationale
+            # for a footnote below the table -- the full text is too wide
+            # for a table cell (~180 chars, blew out the table on ASML).
             adj = r.get("roic_adjusted")
             state, _ = classify_rnd_series(res.company)
             if state == "no_rnd":
@@ -207,13 +222,17 @@ def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | 
                     "constructing AnalysisResult directly when R&D data is present"
                 )
             elif res.rnd_regime is not RndRegime.APPLIES:
-                reason = rnd_regime_reason_text(res.rnd_regime)
-                w(f"| ROIC (R&D-adj) | n/a — **R&D-UNADJ** ({reason}) |")
+                short = _RND_REGIME_REASON_SHORT[res.rnd_regime]
+                w(f"| ROIC (R&D-adj) | n/a — **R&D-UNADJ** ({short}) |")
+                rnd_unadj_footnote = rnd_regime_reason_text(res.rnd_regime)
             elif adj is None or adj.value is None:
                 w("| ROIC (R&D-adj) | n/a — **R&D-UNADJ** (insufficient history) |")
             else:
                 w(f"| ROIC (R&D-adj) | {_pct(adj.value)} |")
     w("")
+    if rnd_unadj_footnote:
+        w(f"*R&D-UNADJ: {rnd_unadj_footnote}*")
+        w("")
 
     # --- Peer comparison ----------------------------------------------------
     if peer_table:
