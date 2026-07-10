@@ -107,19 +107,45 @@ def _roic_adj_md_line(md: str) -> str | None:
     return lines[0] if lines else None
 
 
-def _roic_adj_html_value(html: str) -> str | None:
+def _roic_adj_html_cell(html: str) -> str | None:
     """
-    The HTML table cell VALUE for the R&D-adjusted ROIC row, or None if the
-    row is absent entirely. RH.render() runs every cell through
-    html.escape(), which turns "R&D-UNADJ" into "R&amp;D-UNADJ" in the raw
-    HTML source -- unescape before returning so callers can substring-match
-    the same way they do against the Markdown line, rather than needing to
-    know about escaping.
+    The raw (still HTML-escaped/markup-bearing) inner HTML of the ROIC
+    (R&D-adj) table cell, or None if the row is absent entirely. Callers
+    that just need "is the row present at all" (T1/T3) use this directly;
+    callers that need the visible text vs. the tooltip separately use
+    _roic_adj_html_visible_text / _roic_adj_html_tooltip below.
     """
     m = re.search(r"<td>ROIC \(R&amp;D-adj\)</td><td>(.*?)</td>", html)
-    if m is None:
+    return m.group(1) if m else None
+
+
+def _roic_adj_html_visible_text(html: str) -> str | None:
+    """
+    The user-visible text of the ROIC (R&D-adj) cell, unescaped: the
+    chip <span>'s inner text when a chip is present (an ABSTAINED
+    rnd_regime), or the whole cell's text otherwise (bare percentage /
+    the plain "insufficient history" badge, neither of which is a chip).
+    None if the row is absent.
+    """
+    cell = _roic_adj_html_cell(html)
+    if cell is None:
         return None
-    return html_mod.unescape(m.group(1))
+    m = re.search(r"<span[^>]*>(.*?)</span>", cell)
+    inner = m.group(1) if m else cell
+    return html_mod.unescape(inner)
+
+
+def _roic_adj_html_tooltip(html: str) -> str | None:
+    """
+    The ROIC (R&D-adj) chip's title= tooltip text, unescaped, or None if
+    there's no chip at all (row absent, bare percentage, or the plain
+    "insufficient history" badge -- none of those carry a tooltip).
+    """
+    cell = _roic_adj_html_cell(html)
+    if cell is None:
+        return None
+    m = re.search(r'title="([^"]*)"', cell)
+    return html_mod.unescape(m.group(1)) if m else None
 
 
 # ---------------------------------------------------------------------------
@@ -165,9 +191,9 @@ def test_t1_domestic_no_rnd_omits_row_entirely():
         f"expected zero ROIC (R&D-adj) lines in the Markdown report for a NO_RND domestic "
         f"filer, got: {_roic_adj_md_line(md)!r}"
     )
-    assert _roic_adj_html_value(html) is None, (
+    assert _roic_adj_html_cell(html) is None, (
         f"expected zero ROIC (R&D-adj) rows in the HTML report for a NO_RND domestic "
-        f"filer, got: {_roic_adj_html_value(html)!r}"
+        f"filer, got: {_roic_adj_html_cell(html)!r}"
     )
 
 
@@ -193,6 +219,11 @@ def test_t2_domestic_regime_disabled_shows_config_disabled_reason():
     reason, distinct from "IFRS filer" and "insufficient history" -- this
     string does not exist anywhere in the codebase yet), never the bare
     percentage.
+
+    Amendment (fix/rnd-badge-layout): the badge's cell text is the SHORT
+    reason only ("regime disabled") -- the full rationale is relocated,
+    never shortened away: a footnote line beneath the Markdown ratio
+    table, and the HTML chip's title= tooltip. Both are asserted here.
     """
     cd = _domestic_with_rnd()
     cfg = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": False}}}
@@ -207,6 +238,8 @@ def test_t2_domestic_regime_disabled_shows_config_disabled_reason():
         "the bug has moved and this test needs to be revisited"
     )
 
+    full_reason = "R&D capitalization regime disabled in config"
+
     md = R.render(res)
     html = RH.render(res)
 
@@ -214,18 +247,33 @@ def test_t2_domestic_regime_disabled_shows_config_disabled_reason():
     assert md_line, "expected an R&D-UNADJ badge row in the Markdown report, got none"
     assert "R&D-UNADJ" in md_line, f"expected a badge, got a bare value: {md_line!r}"
     assert "%" not in md_line.split("|")[-2], f"must not show a bare percentage: {md_line!r}"
-    assert "disabled" in md_line.lower() or "config" in md_line.lower(), (
-        f"reason must disclose that the regime is config-disabled, not blend into an "
-        f"unrelated reason: {md_line!r}"
+    assert "disabled" in md_line.lower(), (
+        f"cell text must disclose 'regime disabled', not blend into an unrelated "
+        f"reason: {md_line!r}"
+    )
+    assert full_reason not in md_line, (
+        f"the full rationale must NOT sit inline in the cell (that's the layout bug "
+        f"this PR fixes): {md_line!r}"
+    )
+    assert full_reason in md, (
+        "the full rationale must appear as a footnote beneath the ratio table -- "
+        "relocated, never shortened away"
     )
 
-    html_value = _roic_adj_html_value(html)
-    assert html_value, "expected an R&D-UNADJ badge row in the HTML report, got none"
-    assert "R&D-UNADJ" in html_value, f"expected a badge, got a bare value: {html_value!r}"
-    assert "%" not in html_value, f"must not show a bare percentage: {html_value!r}"
-    assert "disabled" in html_value.lower() or "config" in html_value.lower(), (
-        f"reason must disclose that the regime is config-disabled, not blend into an "
-        f"unrelated reason: {html_value!r}"
+    visible = _roic_adj_html_visible_text(html)
+    assert visible, "expected an R&D-UNADJ badge in the HTML report, got none"
+    assert "R&D-UNADJ" in visible, f"expected a badge, got a bare value: {visible!r}"
+    assert "%" not in visible, f"must not show a bare percentage: {visible!r}"
+    assert "disabled" in visible.lower(), (
+        f"visible chip text must disclose 'regime disabled': {visible!r}"
+    )
+    assert full_reason not in visible, (
+        f"the full rationale must NOT sit in the visible chip text: {visible!r}"
+    )
+
+    tooltip = _roic_adj_html_tooltip(html)
+    assert tooltip == full_reason, (
+        f"the chip's title= tooltip must carry the full rationale verbatim, got: {tooltip!r}"
     )
 
 
@@ -262,9 +310,9 @@ def test_t3_fpi_no_rnd_omits_row_entirely():
         f"expected zero ROIC (R&D-adj) lines in the Markdown report for an FPI with NO R&D "
         f"data, got: {_roic_adj_md_line(md)!r}"
     )
-    assert _roic_adj_html_value(html) is None, (
+    assert _roic_adj_html_cell(html) is None, (
         f"expected zero ROIC (R&D-adj) rows in the HTML report for an FPI with NO R&D "
-        f"data, got: {_roic_adj_html_value(html)!r}"
+        f"data, got: {_roic_adj_html_cell(html)!r}"
     )
 
 
@@ -321,6 +369,10 @@ def test_t5_fpi_regime_disabled_outranks_ifrs_reason():
     config-disabled reason is the one that's actually true and it must
     take precedence over the (also true, but less specific to why THIS
     company shows no adjustment right now) IFRS reason.
+
+    Amendment (fix/rnd-badge-layout): same short/full split as T2. The
+    IFRS reason -- short OR full -- must not leak in anywhere: cell,
+    footnote, or tooltip.
     """
     cd = _fpi_with_rnd()
     assert is_fpi(cd)[0] is True
@@ -336,6 +388,9 @@ def test_t5_fpi_regime_disabled_outranks_ifrs_reason():
         "disabled for an FPI with usable R&D -- if this now fails, this test needs revisiting"
     )
 
+    full_reason = "R&D capitalization regime disabled in config"
+    ifrs_full_reason_fragment = "IAS 38"
+
     md = R.render(res)
     html = RH.render(res)
 
@@ -345,18 +400,27 @@ def test_t5_fpi_regime_disabled_outranks_ifrs_reason():
     assert "IFRS filer" not in md_line, (
         f"regime-disabled must outrank the IFRS reason when both apply: {md_line!r}"
     )
-    assert "disabled" in md_line.lower() or "config" in md_line.lower(), (
-        f"reason must disclose that the regime is config-disabled: {md_line!r}"
+    assert "disabled" in md_line.lower(), (
+        f"cell text must disclose 'regime disabled': {md_line!r}"
+    )
+    assert full_reason in md, "the full regime-disabled rationale must appear as a footnote"
+    assert ifrs_full_reason_fragment not in md, (
+        "the IFRS rationale must not leak in anywhere (cell or footnote) once "
+        "regime-disabled outranks it"
     )
 
-    html_value = _roic_adj_html_value(html)
-    assert html_value, "expected an R&D-UNADJ badge row in the HTML report, got none"
-    assert "R&D-UNADJ" in html_value, f"expected a badge, got a bare value: {html_value!r}"
-    assert "IFRS filer" not in html_value, (
-        f"regime-disabled must outrank the IFRS reason when both apply: {html_value!r}"
+    visible = _roic_adj_html_visible_text(html)
+    assert visible, "expected an R&D-UNADJ badge in the HTML report, got none"
+    assert "R&D-UNADJ" in visible, f"expected a badge, got a bare value: {visible!r}"
+    assert "IFRS filer" not in visible, (
+        f"regime-disabled must outrank the IFRS reason when both apply: {visible!r}"
     )
-    assert "disabled" in html_value.lower() or "config" in html_value.lower(), (
-        f"reason must disclose that the regime is config-disabled: {html_value!r}"
+    assert "disabled" in visible.lower(), f"visible chip text must disclose 'regime disabled': {visible!r}"
+
+    tooltip = _roic_adj_html_tooltip(html)
+    assert tooltip == full_reason, (
+        f"the chip's title= tooltip must carry the full regime-disabled rationale, "
+        f"not the IFRS one: {tooltip!r}"
     )
 
 

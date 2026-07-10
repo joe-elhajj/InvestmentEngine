@@ -25,6 +25,16 @@ from typing import Optional
 from engine.edgar import classify_rnd_series
 from engine.pipeline import AnalysisResult, RndRegime, rnd_regime_reason_text
 
+# Short chip text for an ABSTAINED rnd_regime; the full IAS 38 rationale
+# from rnd_regime_reason_text() (pipeline.py) moves to the chip's title=
+# tooltip instead of sitting inline -- ~180 chars blew out the ratio
+# table's width (live-verified on ASML). Renderer-owned, same split as
+# report.py's short/footnote treatment; not pipeline.py's concern.
+_RND_REGIME_REASON_SHORT: dict[RndRegime, str] = {
+    RndRegime.ABSTAINED_REGIME_DISABLED: "regime disabled",
+    RndRegime.ABSTAINED_IFRS_FPI: "IFRS filer",
+}
+
 
 # ---------------------------------------------------------------------------
 # Formatting helpers (shared, format-agnostic)
@@ -196,8 +206,16 @@ _RATIO_ORDER = [
 ]
 
 
-def _ratio_rows(res: AnalysisResult) -> list[tuple[str, str]]:
-    rows = []
+def _ratio_rows(res: AnalysisResult) -> list[tuple[str, str, Optional[str]]]:
+    """
+    Each row is (label, plain_value, chip_html). chip_html is None for
+    every ordinary ratio -- the caller escapes plain_value as usual. It is
+    a fully-formed, already-escaped-where-needed <span> ONLY for the
+    ABSTAINED ROIC(R&D-adj) case, so the caller can emit it verbatim
+    (never re-escaping markup we built ourselves) while every other row
+    stays exactly as safe as before.
+    """
+    rows: list[tuple[str, str, Optional[str]]] = []
     for label, key, is_pct in _RATIO_ORDER:
         m = res.ratios.get(key)
         if m is None:
@@ -206,7 +224,7 @@ def _ratio_rows(res: AnalysisResult) -> list[tuple[str, str]]:
             val = f"n/a ({m.note})" if m.note else "n/a"
         else:
             val = _fmt_pct(m.value) if is_pct else f"{m.value:.2f}"
-        rows.append((label, val))
+        rows.append((label, val, None))
         if key == "roic":
             # Dual ROIC (Damodaran R&D capitalization). Two layers compose
             # here, in precedence order: (1) no R&D series at all -- nothing
@@ -216,9 +234,12 @@ def _ratio_rows(res: AnalysisResult) -> list[tuple[str, str]]:
             # reason, regardless of whether roic_adjusted happened to
             # compute; (3) roic_adjusted didn't compute for some other reason
             # (e.g. a short/gapped window) -- a badge saying so; (4)
-            # otherwise, the bare percentage. Plain text, not an HTML chip:
-            # this row's value string is escape()'d at both call sites below
-            # like every other ratio, and is not exempted from that here.
+            # otherwise, the bare percentage. The ABSTAINED case is the one
+            # exception to "plain text, escaped like every other ratio": its
+            # full IAS 38 rationale (~180 chars) blew out the table on ASML,
+            # so the SHORT reason is the visible chip text and the full
+            # rationale moves to a title= tooltip (matches the .dur-chip/
+            # .gate-chip native-tooltip precedent already in this module).
             adj = res.ratios.get("roic_adjusted")
             state, _ = classify_rnd_series(res.company)
             if state == "no_rnd":
@@ -233,12 +254,17 @@ def _ratio_rows(res: AnalysisResult) -> list[tuple[str, str]]:
                     "constructing AnalysisResult directly when R&D data is present"
                 )
             elif res.rnd_regime is not RndRegime.APPLIES:
-                reason = rnd_regime_reason_text(res.rnd_regime)
-                rows.append(("ROIC (R&D-adj)", f"n/a — R&D-UNADJ ({reason})"))
+                short = _RND_REGIME_REASON_SHORT[res.rnd_regime]
+                full = rnd_regime_reason_text(res.rnd_regime)
+                plain = f"n/a — R&D-UNADJ ({short})"
+                chip = (
+                    f'<span class="rnd-unadj-chip" title="{escape(full)}">{escape(plain)}</span>'
+                )
+                rows.append(("ROIC (R&D-adj)", plain, chip))
             elif adj is None or adj.value is None:
-                rows.append(("ROIC (R&D-adj)", "n/a — R&D-UNADJ (insufficient history)"))
+                rows.append(("ROIC (R&D-adj)", "n/a — R&D-UNADJ (insufficient history)", None))
             else:
-                rows.append(("ROIC (R&D-adj)", _fmt_pct(adj.value)))
+                rows.append(("ROIC (R&D-adj)", _fmt_pct(adj.value), None))
     return rows
 
 
@@ -626,7 +652,10 @@ def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | 
 
     ratios_html = _table_html(
         ["Metric", "Value"],
-        "".join(f"<tr><td>{escape(l)}</td><td>{escape(v)}</td></tr>" for l, v in _ratio_rows(res)),
+        "".join(
+            f"<tr><td>{escape(l)}</td><td>{chip if chip else escape(v)}</td></tr>"
+            for l, v, chip in _ratio_rows(res)
+        ),
     )
 
     peer_html = ""
@@ -733,6 +762,7 @@ tbody tr:nth-child(even) {{ background: #111827; }}
 code {{ color: #cbd5e1; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, monospace; white-space: pre-wrap; }}
 .footer {{ color: #94a3b8; font-size: 0.95rem; margin-top: 40px; }}
 .dur-chip {{ display:inline-block;margin-right:6px;padding:1px 5px;border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:0.7rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#fbbf24;border:1px solid rgba(251,191,36,0.35);cursor:default; }}
+.rnd-unadj-chip {{ display:inline-block;padding:1px 5px;border-radius:5px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;font-size:0.7rem;font-weight:700;letter-spacing:.02em;color:#fbbf24;border:1px solid rgba(251,191,36,0.35);cursor:default; }}
 .report-caption {{ color: #94a3b8; font-size: 0.9rem; margin: 8px 0; }}
 .gap-band {{ margin-top: 20px; }}
 .gap-band-strip {{ margin: 10px 0 14px; }}
@@ -983,7 +1013,10 @@ def render_fragment(
 
     ratios_html = _fr_table(
         ["Metric", "Value"],
-        "".join(f'<tr><td class="l">{escape(l)}</td><td>{escape(v)}</td></tr>' for l, v in _ratio_rows(res)),
+        "".join(
+            f'<tr><td class="l">{escape(l)}</td><td>{chip if chip else escape(v)}</td></tr>'
+            for l, v, chip in _ratio_rows(res)
+        ),
     )
     prows = _peer_rows(peer_table)
     peer_html = ""
