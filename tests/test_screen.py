@@ -16,7 +16,7 @@ import dataclasses
 from engine.edgar import CompanyData
 from engine.market import Quote
 from engine.pipeline import AnalysisResult, ImpliedGrowthAbstainReason
-from engine.screen import _empty_row, _implied_growth_columns
+from engine.screen import _empty_row, _gap_bracket_bound, _implied_growth_columns
 from engine.valuation import ImpliedGrowthResult
 
 
@@ -63,6 +63,24 @@ class TestBracketUpperHitNote:
         res = _res(implied_growth_result=igr)
         _, _, note = _implied_growth_columns(res, _cd())
         assert "bracket upper hit" not in note
+
+    def test_implied_g_and_gap_bracket_bound_agree(self):
+        """Part 2 (feature/provenance-and-lighter-accent -- the #62 loose
+        end): on a bracket_hit row, IMPLIED G and GAP must not disagree --
+        Implied g showing plain n/a while Gap shows a >60%/<-20% marker is
+        exactly the two-column inconsistency this closes. The actual cell
+        rendering is JS (frontend/app.js's impliedTd construction) and
+        untestable without a JS framework (none exists in this repo) --
+        this pins the DATA CONTRACT the frontend fix depends on: for a
+        bracket-hit result, implied_g is None (correctly -- there's no
+        meaningful percentage) AND _gap_bracket_bound(res) is not None
+        (so the frontend has what it needs to show the SAME bound marker
+        instead of blending into plain n/a)."""
+        igr = _igr(bracket_hit=True, bracket_bound="upper", implied_growth=0.60)
+        res = _res(implied_growth_result=igr)
+        implied_g, gap, note = _implied_growth_columns(res, _cd())
+        assert implied_g is None
+        assert _gap_bracket_bound(res) == "upper"
 
 
 class TestFcfNonPositiveNote:
