@@ -39,9 +39,11 @@ from html import escape
 from pathlib import Path
 from typing import Optional
 
-from engine.edgar import CompanyData, EdgarClient
+import re
+
+from engine.edgar import CompanyData, EdgarClient, classify_rnd_series
 from engine.market import get_quote
-from engine.pipeline import AnalysisResult, derive, ImpliedGrowthAbstainReason
+from engine.pipeline import AnalysisResult, derive, ImpliedGrowthAbstainReason, RndRegime
 from engine import durability as D
 from engine.etf import EtfProfile, fetch_etf_profile, FUND_QUOTE_TYPES
 
@@ -158,6 +160,93 @@ def _gap_bracket_bound(res: AnalysisResult) -> Optional[str]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Aggregate provenance chip (feature/provenance-and-lighter-accent, Part 1)
+# ---------------------------------------------------------------------------
+
+_WIN_WINDOW_RE = re.compile(r"window: (\d+)y actual vs (\d+)y requested")
+
+
+def _rnd_unadj_note(res: AnalysisResult) -> Optional[str]:
+    """
+    Row-level R&D-UNADJ note -- a NEW signal (this PR), unlike the other
+    five provenance chips below. Mirrors the exact precedence already
+    used at the ratio-table Site C in report.py/report_html.py (fix/
+    rnd-badge-layout): no_rnd first (nothing was ever adjustable, no
+    note), then the stamped rnd_regime (fix/f14-rnd-disclosure). None
+    when the regime APPLIES -- adjustment actually happened, nothing to
+    disclose -- or when rnd_regime was never stamped at all (an
+    AnalysisResult built without going through derive()).
+    """
+    if res.rnd_regime is None or res.rnd_regime is RndRegime.APPLIES:
+        return None
+    state, _ = classify_rnd_series(res.company)
+    if state == "no_rnd":
+        return None
+    if res.rnd_regime is RndRegime.ABSTAINED_IFRS_FPI:
+        return "R&D capitalization not applied (IFRS filer)"
+    return "R&D capitalization not applied (regime disabled in config)"
+
+
+def _provenance_notes(
+    quote_source: Optional[str],
+    diluted_shares_gap: bool,
+    delivered_growth_label: Optional[str],
+    implied_growth_note: Optional[str],
+    durability_gaps: Optional[list],
+    rnd_unadj_reason: Optional[str],
+) -> list[tuple[str, str]]:
+    """
+    Pure: the single source of truth for which of MKT/WIN/REV/INH/DUR/RND
+    are active for a row, and their short detail text -- ported verbatim
+    from frontend/app.js's own hasMkt/hasWin/hasRev/appendInheritChip/
+    appendDurGapsIndicator conditions and existing short-form strings
+    (originally built only for INH's own tooltip; now the single source
+    for the aggregate "dot + count" chip too), so this decision is
+    unit-tested without a JS test framework (none exists in this repo).
+
+    Verdict chips (FRAG/GATE/GATE?/FRAG?) are a completely different
+    signal class (durability veto / gap-sign robustness under bull-base-
+    bear) and share NO code with this function -- untouched, unaffected,
+    still their own separate chips at their existing prominence.
+
+    Returns a list of (code, detail) pairs, in the SAME left-to-right
+    order app.js used to place the individual badges (MKT, WIN, REV,
+    INH, DUR, RND) -- empty when nothing is active; absence-is-not-zero,
+    never a phantom entry for a None/falsy input.
+    """
+    notes: list[tuple[str, str]] = []
+    gated = bool(implied_growth_note)
+
+    has_mkt = quote_source == "yfinance" and bool(diluted_shares_gap)
+    if has_mkt:
+        notes.append(("MKT", "implied uses vendor-tier share count"))
+
+    has_win = bool(delivered_growth_label and "window:" in delivered_growth_label)
+    if has_win:
+        m = _WIN_WINDOW_RE.search(delivered_growth_label)
+        win_detail = (
+            f"delivered window {m.group(1)}y vs {m.group(2)}y requested"
+            if m else "delivered uses an extended CAGR window"
+        )
+        notes.append(("WIN", win_detail))
+
+    has_rev = bool(delivered_growth_label and delivered_growth_label.startswith("revenue CAGR"))
+    if has_rev:
+        notes.append(("REV", "delivered is revenue CAGR, not FCF"))
+
+    if not gated and (has_mkt or has_win or has_rev):
+        notes.append(("INH", "gap inherits an upstream MKT/WIN/REV caveat"))
+
+    if durability_gaps:
+        notes.append(("DUR", "durability-scoring disclosures present"))
+
+    if rnd_unadj_reason:
+        notes.append(("RND", rnd_unadj_reason))
+
+    return notes
+
+
 def _gap_band_columns(res: AnalysisResult) -> tuple:
     """
     Pure: derives (band_status, fragile, scenarios) from an already-computed
@@ -257,6 +346,12 @@ class ScreenRow:
     # an absence; this lets the Gap cell render a distinct marker instead
     # of blending it into the same n/a pill as genuine absence.
     gap_bracket_bound: Optional[str] = None
+    # feature/provenance-and-lighter-accent, Part 1: the aggregate "dot +
+    # count" provenance chip's contents, computed once by _provenance_notes()
+    # -- [{"code": "MKT", "detail": "..."}, ...], empty list (never used to
+    # render a chip at all) when nothing is active. Verdict chips (FRAG/
+    # GATE/GATE?/FRAG?) are NOT provenance and are not part of this list.
+    provenance_notes: list = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -534,6 +629,32 @@ def _process_one(
         flag_parts.append(ig_note)
     flag = " · ".join(flag_parts)
 
+    diluted_shares_gap = "diluted_shares" in res.gaps
+    # ds.gaps is built internally as list(res.gaps) + extra_gaps
+    # (engine/durability.py::score()) -- a SUPERSET of res.gaps, not a
+    # disjoint list. Keep only the durability-specific additions so this
+    # doesn't double-count pipeline gaps already shown elsewhere. Dedup
+    # assumption: string equality is exact-match only (no normalization)
+    # -- correct today since no gap string is ever reused verbatim across
+    # res.gaps and extra_gaps; a structured provenance tag (rather than
+    # string comparison) is backlogged if that assumption ever needs to
+    # be dropped.
+    durability_gaps = [g for g in ds.gaps if g not in res.gaps]
+
+    # feature/provenance-and-lighter-accent, Part 1: MKT/WIN/REV/INH/DUR/
+    # RND collapsed into one aggregate chip's worth of (code, detail)
+    # pairs -- see _provenance_notes()'s own docstring for the full
+    # rationale. Computed here, once, from exactly the same inputs the
+    # old per-cell app.js badges used.
+    provenance = _provenance_notes(
+        quote_source=quote.source,
+        diluted_shares_gap=diluted_shares_gap,
+        delivered_growth_label=res.delivered_growth_label,
+        implied_growth_note=ig_note,
+        durability_gaps=durability_gaps,
+        rnd_unadj_reason=_rnd_unadj_note(res),
+    )
+
     return ScreenRow(
         ticker=ticker,
         composite=ds.composite,
@@ -557,17 +678,8 @@ def _process_one(
         flag=flag,
         delivered_growth_label=res.delivered_growth_label,
         quote_source=quote.source,
-        diluted_shares_gap="diluted_shares" in res.gaps,
-        # ds.gaps is built internally as list(res.gaps) + extra_gaps
-        # (engine/durability.py::score()) -- a SUPERSET of res.gaps, not a
-        # disjoint list. Keep only the durability-specific additions so
-        # this doesn't double-count pipeline gaps already shown elsewhere.
-        # Dedup assumption: string equality is exact-match only (no
-        # normalization) -- correct today since no gap string is ever
-        # reused verbatim across res.gaps and extra_gaps; a structured
-        # provenance tag (rather than string comparison) is backlogged if
-        # that assumption ever needs to be dropped.
-        durability_gaps=[g for g in ds.gaps if g not in res.gaps],
+        diluted_shares_gap=diluted_shares_gap,
+        durability_gaps=durability_gaps,
         expectations_gap_band_status=band_status,
         expectations_gap_fragile=fragile,
         expectations_gap_scenarios=band_scenarios,
@@ -576,6 +688,7 @@ def _process_one(
         composite_ungated=ds.composite_ungated,
         name=cd.name,
         gap_bracket_bound=_gap_bracket_bound(res),
+        provenance_notes=[{"code": c, "detail": d} for c, d in provenance],
     ), None
 
 

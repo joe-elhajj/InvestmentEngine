@@ -136,40 +136,15 @@
     return cell;
   }
 
-  // Durability-gaps presence indicator (DUR): a small outline chip
-  // prepended to the Durability (composite) score cell's number when
-  // DurabilityScore.gaps is non-empty -- net-cash resilience, mixed-basis,
-  // short-history, split-contamination disclosures that fire during
-  // scoring but, before this change, never reached any user-facing
-  // surface. Reserved slot on EVERY row (present in the DOM but
-  // visibility:hidden when there's nothing to disclose), same pattern as
-  // the Gap column's INH chip -- keeps the score-num's layout invariant
-  // across rows and keeps a gapless row's slot out of the accessibility
-  // tree, rather than announcing a phantom DUR. Full gap text lives in the
-  // tooltip and the per-ticker fragment -- never inline in the table.
-  function appendDurGapsIndicator(compositeCell, durabilityGaps) {
-    var numEl = compositeCell.querySelector(".score-num");
-    if (!numEl) return;
-    var slot = document.createElement("span");
-    slot.className = "dur-gaps-slot";
-    slot.textContent = "DUR";
-    if (durabilityGaps && durabilityGaps.length) {
-      slot.classList.add("dur-gaps-present", "has-tooltip");
-      slot.tabIndex = 0;
-      var tip = document.createElement("div");
-      tip.className = "th-tooltip";
-      tip.textContent = "Durability-scoring disclosures: " + durabilityGaps.join(" | ");
-      slot.appendChild(tip);
-    }
-    numEl.insertBefore(slot, numEl.firstChild);
-  }
-
-  // Balance-sheet gate indicator (GATE/GATE?, PR 4): a second reserved
-  // chip on the Durability (composite) score cell, same visibility:hidden
-  // reserved-slot pattern as appendDurGapsIndicator immediately above --
-  // called AFTER it so this slot's insertBefore lands to the LEFT of the
-  // DUR chip (GATE is the more severe, actionable signal: a raw-metric
-  // veto capping the composite, vs DUR's scoring-level disclosure). GATE
+  // Balance-sheet gate indicator (GATE/GATE?, PR 4): a reserved chip on
+  // the Durability (composite) score cell's number. This is a VERDICT
+  // chip -- untouched by feature/provenance-and-lighter-accent, which
+  // only collapsed the PROVENANCE chips (MKT/WIN/REV/INH/DUR/RND) into
+  // the aggregate dot+count chip beside the ticker; DUR's old per-cell
+  // presence indicator here was one of the ones collapsed (see
+  // appendProvenanceChip below) -- GATE is a completely different signal
+  // class (a raw-metric veto capping the composite, not a disclosure)
+  // and keeps its own separate, unchanged prominence. GATE
   // (gate-slot-fired) = a gate fired, composite/band are the capped
   // values; tooltip carries the full lineage string (reason, threshold,
   // and the ungated composite). GATE? (gate-slot-untestable) = a required
@@ -199,6 +174,23 @@
     numEl.insertBefore(slot, numEl.firstChild);
   }
 
+  // Shared bracket-hit display text/tooltip -- used by both gapCell's
+  // pill (below) and Implied g's plain-text cell (Part 2, renderEquities
+  // Row), so the two columns show the identical label/explanation
+  // instead of drifting apart.
+  function bracketDisplay(bound) {
+    return bound === "upper" ? ">60%" : "<-20%";
+  }
+  function bracketTooltip(bound) {
+    return bound === "upper"
+      ? "Market-implied growth exceeds the model's +60% solver ceiling -- fair " +
+        "value at 60% growth is still below the current price (off-scale rich). " +
+        "This is a real result, not missing data."
+      : "Market-implied growth is below the model's -20% solver floor -- fair " +
+        "value at -20% growth is still above the current price (off-scale cheap). " +
+        "This is a real result, not missing data.";
+  }
+
   // Directional Gap pill. Sign (never inferred by CSS — computed here,
   // same as before) picks the fixed hue class; magnitude only scales the
   // --gap-alpha custom property within that hue, preserving the same
@@ -221,30 +213,21 @@
   // data, currency gate, etc). Rendered as a distinct pill instead of the
   // plain n/a pill so it never reads as "nothing was computed" when
   // something very much was.
+  //
+  // feature/provenance-and-lighter-accent, Part 1: the INH reserved slot
+  // that used to live here is gone -- that provenance signal is now part
+  // of the aggregate dot+count chip beside the ticker (row.provenance_
+  // notes / appendProvenanceChip). The FRAG slot below is UNCHANGED --
+  // it's a verdict chip, not provenance, out of scope for that collapse.
   function gapCell(rawValue, displayValue, bracketBound) {
     var cell = document.createElement("td");
     cell.className = "gap-cell";
-    // Inherit-chip slot: reserved on EVERY gap cell (before the pill), with
-    // its "INH" text already in place but invisible (visibility:hidden --
-    // hidden from sighted users AND assistive tech, unlike opacity/color
-    // tricks) when there's no upstream caveat. Keeping the same text content
-    // in the DOM at all times (rather than inserting it only when needed)
-    // is what keeps every pill's right edge aligned to the same column
-    // regardless of whether this row ends up with a visible chip — see
-    // appendInheritChip below, which only toggles visibility/styling on
-    // this same node instead of appending a separate one after the pill.
-    var slot = document.createElement("span");
-    slot.className = "gap-inherit-slot";
-    slot.textContent = "INH";
-    cell.appendChild(slot);
-    // Fragility slot (PR 3, expectations-gap scenario band): a second
-    // reserved slot, same visibility:hidden pattern as .gap-inherit-slot
-    // immediately above -- both sit to the LEFT of the pill, so a FRAG
-    // chip never collides with the INH chip (they're just two chips in
-    // the same pre-pill run) nor with .row-remove-wrap (absolutely
-    // positioned at the cell's own right edge, over the pill itself).
-    // Default hidden text is "FRAG" (the common COMPLETE/FRAGILE case);
-    // appendFragChip() below swaps to "FRAG?" only for the rarer
+    // Fragility slot (PR 3, expectations-gap scenario band): reserved,
+    // visibility:hidden pattern (present in the DOM, hidden from sighted
+    // users AND assistive tech until it fires) so the pill's right edge
+    // never shifts based on whether this row ends up with a visible
+    // chip. Default hidden text is "FRAG" (the common COMPLETE/FRAGILE
+    // case); appendFragChip() below swaps to "FRAG?" only for the rarer
     // UNDETERMINABLE (PARTIAL band) case.
     var fragSlot = document.createElement("span");
     fragSlot.className = "gap-frag-slot";
@@ -260,14 +243,8 @@
         // bullish -- green. See gap-pill-pos/neg's own sign-convention
         // comment in styles.css for the full rationale.
         pill.className = "gap-pill " + (bracketBound === "upper" ? "gap-pill-bracket-upper" : "gap-pill-bracket-lower");
-        pill.textContent = bracketBound === "upper" ? ">60%" : "<-20%";
-        pill.title = bracketBound === "upper"
-          ? "Market-implied growth exceeds the model's +60% solver ceiling -- fair " +
-            "value at 60% growth is still below the current price (off-scale rich). " +
-            "This is a real result, not missing data."
-          : "Market-implied growth is below the model's -20% solver floor -- fair " +
-            "value at -20% growth is still above the current price (off-scale cheap). " +
-            "This is a real result, not missing data.";
+        pill.textContent = bracketDisplay(bracketBound);
+        pill.title = bracketTooltip(bracketBound);
       } else {
         pill.className = "gap-pill gap-pill-na";
         pill.textContent = "n/a";
@@ -283,43 +260,33 @@
     return cell;
   }
 
-  // Session B basis-disclosure badge: a small superscript marker + hover
-  // tooltip attached to an existing cell, reusing the generic .has-tooltip/
-  // .th-tooltip pattern (already shared by column headers and the analyze
-  // fragment's stat cards) rather than inventing a new tooltip mechanism.
-  // Purely additive — never changes the cell's existing displayValue/pill,
-  // only appends a marker beside it when the caller's condition is true.
-  function appendBasisBadge(cell, text, tooltip) {
-    var badge = document.createElement("span");
-    badge.className = "basis-badge has-tooltip";
-    badge.tabIndex = 0;
-    badge.textContent = text;
+  // Aggregate provenance chip (feature/provenance-and-lighter-accent,
+  // Part 1): collapses MKT/WIN/REV/INH/DUR/RND -- all "where did this
+  // number come from" disclosures -- into ONE quiet dot+count marker,
+  // replacing what used to be up to four separate per-cell badges
+  // (Session B's basis-badge on Implied g/Delivered g, the INH chip on
+  // Gap, the DUR chip on the composite cell). Verdict chips (GATE/GATE?/
+  // FRAG/FRAG?) are a completely different signal class (durability veto
+  // / gap-sign robustness) and are UNTOUCHED -- still their own separate
+  // chips, at their existing prominence, per PR #62's hierarchy.
+  // row.provenance_notes is computed once, server-side (engine/screen.py
+  // ::_provenance_notes()), so this function only renders what's already
+  // been decided -- never re-derives the mkt/win/rev/inh/dur/rnd
+  // conditions itself. Renders nothing at all when the list is empty --
+  // absence of caveats is absence of chip, never a "◦0".
+  function appendProvenanceChip(tickerTdEl, notes) {
+    if (!notes || !notes.length) return;
+    var chip = document.createElement("span");
+    chip.className = "prov-chip has-tooltip";
+    chip.tabIndex = 0;
+    chip.textContent = "◦" + notes.length;
     var tip = document.createElement("div");
-    tip.className = "th-tooltip";
-    tip.textContent = tooltip;
-    badge.appendChild(tip);
-    cell.appendChild(badge);
-  }
-
-  // Gap-inheritance marker: an "INH" text chip -- same .basis-badge visual
-  // vocabulary as the MKT/WIN/REV origin badges, but outline-only (no
-  // filled background) so it reads one step quieter, matching that
-  // inheritance is a lesser signal than a direct caveat. Reuses
-  // .has-tooltip/.th-tooltip like appendBasisBadge above. Toggles
-  // visibility/styling on the slot gapCell() already reserved (with the
-  // same "INH" text already in place, just hidden) to the LEFT of the
-  // pill -- rather than appending a new node after it -- so the chip never
-  // collides with the hover-remove × that's absolutely positioned at the
-  // cell's own right edge, and so uninherited rows' hidden slot still
-  // occupies the identical width.
-  function appendInheritChip(cell, reasons) {
-    var slot = cell.querySelector(".gap-inherit-slot");
-    slot.classList.add("inherit-chip", "has-tooltip");
-    slot.tabIndex = 0;
-    var tip = document.createElement("div");
-    tip.className = "th-tooltip";
-    tip.textContent = "Inherits: " + reasons.join(", ");
-    slot.appendChild(tip);
+    tip.className = "th-tooltip prov-tooltip";
+    tip.textContent = notes.map(function (n) {
+      return n.code + " — " + n.detail;
+    }).join("\n");
+    chip.appendChild(tip);
+    tickerTdEl.appendChild(chip);
   }
 
   // Expectations-gap fragility chip (PR 3): fires on the reserved
@@ -1396,11 +1363,11 @@
     }
 
     var tickerTd = tickerCell(row.ticker, true, row.name);
+    appendProvenanceChip(tickerTd, row.provenance_notes);
     tr.appendChild(tickerTd);
     cellsByKey.ticker = tickerTd;
 
     var compositeTd = scoreCell(row.composite, fmtScore(row.composite), { composite: true, animate: animate, stagger: index });
-    appendDurGapsIndicator(compositeTd, row.durability_gaps);
     appendGateIndicator(compositeTd, row.gate_status, row.gate_tooltip);
     tr.appendChild(compositeTd);
     cellsByKey.composite = compositeTd;
@@ -1418,81 +1385,37 @@
       cellsByKey[key] = cell;
     });
 
+    // feature/provenance-and-lighter-accent, Part 1: the per-cell MKT/WIN/
+    // REV/INH badges that used to live on Implied g / Delivered g / Gap
+    // here are gone -- collapsed into the one aggregate chip beside the
+    // ticker (see appendProvenanceChip above, fed by row.provenance_notes,
+    // computed server-side by engine/screen.py::_provenance_notes()).
+    // Full detail is still one hover away, just in one place instead of
+    // up to four.
     var gated = !!row.implied_growth_note;
-    var impliedTd = td(gated ? null : fmtPct(row.implied_fcf_growth));
-    // Trust-tier indicator (Session B, the "Visa condition"): only when a
-    // headline number actually rests on a lower-trust input — a market-
-    // vendor (yfinance) share count because EDGAR's diluted_shares
-    // extraction failed for this ticker. Not shown for every yfinance-
-    // sourced quote, only where trust tier changes the interpretation of
-    // this score-derived number.
-    var hasMkt = row.quote_source === "yfinance" && row.diluted_shares_gap;
-    if (hasMkt) {
-      appendBasisBadge(
-        impliedTd, "mkt",
-        "Share count from yfinance (market-vendor tier) — EDGAR diluted_shares " +
-          "unavailable for this ticker (e.g. a multi-class share structure). " +
-          "Implied growth here rests on a lower-trust input than every other row."
-      );
+    var impliedTd;
+    if (!gated) {
+      impliedTd = td(fmtPct(row.implied_fcf_growth));
+    } else if (row.gap_bracket_bound === "upper" || row.gap_bracket_bound === "lower") {
+      // Part 2 (the #62 loose end): a bracket hit is a REAL result for
+      // Implied g too, not just Gap -- both columns must agree, instead
+      // of Implied g showing plain n/a while Gap shows the bound marker.
+      impliedTd = document.createElement("td");
+      impliedTd.className = "bracket-text bracket-text-" + row.gap_bracket_bound;
+      impliedTd.textContent = bracketDisplay(row.gap_bracket_bound);
+      impliedTd.title = bracketTooltip(row.gap_bracket_bound);
+    } else {
+      impliedTd = td(null);
     }
     tr.appendChild(impliedTd);
     cellsByKey.implied_fcf_growth = impliedTd;
 
     var deliveredTd = td(fmtPct(row.delivered_fcf_growth));
-    // Stale-window note (Session B): cagr_over's window can run far past
-    // the requested horizon when a data gap forces the earliest usable
-    // point much further back (e.g. NVDA's permanent capex absence). Only
-    // shown when that note is actually present in the label.
-    var hasWin = !!(row.delivered_growth_label && row.delivered_growth_label.indexOf("window:") !== -1);
-    if (hasWin) {
-      appendBasisBadge(deliveredTd, "win", "Basis: " + row.delivered_growth_label);
-    }
-    // Mixed-base marker (moved here from the Gap column — badge-placement
-    // fix): REV qualifies DELIVERED's basis (a revenue-CAGR fallback, not
-    // FCF), not the gap itself. On every row currently carrying it the gap
-    // is n/a (no FCF history to solve a like-for-like comparison against),
-    // so badging the Gap cell was marking a number that doesn't exist.
-    // Tooltip is conditional: the common case today has no computed gap at
-    // all; the mixed-base-comparison wording only applies on the (currently
-    // untriggered) path where a gap IS computed despite the fallback.
-    var hasRev = !!(row.delivered_growth_label && row.delivered_growth_label.indexOf("revenue CAGR") === 0);
-    if (hasRev) {
-      var revTooltip = gated
-        ? "Delivered growth is a revenue-CAGR fallback (FCF history non-positive " +
-          "or unavailable), not FCF. No expectations gap is computed for this row."
-        : "Delivered growth is a revenue-CAGR fallback (FCF history non-positive " +
-          "or unavailable), not FCF. This Gap compares implied FCF growth " +
-          "against delivered REVENUE growth — not a like-for-like FCF gap.";
-      appendBasisBadge(deliveredTd, "rev", revTooltip);
-    }
     tr.appendChild(deliveredTd);
     cellsByKey.delivered_fcf_growth = deliveredTd;
 
     var gapVal = gated ? null : row.expectations_gap;
     var gapTd = gapCell(gapVal, gated ? null : fmtSignedPct(row.expectations_gap), row.gap_bracket_bound);
-    // Inheritance marker: the Gap is implied minus delivered, so it
-    // silently inherits whichever upstream caveats apply to either
-    // component. Only shown when the Gap itself is a real, computed number
-    // — an n/a pill already discloses its own absence and has nothing to
-    // inherit into (this is why hasRev alone, on today's always-gated
-    // rows, never lights this up — only the untriggered REV-with-a-real-
-    // gap path would). An outline-only "INH" chip, quieter than a filled
-    // basis-badge: "this value has an upstream caveat," one step down from
-    // the direct disclosures already on Implied g/Delivered g themselves.
-    if (!gated) {
-      var inherited = [];
-      if (hasMkt) inherited.push("MKT (implied uses vendor-tier share count)");
-      if (hasWin) {
-        var winMatch = /window: (\d+)y actual vs (\d+)y requested/.exec(row.delivered_growth_label);
-        inherited.push(winMatch
-          ? "WIN (delivered window " + winMatch[1] + "y vs " + winMatch[2] + "y requested)"
-          : "WIN (delivered uses an extended CAGR window)");
-      }
-      if (hasRev) inherited.push("REV (delivered is revenue CAGR, not FCF)");
-      if (inherited.length) {
-        appendInheritChip(gapTd, inherited);
-      }
-    }
     // Expectations-gap scenario band (PR 3): FRAG fires on a COMPLETE band
     // whose sign flips bull/base/bear; FRAG? fires on a PARTIAL band, where
     // fragility is UNDETERMINABLE rather than silently "not fragile". No

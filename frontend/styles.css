@@ -1,14 +1,23 @@
 /* Security Analysis Dashboard — design system.
 
    ---- DARK INSTRUMENT MANIFESTO (10 lines) ----
-   1. Canvas: near-black #0a0a0f, an ultra-subtle dot-grid (~3% white),
-      never pure black — texture, not void.
-   2. Elevation is LIGHT, not shadow: canvas #0a0a0f < paper #121218
-      (accordion inset) < surface #17171f (cards) < surface-2 #1f1f29
+   1. Canvas: near-black #121218 (feature/provenance-and-lighter-accent:
+      lifted one step from the original #0a0a0f -- "daylight through the
+      dark," gentler overall contrast, never pure black — texture, not
+      void), an ultra-subtle dot-grid (~3% white).
+   2. Elevation is LIGHT, not shadow: canvas #121218 < paper #17171f
+      (accordion inset) < surface #1f1f29 (cards) < surface-2 #272732
       (nested/inner content) — each step up reads as "closer," no card
-      relies on a heavy drop-shadow to separate from the page.
+      relies on a heavy drop-shadow to separate from the page. Lifted
+      pass reuses three of the four original values one rung down the
+      ladder (canvas=old paper, paper=old surface, surface=old
+      surface-2) plus one genuinely new top step (surface-2) -- the
+      relative deltas between steps, and therefore the elevation
+      logic itself, are unchanged.
    3. Type: one mono face for every data value and tabular-numeral column;
-      near-white ink for data, muted gray (>=6.4:1) for labels, a dimmer
+      warmed, softer-than-stark-white ink for data (feature/provenance-
+      and-lighter-accent: #f4f4f6 -> #f0efe9, a hair of warmth, still
+      >=12.8:1 everywhere), muted gray (>=5.8:1) for labels, a dimmer
       but still-AA text-3 (>=4.5:1) for n/a/footnotes — biased brighter
       than a typical dark-theme default on purpose (see contrast table).
    4. Spacing/radius carried over unchanged: 4px-based rhythm, radius
@@ -37,24 +46,37 @@
        that reads as "instrument," not "generic dashboard template."
 
    WCAG AA contrast, computed and verified (relative-luminance formula,
-   not eyeballed):
-     ink        on surface    16.55:1   (data on card)
-     ink        on surface-2  15.22:1   (data inside accordion inner surfaces)
-     muted      on surface     6.99:1   (labels on card)
-     muted      on surface-2   6.42:1
-     text-3(na) on surface     5.65:1   (n/a / footnotes)
-     text-3(na) on surface-2   5.20:1
-     chrome-text     on chrome-bg  17.58:1  (header wordmark/text)
-     chrome-text-dim on chrome-bg   8.77:1  (header secondary text)
-     signal-text on surface    12.29:1  (teal as text/links/fills)
-     emphasis    on surface    10.89:1  (amber as text — flags chips)
-     good        on surface     9.46:1  (gap-negative text)
-     bad         on surface     6.57:1  (gap-positive text)
-     gap-pill good text-on-tint 7.01:1  (16% green tint over surface)
-     gap-pill bad  text-on-tint 5.21:1  (16% red tint over surface)
-   Every pairing clears 4.5:1 with margin; --text-3 in particular was
-   deliberately brightened rather than left at a "just barely passes"
-   value — dark themes fail most often on muted text.
+   not eyeballed). RECOMPUTED for feature/provenance-and-lighter-accent's
+   lifted elevations + softened text (both narrow contrast margins from
+   opposite ends at once -- every pairing below was re-verified, not
+   assumed to still hold from the prior palette):
+     ink        on surface    14.17:1   (data on card)         [was 16.55]
+     ink        on surface-2  12.81:1   (data inside accordion inner surfaces) [was 15.22]
+     muted      on surface     6.45:1   (labels on card)       [was  6.99]
+     muted      on surface-2   5.83:1                          [was  6.42]
+     text-3(na) on surface     5.36:1   (n/a / footnotes)      [was  5.65]
+     text-3(na) on surface-2   4.85:1                          [was  5.20]
+     chrome-text     on chrome-bg  17.58:1  (header wordmark/text -- unchanged, chrome/header tokens out of scope)
+     chrome-text-dim on chrome-bg   8.77:1  (header secondary text -- unchanged)
+     signal-text on surface    11.04:1  (teal as text/links/fills)   [was 12.29]
+     emphasis    on surface     9.78:1  (amber as text — flags chips) [was 10.89]
+     good        on surface     8.49:1  (gap-negative text)    [was  9.46]
+     bad         on surface     5.90:1  (gap-positive text)    [was  6.57]
+     gap-pill good text-on-tint 6.16:1  (16% green tint over surface) [was 7.01]
+     gap-pill bad  text-on-tint 4.62:1  (16% red tint over surface)   [was 5.21]
+   Every pairing still clears 4.5:1, though several margins genuinely
+   narrowed (as expected: lighter cards + softer text is exactly the
+   "narrows contrast from both ends" combination). One pairing that did
+   NOT survive unmodified: .gap-pill-na's old rgba(255,255,255,0.08)
+   white overlay tint dropped text-3 to 4.23:1 (a real, computed FAIL,
+   not a near-miss estimate) -- fixed by removing that overlay entirely
+   (background:transparent), which INCREASES contrast here (a lighter
+   overlay pushes a light-gray text color closer to it, shrinking the
+   gap; removing it restores the full text-3-on-card contrast, 5.36:1).
+   --text-3 in particular was deliberately kept with real margin (not
+   left at a "just barely passes" value) for the same reason as always
+   — dark themes fail most often on muted text, and this pass narrows
+   its margin more than any other token.
 
    Solid-fill controls (btn-primary, confirm-yes, etc.) use --on-accent
    (a near-black, #08110f) as their text color, not white — white-on-teal/
@@ -68,15 +90,20 @@
    directly. */
 
 :root{
-  /* ---- palette (dark instrument) ---- */
-  --canvas:#0a0a0f;     /* page background, near-black */
-  --paper:#121218;      /* accordion/report-fragment inset — one step up from canvas */
-  --surface:#17171f;    /* card / table background */
-  --surface-2:#1f1f29;  /* nested/inner surfaces: accordion sub-tables, zebra stripe */
-  --ink:#f4f4f6;        /* primary text — 15-17:1 on every surface below */
-  --muted:#9aa1ac;      /* secondary text / labels — 6.4-7:1 */
+  /* ---- palette (dark instrument) ----
+     feature/provenance-and-lighter-accent: elevation ladder lifted one
+     rung (canvas/paper/surface = old paper/surface/surface-2; surface-2
+     is the one genuinely new value) + text warmed/softened. Accent
+     colors (signal/signal-text/emphasis/on-accent) and rgb shadows are
+     UNCHANGED -- this pass tunes cards + text, never accent saturation. */
+  --canvas:#121218;     /* page background, near-black (was #0a0a0f) */
+  --paper:#17171f;      /* accordion/report-fragment inset — one step up from canvas (was #121218) */
+  --surface:#1f1f29;    /* card / table background (was #17171f) */
+  --surface-2:#272732;  /* nested/inner surfaces: accordion sub-tables, zebra stripe (was #1f1f29) */
+  --ink:#f0efe9;        /* primary text — warmed off-white, 12.8-14.2:1 on every surface below (was #f4f4f6) */
+  --muted:#a6a2a0;      /* secondary text / labels — 5.8-6.5:1 (was #9aa1ac) */
   --signal:#14b8a6;     /* primary accent, decorative (bars/ticks/dots/borders) */
-  --signal-text:#5eead4;/* primary accent, AA-safe for TEXT on dark (12.3:1+) */
+  --signal-text:#5eead4;/* primary accent, AA-safe for TEXT on dark (11.0:1+) */
   --emphasis:#fbbf24;   /* secondary accent — amber, spent on flags + one headline moment */
   --on-accent:#08110f;  /* near-black text for solid accent-filled buttons/chips */
   --signal-rgb:20,184,166;
@@ -86,7 +113,7 @@
   --bg:var(--paper);
   --text-1:var(--ink);
   --text-2:var(--muted);
-  --text-3:#8790a0;     /* dimmer than --muted but still 5.2-5.7:1 — legible n/a, never a fabricated near-black */
+  --text-3:#98938d;     /* dimmer than --muted but still 4.85-5.36:1 — legible n/a, never a fabricated near-black (was #8790a0) */
   --accent:var(--signal);
 
   --hairline:rgba(255,255,255,0.07);
@@ -440,7 +467,14 @@ tbody tr:hover td{background:rgba(var(--signal-rgb),0.08)}
    attention row still shows both effects instead of one clobbering the
    other. No dimension/padding change on any cell -- row height and
    column widths are untouched, so the 1475px pill-edge alignment (PR #48)
-   holds. */
+   holds.
+
+   Re-verified under feature/provenance-and-lighter-accent's lifted
+   surface: the wash's perceptibility (contrast between a plain row's
+   background and this same row washed) is 1.072:1 on the old surface,
+   1.078:1 on the new lifted one -- essentially identical, so the wash
+   still reads as elevated/distinct against the lighter card without
+   needing its own alpha adjustment; the 0.055 constant is unchanged. */
 tbody tr.row-attention td{
   box-shadow:inset 0 0 0 1000px rgba(var(--gap-red-rgb),0.055);
 }
@@ -595,7 +629,15 @@ td.gap-cell{text-align:right}
 }
 .gap-pill-neg{color:var(--good);background:rgba(var(--gap-green-rgb),var(--gap-alpha,0.16))}
 .gap-pill-pos{color:var(--bad);background:rgba(var(--gap-red-rgb),var(--gap-alpha,0.16))}
-.gap-pill-na{color:var(--text-3);background:rgba(255,255,255,0.08);font-weight:600;font-style:normal}
+/* feature/provenance-and-lighter-accent: background dropped from
+   rgba(255,255,255,0.08) to transparent -- with the lifted surface +
+   softened text-3, that white overlay pushed text-3 (already a light
+   gray) CLOSER to its own background, dropping contrast to a real,
+   computed 4.23:1 FAIL. Removing the tint restores full text-3-on-card
+   contrast (5.36:1) -- counterintuitive (less background tint = MORE
+   contrast here) but correct: the overlay was lightening the background
+   toward the text color, not away from it. */
+.gap-pill-na{color:var(--text-3);background:transparent;font-weight:600;font-style:normal}
 /* ---- Bracket-hit pills (fix/implied-growth-abstention): a bisection
    bracket hit is a REAL result (market price off-scale rich/cheap even
    at the model's +60%/-20% growth ceiling/floor), not an absence -- it
@@ -609,68 +651,45 @@ td.gap-cell{text-align:right}
 .gap-pill-bracket-upper{color:var(--bad);background:rgba(var(--gap-red-rgb),0.16)}
 .gap-pill-bracket-lower{color:var(--good);background:rgba(var(--gap-green-rgb),0.16)}
 
-/* ---- Basis-disclosure badge (Session B): a small superscript marker on
-   Implied g / Delivered g / Gap cells declaring that a number's basis is
-   non-default (a market-vendor-tier input, a stale CAGR window, or a
-   revenue-not-FCF fallback). Amber-washed like .flag-item — "this is a
-   disclosure," same visual family as the Data Gaps/flags chips — but
-   compact and inline since it rides alongside a cell's existing value
-   rather than occupying its own row. Reuses .has-tooltip/.th-tooltip
-   verbatim for the hover/focus popup. */
-.basis-badge{
-  display:inline-block;margin-left:5px;padding:1px 5px;border-radius:5px;
-  font-family:var(--mono);font-size:0.625rem;font-weight:700;
-  letter-spacing:.02em;text-transform:uppercase;vertical-align:super;
-  color:var(--emphasis);background:rgba(var(--emphasis-rgb),0.14);
-  border:1px solid rgba(var(--emphasis-rgb),0.3);cursor:default;
-}
-.basis-badge .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
+/* ---- Implied g's bracket-hit text (Part 2, feature/provenance-and-
+   lighter-accent -- the #62 loose end): plain colored text, not a pill
+   (Implied g has never had a pill/badge shape, unlike Gap) -- same
+   red/green sign convention as gap-pill-bracket-upper/lower immediately
+   above, so the two columns agree both in label and in color, not just
+   in showing SOME non-n/a text. */
+.bracket-text{font-weight:700}
+.bracket-text-upper{color:var(--bad)}
+.bracket-text-lower{color:var(--good)}
 
-/* ---- Gap-inheritance marker (badge-placement + column-alignment fix,
-   ring->chip follow-up): an "INH" text chip, same .basis-badge vocabulary
-   (mono, uppercase, 3-letter, superscript) as the MKT/WIN/REV origin
-   badges above, on the Gap cell when its computed value silently inherits
-   an Implied g/Delivered g caveat (MKT/WIN/REV-with-a-computed-gap).
-   Deliberately OUTLINE-ONLY (no filled background, unlike .basis-badge's
-   14%-alpha fill) so it reads one step quieter — "this value has an
-   upstream caveat," one visual step down from "this IS the caveat." Text
-   color is full-strength --emphasis, not dimmed, so legibility rides on
-   the already-verified "emphasis on surface: 10.89:1" contrast-table entry
-   unchanged (removing the fill doesn't touch the text/background pairing
-   that number describes, since the cell behind it is still --surface);
-   quietness comes entirely from the missing fill + a lighter border alpha
-   than .basis-badge's 0.3, never from lowering the letters' own contrast.
-
-   .gap-inherit-slot is reserved on EVERY gap cell, to the LEFT of the pill
-   (see gapCell() in app.js), with its "INH" text already in the DOM but
-   visibility:hidden on rows with no caveat — hidden from sighted users AND
-   assistive tech, but still laid out, so its content-driven width (same
-   3-letter chip footprint as MKT/WIN/REV) is identical whether or not this
-   row ends up with a visible chip. The .inherit-chip class flips
-   visibility:visible and paints the outline; border-width stays 1px in
-   both states (only border-color changes) so toggling never reflows the
-   slot. Placing it before rather than after the pill is what keeps it
-   clear of .row-remove-wrap, which is absolutely positioned at the cell's
-   own right:6px and would otherwise sit directly on top of a chip appended
-   after the pill. */
-.gap-inherit-slot{
-  display:inline-block;margin-right:5px;padding:1px 5px;border-radius:5px;
-  font-family:var(--mono);font-size:0.625rem;font-weight:700;
-  letter-spacing:.02em;text-transform:uppercase;vertical-align:super;
-  border:1px solid transparent;cursor:default;visibility:hidden;
+/* ---- Aggregate provenance chip (feature/provenance-and-lighter-accent,
+   Part 1): replaces the old .basis-badge (Session B: MKT/WIN/REV on
+   Implied g/Delivered g) and .gap-inherit-slot (INH on Gap) -- those
+   per-cell badges are gone; MKT/WIN/REV/INH/DUR/RND now collapse into
+   ONE dot+count marker beside the ticker (see appendProvenanceChip in
+   app.js, fed by row.provenance_notes from engine/screen.py::
+   _provenance_notes()). Deliberately quiet/outline -- a tier below the
+   verdict chips (GATE/FRAG below) -- text-3, not emphasis/amber, and no
+   fill, since this is informational provenance, not a veto or a
+   robustness flag. Renders only when notes.length >= 1 -- there is no
+   reserved/hidden slot for this one (unlike the verdict chips), since it
+   sits in the ticker cell, not a fixed-width numeric column, so a
+   missing chip costs no alignment. */
+.prov-chip{
+  display:inline-block;margin-left:6px;padding:1px 6px;border-radius:999px;
+  font-family:var(--mono);font-size:0.6875rem;font-weight:600;
+  color:var(--text-3);border:1px solid var(--hairline-strong);
+  cursor:default;vertical-align:middle;
 }
-.gap-inherit-slot.inherit-chip{
-  visibility:visible;color:var(--emphasis);
-  border-color:rgba(var(--emphasis-rgb),0.35);
-}
-.gap-inherit-slot.inherit-chip .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
+.prov-chip:hover{color:var(--muted);border-color:var(--text-3)}
+/* .th-tooltip's default white-space:normal collapses the \n between
+   notes -- pre-line renders each "CODE — detail" pair on its own line. */
+.prov-tooltip{white-space:pre-line;text-align:left}
 
-/* ---- Expectations-gap fragility chip (FRAG/FRAG?, PR 3): a second
-   reserved slot on the Gap cell, same visibility:hidden pattern as
-   .gap-inherit-slot immediately above -- appended right after it (both
-   still sit to the LEFT of the pill), so the two chips are just two
-   badges in the same pre-pill run rather than competing for one slot.
-   FRAG (frag-present) = FRAGILE: a COMPLETE band whose gap sign flips
+/* ---- Expectations-gap fragility chip (FRAG/FRAG?, PR 3): a reserved
+   slot on the Gap cell, visibility:hidden pattern (in the DOM, hidden
+   from sighted users AND assistive tech, until it fires) so the pill's
+   right edge never shifts based on whether this row ends up with a
+   visible chip. FRAG (frag-present) = FRAGILE: a COMPLETE band whose gap sign flips
    across bull/base/bear. FRAG? (frag-undeterminable) = a PARTIAL band,
    where fragility can't be assessed at all -- a visually distinct outline
    (dashed border) so it never reads as an ordinary passed/failed check.
@@ -699,36 +718,18 @@ td.gap-cell{text-align:right}
 .gap-frag-slot.frag-present .th-tooltip,
 .gap-frag-slot.frag-undeterminable .th-tooltip{top:auto;bottom:calc(100% + 6px);left:auto;right:0;transform:none}
 
-/* ---- Durability-gaps presence indicator (DUR): same reserved-slot
-   pattern as .gap-inherit-slot above, applied to the Durability
-   (composite) score cell instead of the Gap column. DurabilityScore.gaps
-   (net-cash resilience, mixed-basis, short-history, split-contamination)
-   fires during scoring but never reached the dashboard before this --
-   the slot is always in the DOM (text "DUR" already present) so the
-   composite cell's layout never shifts between a disclosed and an
-   undisclosed row, and visibility:hidden keeps a gapless row's slot out
-   of the accessibility tree rather than announcing a phantom DUR. */
-.dur-gaps-slot{
-  display:inline-block;margin-right:5px;padding:1px 5px;border-radius:5px;
-  font-family:var(--mono);font-size:0.625rem;font-weight:700;
-  letter-spacing:.02em;text-transform:uppercase;vertical-align:super;
-  border:1px solid transparent;cursor:default;visibility:hidden;
-}
-.dur-gaps-slot.dur-gaps-present{
-  visibility:visible;color:var(--emphasis);
-  border-color:rgba(var(--emphasis-rgb),0.35);
-}
-.dur-gaps-slot.dur-gaps-present .th-tooltip{top:auto;bottom:calc(100% + 6px);left:0;transform:none}
-
-/* ---- Balance-sheet gate indicator (GATE/GATE?, PR 4): same reserved-slot
-   pattern as .dur-gaps-slot immediately above, appended after it (see
-   appendGateIndicator in app.js) so it lands to the LEFT of DUR -- the
-   raw-metric veto is the more severe signal and reads first. GATE
-   (gate-slot-fired) is filled/solid (--bad), distinct from every other
-   outline-only chip in this file, because a gated composite is a hard
-   veto, not a disclosure -- it should not blend into the same quiet
-   register as INH/DUR/FRAG. GATE? (gate-slot-untestable) stays outline +
-   dashed, matching FRAG?'s "distinct third state" treatment. */
+/* ---- Balance-sheet gate indicator (GATE/GATE?, PR 4): a reserved slot
+   on the Durability (composite) score cell (see appendGateIndicator in
+   app.js). This is a VERDICT chip, untouched by feature/provenance-and-
+   lighter-accent -- DUR's old per-cell presence indicator that used to
+   sit beside it here is gone, collapsed into the aggregate provenance
+   chip above (.prov-chip); GATE keeps its own separate, unchanged
+   prominence, since a raw-metric veto is a completely different signal
+   class from a disclosure. GATE (gate-slot-fired) is filled/solid
+   (--bad), distinct from every outline-only provenance/FRAG? chip in
+   this file, because a gated composite is a hard veto, not a disclosure.
+   GATE? (gate-slot-untestable) stays outline + dashed, matching FRAG?'s
+   "distinct third state" treatment. */
 .gate-slot{
   display:inline-block;margin-right:5px;padding:1px 5px;border-radius:5px;
   font-family:var(--mono);font-size:0.625rem;font-weight:700;
@@ -923,10 +924,12 @@ tr.accordion-row:hover > td{background:var(--paper)}
 /* DUR provenance chip: marks a Data-gaps entry as a DurabilityScore.gaps
    disclosure (net-cash resilience, mixed-basis, short-history, split-
    contamination) rather than a pipeline res.gaps entry (EDGAR absence).
-   Same outline-chip vocabulary as basis-badge/the INH chip (mono,
-   uppercase, bordered, no fill) -- sits inside the existing neutral
-   .gaps-list chip as a small provenance badge, not a second nested chip
-   competing for attention. */
+   Lives in the single-ticker fragment's Data Gaps list, NOT the main
+   dashboard table (that table's own, separate DUR indicator was
+   collapsed into .prov-chip, see feature/provenance-and-lighter-accent
+   above) -- outline chip vocabulary (mono, uppercase, bordered, no fill)
+   -- sits inside the existing neutral .gaps-list chip as a small
+   provenance badge, not a second nested chip competing for attention. */
 .dur-chip{
   display:inline-block;margin-right:5px;padding:0 4px;border-radius:4px;
   font-family:var(--mono);font-size:0.625rem;font-weight:700;
@@ -963,10 +966,12 @@ tr.accordion-row:hover > td{background:var(--paper)}
 /* ---- R&D-UNADJ abstention chip (PR fix/rnd-badge-layout): sits in the
    ROIC(R&D-adj) ratio-table cell (see _ratio_rows in report_html.py) when
    res.rnd_regime is ABSTAINED (regime disabled in config, or an IFRS
-   filer). Same .basis-badge amber-emphasis vocabulary as MKT/WIN/REV --
-   this IS the disclosure for the cell, not a secondary inherited caveat,
-   so it gets the filled treatment, not .inherit-chip's outline-only one.
-   Native title= tooltip (matches .dur-chip/.gate-chip, not the
+   filer). Lives in the single-ticker ratio table, NOT the main dashboard
+   table (that table's own, separate row-level R&D-UNADJ signal is one of
+   the six notes collapsed into .prov-chip, see feature/provenance-and-
+   lighter-accent above) -- amber-emphasis, filled: this IS the
+   disclosure for the cell, not a secondary inherited caveat. Native
+   title= tooltip (matches .dur-chip/.gate-chip, not the
    .has-tooltip/.th-tooltip system -- this chip isn't on the dashboard
    screener table, it's the single-ticker ratio table). The full IAS 38
    rationale (~180 chars) lives in the tooltip; the visible text is the
