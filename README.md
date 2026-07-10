@@ -1,85 +1,171 @@
-# Investment Engine — Phase 1 (deterministic fundamental core)
+# Investment Engine
 
-Pulls primary-source financials from SEC EDGAR, computes the full fundamental
-picture (growth, margins, returns, leverage, peer-relative, valuation), and
-writes an auditable Markdown report. **No LLM touches anything here** — that is
-deliberate. The model enters in Phase 2 (red-flag extraction + the council),
-operating on this engine's *output*, never on raw guesswork.
+A three-tier investment research system. **Tier 1** is a fully
+deterministic fundamental-analysis pipeline — SEC EDGAR filings are the
+authoritative data source, every number is derived arithmetically with no
+model involvement, and all assumptions live in version-controlled config.
+**Tier 2** adds LLM-driven qualitative extraction layered on top of the
+deterministic output (verbatim red/green flag extraction from 10-K text).
+**Tier 3** is an LLM council that synthesizes Tier 1 signals and Tier 2
+annotations into a final research memo. Tiers 2 and 3 consume Tier 1
+output; they never alter it, and no model call anywhere in the codebase
+ever derives, adjusts, or overrides a numeric result.
+
+Two ways to use it: a one-shot CLI (`analyze.py`) for a single ticker's
+Markdown/HTML report, and a local FastAPI web app + dashboard
+(`app/`, `frontend/`) for an ongoing watchlist — batch durability
+screening, the expectations-gap band, per-ticker Tier 2/3 drill-down.
 
 ## Setup
 
 ```bash
-cd "Investment Engine"          # the folder this unzips into
+cd "Investment Engine"
 python -m venv .venv && source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
 pip install -r requirements.txt
 ```
 
-Then open `config.yaml` and set `sec.user_agent` to your real name + email.
-**This is required** — SEC returns 403 without a declared contact.
+Open `config.yaml` and set `sec.user_agent` to your real name + email —
+**required**, SEC returns 403 without a declared contact.
+
+Tier 2 (`/api/flags/{ticker}`) and Tier 3 (`/api/council/{ticker}`) need
+`ANTHROPIC_API_KEY` in the environment at runtime; the CLI and Tier 1
+web endpoints work without it.
 
 ## Run
 
+**Single ticker, CLI:**
+
 ```bash
-python analyze.py AAPL                          # fundamentals only
+python analyze.py AAPL                          # fundamentals + durability
 python analyze.py AAPL --peers technology       # + peer comparison (universe in config)
 python analyze.py AAPL --peers MSFT,GOOGL,DELL  # + peer comparison (explicit list)
 python analyze.py AAPL --price 195 --shares 15300000000   # offline / reproducible
 ```
 
-Output lands in `reports/<TICKER>_<date>.md`. The console prints every
-peer inclusion/exclusion decision with its reason.
+Output lands in `reports/<TICKER>_<date>.{md,html}`. The peer-comparison
+path (`--peers`) is CLI-only today — the web app's analyze endpoints
+don't wire it in (a known, disclosed gap, see "Known open findings"
+below).
+
+**Web app + dashboard:**
+
+```bash
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Open `http://localhost:8000`. Add tickers to a persistent watchlist
+(SQLite, outside the repo at `~/.investment_engine/`), run a batch
+durability screen, click any row to expand its full analysis inline —
+financial position, growth, margins, valuation (including the
+expectations-gap scenario band), durability scorecard, Tier 2 flags,
+Tier 3 council, all from the same underlying `AnalysisResult`/
+`DurabilityScore` the CLI produces. For auto-start-at-login and Dock
+integration on macOS, see `app/INSTALL.md`.
+
+**Batch screen, CLI:**
+
+```python
+from engine.screen import run_screen
+# see engine/screen.py's module docstring for --sort modes
+```
 
 ## Architecture (separation of concerns)
 
 ```
-analyze.py            CLI + orchestration
+analyze.py             Single-ticker CLI entry point
 engine/
-  edgar.py            EDGAR client: ticker→CIK, SIC, companyfacts + concept resolution
-  market.py           price/shares/market-cap (yfinance default; swap point for paid API)
-  metrics.py          PURE math: CAGR, margins, ratios — unit tested
-  peers.py            comp-set construction (you own it) + relative scoring
-  valuation.py        relative multiples + 2-stage DCF + sensitivity grid
-  pipeline.py         EDGAR data → derived metrics → peers → valuation
-  report.py           render to Markdown with full lineage
-config.yaml           all assumptions + curated peer universes (version-controlled)
-tests/test_core.py    30 synthetic-data tests, no network
+  edgar.py              SEC EDGAR client: ticker→CIK, SIC, companyfacts, concept resolution
+  market.py              price/shares/market-cap (yfinance; isolated from filings)
+  metrics.py             PURE math — CAGR, margins, ratios, R&D capitalization — unit tested
+  pipeline.py             EDGAR data → derived metrics → valuation (no LLM, no I/O beyond fetch)
+  valuation.py            relative multiples, 2-stage DCF, reverse-DCF, the bull/base/bear
+                          expectations-gap scenario band
+  durability.py           five-category business-durability scorecard, the R&D capitalization
+                          regime, and the balance-sheet-leverage gate (raw-metric veto)
+  peers.py                comp-set construction (SIC + size band) + relative scoring — wired
+                          into analyze.py's CLI only, not yet the web app (see findings)
+  universe.py             S&P 500 reference population for universe-relative percentile scoring
+  etf.py                  ETF/fund profile via yfinance (market-vendor tier, fully defensive)
+  screen.py               batch screener: routes tickers to Equities / ETFs & Funds / Excluded
+  filings.py               Tier 2: fetch/parse 10-K text into Item 1/1A/7 sections
+  flags.py                 Tier 2: LLM verbatim-selection flag extraction + validator
+  council.py               Tier 3: adversarial council synthesis (5 advisors → peer review → Chairman)
+  report.py                render AnalysisResult to Markdown, full EDGAR citation per figure
+  report_html.py           render AnalysisResult to HTML (standalone doc + dashboard fragment)
+  report_council.py        render a CouncilResult to self-contained HTML/PDF
+app/                     FastAPI web layer wrapping the engine (watchlist, screen, analyze,
+                          flags, council endpoints) — see app/INSTALL.md for the local-service setup
+frontend/                 dashboard UI (vanilla JS + CSS, no build step)
+config.yaml               every assumption + curated peer universes (version-controlled)
+docs/assumptions.md       every owned assumption, its external anchor, and review cadence
+audit/                    dated audit evidence and sensitivity harnesses (see below)
+tests/                    770+ tests, pytest, no network (synthetic fixtures + cached data)
 ```
 
-## Design decisions worth knowing (the "doing its best job" choices)
+## Design decisions worth knowing
 
-- **Concept resolution with fallbacks.** XBRL tags differ across companies and
-  years. Each logical metric (revenue, FCF, ...) resolves against an *ordered*
-  list of GAAP tags; the engine records which one actually hit. No silent
-  guessing, and the report shows the exact concept used.
-- **Provenance on every fundamental number.** Each figure cites its EDGAR
-  concept, fiscal-period end, form, and filing date. The report's "Data gaps"
-  section lists anything that could *not* be resolved, loudly — absence is never
-  silently treated as zero.
-- **You own the comp set.** Peers come from a curated candidate universe in
-  `config.yaml`, then get filtered by SIC family + a size band + explicit
-  exclusions. Every decision is logged with a reason. This is the line between
-  an analyst's tool and a screener.
-- **Assumptions live in config, never invented at runtime.** DCF WACC, terminal
-  growth, and per-year FCF growth are yours, versioned, and printed alongside
-  every output. The DCF always runs bull/base/bear plus a WACC × terminal-growth
-  sensitivity grid, because a long-duration valuation is a *range*, not a point.
-- **Meaningless ratios return n/a + a reason**, not a misleading number
-  (P/E on negative earnings, ROE on negative equity, etc.).
-- **Restated figures win.** When the same period appears in multiple filings,
-  the most recently filed value supersedes the original.
+- **Concept resolution with fallbacks.** XBRL tags differ across
+  companies and years. Each logical metric resolves against an ordered
+  list of GAAP tags; the report shows the exact concept used. (A known,
+  disclosed gap in this: `engine/edgar.py`'s concept list misses some
+  large filers' alternate debt tags — see "Known open findings.")
+- **Provenance on every fundamental number.** Each figure cites its
+  EDGAR concept, fiscal-period end, form, and filing date. Every
+  renderer's "Data gaps" section lists anything that could not be
+  resolved, loudly — absence is never silently treated as zero.
+- **Assumptions live in config, never invented at runtime.** DCF WACC,
+  terminal growth, per-year FCF growth, durability weights/thresholds,
+  the R&D-capitalization regime, and the balance-sheet gate's
+  threshold/cap are all yours, versioned in `config.yaml`, and anchored
+  with rationale in `docs/assumptions.md`. The reverse-DCF runs under
+  all three owned scenario bundles (bull/base/bear), not just base, and
+  discloses when the resulting signal's sign depends on which bundle
+  you pick.
+- **Config-hash discipline.** Every `DurabilityScore` embeds a
+  16-hex-char fingerprint of the resolved assumption set (weights,
+  thresholds, R&D regime, gates, universe version) so cross-company or
+  cross-date comparisons under different assumptions are identifiable,
+  never silently conflated.
+- **A raw-metric gate caps the composite independently of the weighted
+  score.** A company that's over-levered on net debt/EBITDA gets its
+  durability composite capped regardless of how strong its other
+  categories look — the gate reads raw filing data, never a derived
+  sub-score, and both the gated and ungated numbers are always
+  preserved and disclosed.
+- **The only sanctioned model use is verbatim selection (Tier 2) and
+  evidence synthesis (Tier 3).** No model call ever derives, adjusts,
+  or computes a number. See `CLAUDE.md` for the full invariant list.
+- **Meaningless ratios return n/a + a reason**, never a misleading
+  number (P/E on negative earnings, ROE on negative equity, etc.).
 
-## Known limits (honest, for Phase 2+)
+## Known open findings
 
-- Fiscal years are labeled by period-end year; companies with off-calendar
-  year-ends (e.g. Jan-ending retailers) get a label that can be off by one. The
-  underlying data and CAGR spans use actual dates, so the math is correct.
-- `yfinance` is free but fragile; isolate-and-swap is built in (`engine/market.py`).
-- Trailing multiples only (no forward estimates yet).
-- Red flags, qualitative review, and the council are Phase 2.
+A full-system audit (`audit/session_d/report.md`) ran a battery of
+adversarial and cross-feature probes against the live system and
+recorded every finding it turned up — real bugs, disclosure gaps, and
+assumptions needing an analyst decision, each with evidence and a
+proposed remedy, most not yet fixed. That report is the current source
+of truth for known issues; this README doesn't duplicate it. Highlights
+as of the most recent audit: a chunk of the durability gate's "can't
+evaluate" population turns out to be a fixable data-extraction gap
+rather than genuine absence, and several sub-scores narrow their
+lookback window silently. Read the report for the full ledger,
+severities, and dispositions.
 
-## Roadmap
+**Resolved:** F-14 (PR #58) — an FPI's R&D-adjusted ROIC could render
+without its abstention badge (misleading output); fixed by stamping the
+regime decision on `AnalysisResult` and reordering the render gate so
+FPI/regime status is checked before numeric availability.
 
-- **Phase 2:** Claude reads the 10-K/proxy text for red flags (related-party,
-  comp, accounting tells) → structured JSON with citations. Then the LLM Council
-  takes this engine's report + your thesis and stress-tests it.
-- **Phase 3:** Supabase storage + snapshots, n8n for scheduling/delivery, dashboard.
+## Known limits
+
+- Fiscal years are labeled by period-end year; companies with
+  off-calendar year-ends get a label that can be off by one. The
+  underlying data and CAGR spans use actual dates, so the math is
+  correct.
+- `yfinance` is free but fragile; isolate-and-swap is built in
+  (`engine/market.py`).
+- Trailing multiples only (no forward estimates).
+- Single-user, local-only web app — see `app/INSTALL.md`'s own
+  limitations section (SQLite watchlist is single-process; the EDGAR
+  disk cache isn't written atomically).
