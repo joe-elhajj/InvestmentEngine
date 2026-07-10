@@ -144,14 +144,18 @@ A full-system audit (`audit/session_d/report.md`) ran a battery of
 adversarial and cross-feature probes against the live system and
 recorded every finding it turned up — real bugs, disclosure gaps, and
 assumptions needing an analyst decision, each with evidence and a
-proposed remedy, none fixed yet. That report is the current source of
-truth for known issues; this README doesn't duplicate it. Highlights as
-of the most recent audit: an FPI's R&D-adjusted ROIC can render without
-its abstention badge (misleading output), a chunk of the durability
-gate's "can't evaluate" population turns out to be a fixable data-
-extraction gap rather than genuine absence, and several sub-scores
-narrow their lookback window silently. Read the report for the full
-ledger, severities, and dispositions.
+proposed remedy, most not yet fixed. That report is the current source
+of truth for known issues; this README doesn't duplicate it. Highlights
+as of the most recent audit: a chunk of the durability gate's "can't
+evaluate" population turns out to be a fixable data-extraction gap
+rather than genuine absence, and several sub-scores narrow their
+lookback window silently. Read the report for the full ledger,
+severities, and dispositions.
+
+**Resolved:** F-14 (PR #58) — an FPI's R&D-adjusted ROIC could render
+without its abstention badge (misleading output); fixed by stamping the
+regime decision on `AnalysisResult` and reordering the render gate so
+FPI/regime status is checked before numeric availability.
 
 ## Known limits
 
