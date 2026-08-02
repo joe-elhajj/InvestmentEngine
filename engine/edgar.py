@@ -164,9 +164,29 @@ CONCEPTS: dict[str, Concept] = {
         ("us-gaap", "AvailableForSaleSecuritiesNoncurrent"),
         ("us-gaap", "LongTermInvestmentsAndReceivablesNet"),
     )),
+    # F-6: the convertible-debt tag family is the ONLY debt tag some filers
+    # report once their conventional notes are retired — NOW carries
+    # ConvertibleLongTermNotesPayable ($1.491B at 2025-12-31) and nothing else
+    # (FLNC likewise from FY2025). Without it the series is empty, total_debt
+    # dead-ends at None, and net_debt/implied-growth abstain on a company whose
+    # debt is plainly filed. Listed AFTER the conventional us-gaap tags: within
+    # a Concept, _resolve picks ONE candidate per period_end by list priority
+    # (never sums), so a filer reporting both LongTermDebt and
+    # ConvertibleLongTermNotesPayable resolves to the comprehensive figure, not
+    # the convertible slice of it.
+    #
+    # The short-term counterpart (us-gaap:ConvertibleDebtCurrent, which is what
+    # PANW reports) is deliberately NOT added here yet. It is a SUBSET of the
+    # total-debt tag us-gaap:LongTermDebt, and total_debt sums the long and
+    # short lists, so mapping it double-counts every year a filer reports both
+    # — confirmed for PANW FY2021-23 (FY2022/23 exactly doubled). That must
+    # wait on the total_debt combination fix, which has to learn that
+    # `LongTermDebt` already includes the current portion. Red target for that
+    # PR: tests/test_f6_convertible_debt.py, the two strict-xfail cases.
     "long_term_debt": Concept("long_term_debt", False, (
         ("us-gaap", "LongTermDebtNoncurrent"),
         ("us-gaap", "LongTermDebt"),
+        ("us-gaap", "ConvertibleLongTermNotesPayable"),
         ("ifrs-full", "LongtermBorrowings"),
     )),
     "short_term_debt": Concept("short_term_debt", False, (
