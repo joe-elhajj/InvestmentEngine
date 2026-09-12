@@ -453,6 +453,93 @@ def test_annual_series_period_consistency():
 
 
 # ---------------------------------------------------------------------------
+# F-7: filtered historical-window disclosure
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("metric,field", [
+    ("gross_margin_trend", "gross_margin"),
+    ("operating_margin_trend", "operating_margin"),
+    ("roic_stability_cv", "nopat"),
+    ("roic_trend", "invested_capital"),
+    ("sbc_revenue_ratio", "sbc"),
+    ("capex_revenue_proxy", "capex"),
+    ("rnd_revenue_proxy", "rnd"),
+    ("rnd_trend_proxy", "revenue"),
+    ("reinvestment_rate", "invested_capital"),
+])
+@pytest.mark.parametrize("missing_index", [0, 2, -1])
+def test_filtered_history_disclosed_without_changing_scores(metric, field, missing_index, monkeypatch):
+    """Leading, interior and latest omissions remain scored, but are disclosed."""
+    import dataclasses
+
+    res = _make_res(_strong_company())
+    cfg = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": False}}}
+    full = D.score(res, cfg)
+    assert not any(g.startswith(f"{metric}: shortened history") for g in full.gaps)
+
+    periods = sorted(res.annual_series)
+    setattr(res.annual_series[periods[missing_index]], field, None)
+    actual = D.score(res, cfg)
+    subs = {s.name: s for c in actual.categories.values() for s in c.sub_scores}
+    assert metric in subs
+    expected_count = 5 if metric == "reinvestment_rate" else 6
+    assert len(subs[metric].years_covered) == expected_count - 1
+    gap = next(g for g in actual.gaps if g.startswith(f"{metric}: shortened history"))
+    assert f"uses {expected_count - 1} of {expected_count} available" in gap
+    expected_years = [res.annual_series[p].year for p in periods]
+    if metric == "reinvestment_rate":
+        expected_years = expected_years[1:]
+    omitted = set(expected_years) - set(subs[metric].years_covered)
+    assert all(str(year) in gap for year in omitted)
+    assert actual == D.score(res, cfg)
+
+    # Disable disclosure alone to verify every financial value, source and
+    # years_covered field is identical to the existing scoring behavior.
+    monkeypatch.setattr(D, "_history_window_gaps", lambda *_: [])
+    without_disclosure = D.score(res, cfg)
+    assert dataclasses.replace(actual, gaps=without_disclosure.gaps) == without_disclosure
+
+
+@pytest.mark.parametrize("remaining", [0, 1])
+def test_history_disclosure_preserves_trend_abstention(remaining):
+    res = _make_res(_strong_company())
+    for yd in list(res.annual_series.values())[remaining:]:
+        yd.gross_margin = None
+    ds = D.score(res, _BASE_CFG)
+    assert not any(s.name == "gross_margin_trend"
+                   for c in ds.categories.values() for s in c.sub_scores)
+    assert not any(g.startswith("gross_margin_trend: shortened history") for g in ds.gaps)
+
+
+@pytest.mark.parametrize("metric", ["gross_margin_trend", "reinvestment_rate"])
+@pytest.mark.parametrize("duplicates", [False, True])
+def test_history_disclosure_order_and_duplicate_years(metric, duplicates):
+    import dataclasses
+
+    annual = _make_res(_strong_company()).annual_series
+    years = sorted(yd.year for yd in annual.values())
+    expected = years[1:] if metric == "reinvestment_rate" else years
+    covered = expected[:-1]
+    if duplicates:
+        annual = {**annual, "duplicate": dataclasses.replace(next(iter(annual.values())))}
+        covered = covered + covered
+    sub = D.SubScore(name=metric, score=50.0, raw=0.1, source="unchanged",
+                     years_covered=covered)
+    cats = {"test": [sub]}
+    original = dataclasses.asdict(sub)
+    gaps = D._history_window_gaps(cats, annual)
+    assert gaps == D._history_window_gaps(cats, dict(reversed(list(annual.items()))))
+    assert len(gaps) == 1
+    assert f"uses {len(expected) - 1} of {len(expected)} available" in gaps[0]
+    assert gaps[0].endswith(f": {years[-1]}. Score uses remaining observations.")
+    assert ("distinct" in gaps[0]) == duplicates
+    assert dataclasses.asdict(sub) == original
+
+    full = dataclasses.replace(sub, years_covered=expected + expected if duplicates else expected)
+    assert D._history_window_gaps({"test": [full]}, annual) == []
+
+
+# ---------------------------------------------------------------------------
 # 10. Golden-master snapshots
 # ---------------------------------------------------------------------------
 

@@ -165,15 +165,9 @@ def test_f2_min_history_years_changes_hash():
 
 
 # ---------------------------------------------------------------------------
-# F-7 (xfail) — trend-window narrowing has no disclosure outside R&D regime
+# F-7 regression — trend-window narrowing is disclosed outside R&D regime
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(reason="F-7: 9 trend/mean sub-scores (gross_margin_trend, "
-                           "operating_margin_trend, roic_stability_cv, roic_trend, "
-                           "sbc_revenue_ratio, capex_revenue_proxy, rnd_revenue_proxy, "
-                           "rnd_trend_proxy, reinvestment_rate) silently narrow their "
-                           "window with zero gaps-list disclosure when a year drops out.",
-                    strict=True)
 def test_f7_trend_window_narrowing_discloses():
     cd = _strong_company()
     res_baseline = _make_res(cd)
@@ -186,7 +180,7 @@ def test_f7_trend_window_narrowing_discloses():
     ds_dropped = D.score(res_dropped, _BASE_CFG)
 
     new_gaps = set(ds_dropped.gaps) - set(ds_baseline.gaps)
-    assert new_gaps, "dropping a trend-window's latest data point must disclose the narrower window"
+    assert any(g.startswith("gross_margin_trend: shortened history") for g in new_gaps)
 
 
 # ---------------------------------------------------------------------------
