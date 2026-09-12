@@ -643,6 +643,47 @@ def _annotate_rnd_short_history(
     return gaps
 
 
+def _history_window_gaps(
+    cat_scores: dict[str, list[SubScore]], annual: dict[str, YearlyDerived],
+) -> list[str]:
+    """Disclose filtered history without imposing a new scoring lookback.
+
+    These metrics use all usable annual observations, not a fixed-year window.
+    Compare their existing provenance with the supplied annual history; for
+    reinvestment, years_covered identifies transition end years (N-1 possible).
+    Use distinct chronological year labels: callers need not preserve insertion
+    order, and multiple period entries can share a fiscal-year label.
+    Omitted sub-scores retain their existing abstention behavior.
+    """
+    metrics = {
+        "gross_margin_trend", "operating_margin_trend", "roic_stability_cv",
+        "roic_trend", "sbc_revenue_ratio", "capex_revenue_proxy",
+        "rnd_revenue_proxy", "rnd_trend_proxy", "reinvestment_rate",
+    }
+    years = sorted({yd.year for yd in annual.values()})
+    gaps = []
+    for subs in cat_scores.values():
+        for sub in subs:
+            if sub.name not in metrics:
+                continue
+            transitions = sub.name == "reinvestment_rate"
+            expected = years[1:] if transitions else years
+            covered = set(sub.years_covered) & set(expected)
+            omitted = sorted(set(expected) - covered)
+            if omitted:
+                unit = "transitions" if transitions else "annual observations"
+                if len(years) != len(annual) or len(set(sub.years_covered)) != len(sub.years_covered):
+                    unit = "distinct transition end years" if transitions else "distinct fiscal years"
+                label = "transition end years" if transitions else "years"
+                gaps.append(
+                    f"{sub.name}: shortened history — uses {len(covered)} "
+                    f"of {len(expected)} available {unit}; omitted {label}: "
+                    + ", ".join(map(str, omitted))
+                    + ". Score uses remaining observations."
+                )
+    return gaps
+
+
 def _score_quality(
     annual: dict[str, YearlyDerived],
     roic_threshold: float,
@@ -1352,6 +1393,7 @@ def score(
         "capital_discipline": _score_capital_discipline(annual, diluted_series_for_scoring),
         "optionality_proxies": _score_optionality(annual, uni_cx, uni_rnd),
     }
+    extra_gaps.extend(_history_window_gaps(cat_scores, annual))
 
     composite, cat_map, completeness = _compute_composite(cat_scores, weights)
 
