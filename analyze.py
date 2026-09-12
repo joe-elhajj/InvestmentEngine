@@ -17,7 +17,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import yaml
+from engine.config import load_config as _load_config
 
 from engine.analysis import run_single_ticker
 from engine.edgar import EdgarClient
@@ -29,8 +29,7 @@ from engine import report_html as RH
 
 
 def load_config(path: str) -> dict:
-    with open(path) as f:
-        return yaml.safe_load(f)
+    return _load_config(path)
 
 
 def resolve_candidates(cfg: dict, peers_arg: str | None) -> list[str]:

@@ -23,6 +23,8 @@ _CFG = {
             "projection_years": 5,
             "scenarios": {
                 "base": {"fcf_growth": [0.06] * 5, "terminal_growth": 0.025, "wacc": 0.09},
+                "bear": {"fcf_growth": 0.03, "terminal_growth": 0.015, "wacc": 0.11},
+                "bull": {"fcf_growth": 0.14, "terminal_growth": 0.03, "wacc": 0.08},
             },
         },
     }

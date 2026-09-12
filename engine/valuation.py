@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional
+from engine.config import validate_dcf_config
 
 # Bisection bracket for implied growth: sane range that covers virtually all
 # real companies; anything outside is flagged rather than extrapolated.
@@ -209,6 +210,7 @@ def implied_growth(
     the shared bisection core (also used by expectations_gap_band to solve
     the same reverse-DCF under the bull/bear bundles).
     """
+    validate_dcf_config(config, require_growth=False)
     if not (price and price > 0):
         return None
     if not (shares and shares > 0):
@@ -281,7 +283,7 @@ def expectations_gap_band(
     Returns None (no band at all) when:
       - any reverse-DCF prerequisite input is missing (mirrors implied_growth's
         own None-gating), or delivered_growth is None, or
-      - a scenario bundle isn't configured, or
+      - DCF isn't configured, or
       - the base scenario itself fails to converge (bracket_hit) — identical
         to today's no-gap case; the band never manufactures signal where
         today's single gap does not exist.
@@ -290,6 +292,7 @@ def expectations_gap_band(
     invariant (bull <= base <= bear implied growth) — that is a computation
     bug, never a reporting choice.
     """
+    validate_dcf_config(config, require_growth=False)
     if not (price and price > 0):
         return None
     if not (shares and shares > 0):

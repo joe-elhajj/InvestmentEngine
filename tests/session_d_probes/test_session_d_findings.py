@@ -210,13 +210,9 @@ def test_f8_revenue_exact_zero_treated_as_real_value():
 
 
 # ---------------------------------------------------------------------------
-# F-10 (xfail) — scenario config has no schema validation
+# F-10 regression — malformed scenario config fails loudly
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(reason="F-10: valuation.dcf.scenarios has no schema validation, unlike "
-                           "durability.gates -- a missing scenario key silently returns "
-                           "NO_BAND with zero diagnostic instead of raising loudly.",
-                    strict=True)
 def test_f10_missing_scenario_key_raises_loudly():
     cfg_missing = {
         "valuation": {"dcf": {"projection_years": 5, "scenarios": {

@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 import anthropic
-import yaml
+from engine.config import load_config
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
@@ -61,8 +61,7 @@ CONFIG_PATH = REPO_ROOT / "config.yaml"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    with open(CONFIG_PATH) as f:
-        cfg = yaml.safe_load(f)
+    cfg = load_config(CONFIG_PATH)
     sec_cfg = cfg.get("sec", {})
 
     app.state.cfg = cfg

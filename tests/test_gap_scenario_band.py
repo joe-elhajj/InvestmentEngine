@@ -83,7 +83,7 @@ def test_band_none_when_norm_fcf_missing():
     assert _band(norm_fcf=None) is None
 
 
-def test_band_none_when_bundle_not_configured():
+def test_band_rejects_missing_bundle():
     cfg = {
         "valuation": {"dcf": {"projection_years": 5, "scenarios": {
             "base": {"wacc": 0.09, "terminal_growth": 0.025},
@@ -91,7 +91,8 @@ def test_band_none_when_bundle_not_configured():
             # bear missing entirely
         }}}
     }
-    assert _band(config=cfg) is None
+    with pytest.raises(ValueError, match="bear"):
+        _band(config=cfg)
 
 
 def test_band_none_when_base_fails_to_converge():
