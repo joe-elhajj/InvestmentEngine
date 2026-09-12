@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from engine import metrics as M
-from engine.edgar import CompanyData, is_fpi
+from engine.edgar import CompanyData, Fact, is_fpi
 from engine.market import Quote
 from engine import valuation as V
 
@@ -223,6 +223,27 @@ def _safe_div(a: Optional[float], b: Optional[float]) -> Optional[float]:
 # Per-year computation
 # ---------------------------------------------------------------------------
 
+def _debt_total(long_term: Optional[Fact], short_term: Optional[Fact]) -> Optional[float]:
+    """Combine resolved debt facts without adding a total to its current slice."""
+    if long_term is None:
+        return short_term.value if short_term is not None else None
+    if short_term is None:
+        return long_term.value
+    if long_term.period_end == short_term.period_end:
+        if long_term.concept == "us-gaap:DebtAndCapitalLeaseObligations":
+            return long_term.value  # includes short- and long-term obligations
+        if long_term.concept in {
+            "us-gaap:LongTermDebt",
+            "us-gaap:LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
+        } and short_term.concept in {
+            "us-gaap:LongTermDebtCurrent",
+            "us-gaap:LongTermDebtAndCapitalLeaseObligationsCurrent",
+            "us-gaap:ConvertibleDebtCurrent",
+        }:
+            return long_term.value
+    return long_term.value + short_term.value
+
+
 def _build_year_entry(
     cd: CompanyData, period_end: str, tax_rate: float, rnd_amortization_years: int = 5,
 ) -> YearlyDerived:
@@ -298,8 +319,6 @@ def _build_year_entry(
     # Total debt — period-matched with gap logging
     ltd_fact = cd.value_for_period("long_term_debt", period_end)
     std_fact = cd.value_for_period("short_term_debt", period_end)
-    ltd_val = ltd_fact.value if ltd_fact else 0.0
-    std_val = std_fact.value if std_fact else 0.0
     if not ltd_fact:
         lat = cd.latest("long_term_debt")
         if lat is not None:
@@ -309,7 +328,7 @@ def _build_year_entry(
         if lat is not None:
             gaps.append(f"short_term_debt: no value for period {period_end} (latest available is {lat.period_end}, not used)")
     # Same rule: None only when BOTH components are absent, never a silent $0.
-    total_debt = (ltd_val + std_val) if (ltd_fact or std_fact) else None
+    total_debt = _debt_total(ltd_fact, std_fact)
 
     # Total equity — period-matched with gap logging
     equity = _pv("total_equity")
@@ -654,6 +673,8 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
                 res.gaps.append(
                     f"{'/'.join(missing)}: no value in latest quarter ({q_period_end})"
                 )
+            if keys == ("long_term_debt", "short_term_debt"):
+                return _debt_total(cd.quarterly.get(keys[0]), cd.quarterly.get(keys[1]))
             present = [v for v in vals if v is not None]
             return sum(present) if present else None
 

@@ -175,19 +175,17 @@ CONCEPTS: dict[str, Concept] = {
     # ConvertibleLongTermNotesPayable resolves to the comprehensive figure, not
     # the convertible slice of it.
     #
-    # The short-term counterpart (us-gaap:ConvertibleDebtCurrent, which is what
-    # PANW reports) is deliberately NOT added here yet. It is a SUBSET of the
-    # total-debt tag us-gaap:LongTermDebt, and total_debt sums the long and
-    # short lists, so mapping it double-counts every year a filer reports both
-    # — confirmed for PANW FY2021-23 (FY2022/23 exactly doubled). That must
-    # wait on the total_debt combination fix, which has to learn that
-    # `LongTermDebt` already includes the current portion. Red target for that
-    # PR: tests/test_f6_convertible_debt.py, the two strict-xfail cases.
+    # Combined debt/lease fallbacks: F-6's GM/KO/F evidence in
+    # audit/session_d/phase0_map.md. Pipeline debt aggregation checks concept
+    # lineage so inclusive totals are not added to their current portions.
     "long_term_debt": Concept("long_term_debt", False, (
         ("us-gaap", "LongTermDebtNoncurrent"),
         ("us-gaap", "LongTermDebt"),
         ("us-gaap", "ConvertibleLongTermNotesPayable"),
         ("ifrs-full", "LongtermBorrowings"),
+        ("us-gaap", "LongTermDebtAndCapitalLeaseObligationsNoncurrent"),
+        ("us-gaap", "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities"),
+        ("us-gaap", "DebtAndCapitalLeaseObligations"),
     )),
     "short_term_debt": Concept("short_term_debt", False, (
         ("us-gaap", "DebtCurrent"),
@@ -195,6 +193,8 @@ CONCEPTS: dict[str, Concept] = {
         ("us-gaap", "LongTermDebtCurrent"),
         ("ifrs-full", "ShorttermBorrowings"),
         ("ifrs-full", "CurrentPortionOfLongtermBorrowings"),
+        ("us-gaap", "LongTermDebtAndCapitalLeaseObligationsCurrent"),
+        ("us-gaap", "ConvertibleDebtCurrent"),
     )),
     # --- Compensation & investment (flows) ---
     "sbc": Concept("sbc", True, (
