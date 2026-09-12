@@ -160,6 +160,11 @@ def _resolve_config(cfg: dict) -> dict:
         "rnd_capitalization": rnd_capitalization,
         "gates": gates,
         "universe_version": universe_version,
+        # External valuation inputs used by durability disclosures and annual ROIC.
+        "valuation": {
+            "min_history_years": cfg.get("valuation", {}).get("min_history_years", 4),
+            "assumed_tax_rate": cfg.get("valuation", {}).get("assumed_tax_rate", 0.21),
+        },
     }
 
 
