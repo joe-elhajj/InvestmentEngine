@@ -1320,6 +1320,7 @@ def score(
     # decision. Layer 2 (does an adjustment path actually exist this year --
     # n_adjusted_total, below) is unchanged and still lives entirely here.
     use_rnd_adjusted_roic = rnd_regime_applies(res.company, config) is RndRegime.APPLIES
+    matched_view = annual
 
     if use_rnd_adjusted_roic:
         # Matched-window ROIC (Option C, PR 2a) applies ONLY where an
@@ -1414,8 +1415,13 @@ def score(
     composite_high, _, _ = _compute_composite(cat_scores, weights, impute=score_band["optimistic_impute"])
 
     # Stability perturbation (C4): ±20% on reinvestment rate
-    reinv_plus  = _score_reinvestment(annual, coc, reinv_perturb=+0.20)
-    reinv_minus = _score_reinvestment(annual, coc, reinv_perturb=-0.20)
+    # Hold the baseline's history/basis fixed; roic_latest is not perturbed.
+    reinv_plus = _merge_rnd_reinvestment_views(
+        reinvestment_sub, _score_reinvestment(matched_view, coc, reinv_perturb=+0.20),
+    )
+    reinv_minus = _merge_rnd_reinvestment_views(
+        reinvestment_sub, _score_reinvestment(matched_view, coc, reinv_perturb=-0.20),
+    )
     cat_plus  = dict(cat_scores); cat_plus["reinvestment_engine"]  = reinv_plus
     cat_minus = dict(cat_scores); cat_minus["reinvestment_engine"] = reinv_minus
     c_plus,  _, _ = _compute_composite(cat_plus,  weights)

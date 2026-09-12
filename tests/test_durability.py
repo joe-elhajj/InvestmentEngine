@@ -1407,3 +1407,61 @@ def test_screenrow_carries_durability_gaps():
     assert not (set(row.durability_gaps) & set(res.gaps)), \
         "durability_gaps must not duplicate any pipeline res.gaps entry"
     assert any("outside ratio domain, not scored" in g for g in row.durability_gaps)
+
+
+@pytest.mark.parametrize("kind", ["adjusted", "off", "no_rnd", "short", "ifrs"])
+def test_stability_uses_baseline_history_and_only_twenty_percent_perturbation(kind, monkeypatch):
+    cfg = {**_BASE_CFG, "durability": {"rnd_capitalization": {"enabled": kind != "off"}}}
+    if kind == "no_rnd":
+        cd = _no_rnd_company("NORND", "0000000091")
+    elif kind == "short":
+        cd = _short_history_all_fallback_company("SHORT", "0000000092")
+    else:
+        cd = _strong_company()
+        if kind == "ifrs":
+            cd.recent_forms = ["20-F"]
+    res = _make_res(cd, cfg)
+    calls = []
+    original = D._score_reinvestment
+
+    def record(annual, coc, reinv_perturb=0.0):
+        result = original(annual, coc, reinv_perturb)
+        calls.append((annual, reinv_perturb, result))
+        return result
+
+    monkeypatch.setattr(D, "_score_reinvestment", record)
+    ds = D.score(res, cfg)
+    baseline_calls = [c for c in calls if c[1] == 0]
+    perturbations = [c for c in calls if c[1] != 0]
+    assert [c[1] for c in perturbations] == [0.20, -0.20]
+    history = baseline_calls[-1][0]
+    assert all(c[0] is history for c in perturbations)
+    assert (history is res.annual_series) == (kind != "adjusted")
+    baseline = {s.name: s for s in baseline_calls[-1][2]}
+    for _, delta, subs in perturbations:
+        for sub in subs:
+            assert sub.years_covered == baseline[sub.name].years_covered
+            if sub.name in ("roic_latest", "roic_mean"):
+                assert sub == baseline[sub.name]
+            elif sub.name == "reinvestment_rate":
+                assert sub.raw == pytest.approx(baseline[sub.name].raw * (1 + delta), abs=0.00011)
+    assert ds.is_stable == (ds.stability_delta <= 5.0)
+
+
+def test_adjusted_stability_delta_and_threshold_boundary():
+    import dataclasses
+
+    res = _make_res(_strong_company())
+    def score(threshold):
+        return D.score(res, {**_BASE_CFG, "durability": {
+            "rnd_capitalization": {"enabled": True},
+            "thresholds": {"stability_delta_threshold": threshold},
+        }})
+    ds = score(5.0)
+    assert ds.stability_delta == 0.7598700732752377
+    assert ds.is_stable
+    below = score(0.6)  # old GAAP-based delta 0.5289024875594919 incorrectly passed
+    assert not below.is_stable
+    at_boundary = score(ds.stability_delta)
+    assert at_boundary.is_stable
+    assert dataclasses.replace(below, is_stable=ds.is_stable, config_hash=ds.config_hash) == ds
