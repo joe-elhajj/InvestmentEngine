@@ -64,38 +64,29 @@ about what drives durable compounding changes.
 | `capital_discipline` | 15 % | Alignment: dilution and SBC erode per-share value |
 | `optionality_proxies` | 10 % | R&D and capex intensity signal future reinvestment |
 
-**Sensitivity (2026-07-05, Session C Phase 2/4, baseline config_hash
-`81dc10d28f028cad`) — all 5 weights: AFFIRMED.** Composite ranking robust
-under one-at-a-time ±5pp — no single-weight perturbation drops Kendall tau
-below +0.9429 vs baseline, and the top-5 SET is invariant (nothing outside
-{AMAT, V, NVDA, MSFT, COST} enters under any single-weight move — MSFT
-scored for this audit only, see the sensitivity-only note below). Two
-disclosed knife-edges within that set: AMAT/V (baseline #1/#2, separated by
-only 0.72 pts) swap rank-1 under `reinvestment_engine`−5pp and
-`optionality_proxies`+5pp; and MSFT/COST swap under those same two plus the
-equal-weights anchor. The equal-weights structural anchor
-(20/20/20/20/20) drops tau to +0.8857 and additionally swaps NVDA/COST —
-i.e. NVDA's edge over COST is weight-driven (from the reinvestment/quality
-over-weighting relative to equal), not structure-driven. Neither knife-edge
-involves a mispriced weight; both are low-confidence orderings the model
-should not be leaned on for those specific adjacent pairs.
+`durability.weights` is authoritative. The weight sweep in
+[`audit/sensitivity.py`](../audit/sensitivity.py) changes one category by
+±5 percentage points and scales the other four proportionally to keep the
+total at 1.0. It also tests an equal-weight anchor. Within each category,
+sub-scores are equally averaged; categories without usable sub-scores are
+dropped and the remaining category weights are renormalized by
+`engine.durability._compute_composite`.
 
-**Sensitivity (2026-07-05) — `optionality_proxies` (10 %): AFFIRMED +
-ANNOTATED.** Being the smallest weight, ±5pp is a ±50% *relative* change —
-the largest proportional stress any single weight receives in this sweep.
-Its composite swings concentrate in the low-durability, speculative names
-(RKLB ±1.83, BE ±2.22, AXON ±2.34) rather than the compounders (AMAT ±0.79,
-COST ±0.38, NVDA ±0.04) — the weight matters most exactly where the
-category composite itself is least trustworthy (thin sub-score coverage on
-newer/smaller names), not where the analyst relies on it most.
+Every weight variant retains the configured `durability.rnd_capitalization`
+settings. With the active regime, reinvestment averages use the same
+R&D-adjusted matched-history rules as baseline scoring; weight changes do
+not change amortization or history selection. The separate ±20%
+reinvestment-rate stability check is not a weight-ranking robustness test.
 
-**Sensitivity (2026-07-05) — `reinvestment_engine` (30 %): AFFIRMED +
-ANNOTATED.** Downside asymmetry: −5pp is among the softest rank-breaks in
-the sweep (tau +0.9429, tied with `optionality_proxies`+5pp) while +5pp
-holds rank exactly (tau +1.0000). This weight has the least headroom to
-reduce — cutting the primary-compounder weight is what actually moves
-rankings; increasing it does not disturb the order the other weights
-already agree on.
+The sweep compares composite scores using Kendall tau-b and orders tickers
+by descending composite, breaking ties alphabetically. Top-five membership
+is compared as a set, separately from changes in order. The
+[current sensitivity evidence](../audit/weight_sensitivity_current.md)
+shows that both rankings and top-five membership can change under
+single-weight perturbations, including an increase in `reinvestment_engine`.
+These sample-dependent results do not establish optimal weights or a
+minimum robustness guarantee; rerun the evidence when inputs or the model
+change. The configured weights remain analyst-owned judgments.
 
 ### Thresholds
 
