@@ -221,7 +221,8 @@ class TestFpiCurrencyGate:
         cd = _fpi_twd_company()
         dcf_cfg = {**_BASE_CFG, "valuation": {**_BASE_CFG["valuation"], "dcf": {
             "projection_years": 5,
-            "scenarios": {"base": {"fcf_growth": [0.05]*5, "terminal_growth": 0.025, "wacc": 0.09}},
+            "scenarios": {name: {"fcf_growth": [0.05]*5, "terminal_growth": 0.025, "wacc": 0.09}
+                          for name in ("bear", "base", "bull")},
         }}}
         q = Quote("TSM", price=150.0, shares_outstanding=5200.0, market_cap=780_000.0, source="test")
         res = derive(cd, q, dcf_cfg)

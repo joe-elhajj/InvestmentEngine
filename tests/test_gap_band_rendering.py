@@ -37,7 +37,7 @@ _FULL_CFG = {
     }
 }
 
-_NO_BEAR_CFG = {
+_NO_BAND_CFG = {
     "valuation": {
         "assumed_tax_rate": 0.21,
         "dcf": {
@@ -45,6 +45,7 @@ _NO_BEAR_CFG = {
             "scenarios": {
                 "bull": {"fcf_growth": [0.14] * 5, "terminal_growth": 0.030, "wacc": 0.08},
                 "base": {"fcf_growth": [0.08] * 5, "terminal_growth": 0.025, "wacc": 0.09},
+                "bear": {"fcf_growth": [0.03] * 5, "terminal_growth": 0.015, "wacc": 0.11},
             },
         },
     }
@@ -113,8 +114,8 @@ def _partial_band_result():
 
 
 def _no_band_result():
-    """Bear bundle isn't configured at all -- NO_BAND, band is None."""
-    return _derive_at(300.0, cfg=_NO_BEAR_CFG)
+    """Base cannot converge at this price -- NO_BAND, band is None."""
+    return _derive_at(1e12, cfg=_NO_BAND_CFG)
 
 
 # ---------------------------------------------------------------------------

@@ -303,6 +303,7 @@ def test_pipeline_and_report(tmp_path):
                     "base": {"fcf_growth": [0.08, 0.07, 0.06, 0.05, 0.04],
                              "terminal_growth": 0.025, "wacc": 0.09},
                     "bull": {"fcf_growth": 0.12, "terminal_growth": 0.03, "wacc": 0.08},
+                    "bear": {"fcf_growth": 0.03, "terminal_growth": 0.015, "wacc": 0.11},
                 },
                 "sensitivity": {"wacc": [0.08, 0.09, 0.10],
                                 "terminal_growth": [0.02, 0.025, 0.03]},

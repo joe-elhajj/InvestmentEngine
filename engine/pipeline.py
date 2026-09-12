@@ -18,6 +18,7 @@ from engine import metrics as M
 from engine.edgar import CompanyData, Fact, is_fpi
 from engine.market import Quote
 from engine import valuation as V
+from engine.config import validate_dcf_config
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +545,7 @@ def derive_annual_series(cd: CompanyData, config: dict) -> dict[str, YearlyDeriv
 
 
 def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
+    validate_dcf_config(config)
     res = AnalysisResult(company=cd, quote=quote)
     res.rnd_regime = rnd_regime_applies(cd, config)
     res.gaps = list(cd.unresolved)
