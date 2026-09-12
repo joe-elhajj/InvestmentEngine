@@ -1,5 +1,11 @@
 # Investment Engine — Claude Code context
 
+## Git commits
+
+- Do not add Claude, Anthropic, or any AI model as a co-author on Git commits.
+- Do not add `Co-Authored-By` trailers for AI-assisted work.
+- Git commits should use only the user's configured Git author identity.
+
 ## System overview
 
 The engine is a three-tier investment research system. **Tier 1 (built)** is a
