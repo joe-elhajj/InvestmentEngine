@@ -342,6 +342,17 @@ def test_config_hash_stable_same_weights():
     assert D._config_hash(D._resolve_config(cfg)) == D._config_hash(D._resolve_config(cfg))
 
 
+def test_config_hash_changes_with_assumed_tax_rate():
+    cfg_a = {"valuation": {"assumed_tax_rate": 0.21}}
+    cfg_b = {"valuation": {"assumed_tax_rate": 0.30}}
+    assert D._config_hash(D._resolve_config(cfg_a)) != D._config_hash(D._resolve_config(cfg_b))
+
+
+def test_config_hash_valuation_defaults_match_explicit_values():
+    cfg = {"valuation": {"min_history_years": 4, "assumed_tax_rate": 0.21}}
+    assert D._config_hash(D._resolve_config({})) == D._config_hash(D._resolve_config(cfg))
+
+
 # ---------------------------------------------------------------------------
 # Strict-keys guard (Session C Phase 1.5) — closes the class of bug where
 # config.yaml's on-disk durability.thresholds/score_band keys silently didn't

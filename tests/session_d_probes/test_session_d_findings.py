@@ -149,13 +149,9 @@ def test_norand_company_shows_zero_rnd_artifacts_regime_on():
 
 
 # ---------------------------------------------------------------------------
-# F-2 (xfail) — min_history_years bypasses the durability config hash
+# F-2 regression — min_history_years participates in the durability config hash
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(reason="F-2: min_history_years is read directly from raw config in "
-                           "score(), never folded into _resolve_config's hashed subset -- "
-                           "two runs with different values report an identical hash.",
-                    strict=True)
 def test_f2_min_history_years_changes_hash():
     cd = _strong_company()
     res = _make_res(cd)
