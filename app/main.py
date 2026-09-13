@@ -434,7 +434,7 @@ def _config_hash(cfg: dict) -> str:
     durability weights/thresholds/universe_version slice. This single-ticker
     endpoint runs no durability scoring, so it reports which assumption set
     produced its valuation numbers using the same canonical-JSON + sha256 +
-    16-hex-char convention (config-hash discipline, CLAUDE.md).
+    16-hex-char convention (config-hash discipline, docs/assumptions.md).
     """
     canonical = json.dumps(cfg, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()[:16]

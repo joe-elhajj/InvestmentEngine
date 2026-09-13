@@ -153,7 +153,7 @@ tests/                    pytest regression suite (synthetic fixtures + cached d
   preserved and disclosed.
 - **The only sanctioned model use is verbatim selection (Tier 2) and
   evidence synthesis (Tier 3).** No model call ever derives, adjusts,
-  or computes a number. See `CLAUDE.md` for the full invariant list.
+  or computes a number. See `docs/assumptions.md` for the full invariant list.
 - **Meaningless ratios return n/a + a reason**, never a misleading
   number (P/E on negative earnings, ROE on negative equity, etc.).
 

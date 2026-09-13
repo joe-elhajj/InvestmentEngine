@@ -135,3 +135,10 @@ def test_recursive_yaml_is_rejected_clearly(tmp_path):
     path.write_text("valuation:\n  dcf: &dcf\n    scenarios: *dcf\n")
     with pytest.raises(ValueError, match="valuation.dcf.scenarios: recursive YAML mapping"):
         load_config(path)
+
+
+def test_public_sec_placeholder_requires_personal_configuration():
+    from engine.edgar import EdgarClient
+
+    with pytest.raises(ValueError, match='Set a real SEC User-Agent'):
+        EdgarClient(_config()['sec']['user_agent'])

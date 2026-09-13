@@ -2,7 +2,7 @@
 flags.py — Tier 2 qualitative red/green flag extraction from 10-K text.
 
 This is the FIRST place an LLM enters the Investment Engine pipeline.
-CLAUDE.md's "LLMs never touch arithmetic" invariant is unchanged and
+docs/assumptions.md's "LLMs never touch arithmetic" invariant is unchanged and
 absolute; this module adds one narrow, audited exception:
 
     LLMs may SELECT verbatim text spans from filings — never generate,

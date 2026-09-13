@@ -26,7 +26,7 @@ from engine.pipeline import AnalysisResult
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(tmp_path, monkeypatch, app_test_config):
     monkeypatch.setattr(watchlist_mod, "DB_PATH", tmp_path / "watchlist.db")
     with TestClient(fastapi_app) as c:
         yield c

@@ -5,7 +5,7 @@ sortRows() takes no DOM/global references (just rows/key/dir/valueOf), so
 it can be extracted from app.js by brace-matching and run standalone in a
 Node subprocess — real coverage of the production sort algorithm itself,
 not just a re-implementation of it in Python. This is the test for the
-absence-is-not-zero invariant applied to sorting (CLAUDE.md): a null/
+absence-is-not-zero invariant applied to sorting (docs/assumptions.md): a null/
 undefined value must sort to the bottom in BOTH directions, never
 coerced to 0 or -Infinity.
 

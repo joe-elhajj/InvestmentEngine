@@ -1312,7 +1312,7 @@ tbody tr:hover .row-remove{opacity:1}
 /* ---- Chip legend (feature/chip-legend): a static reference panel for
    what every chip code means, reusing the same .modal/.modal-body shell
    as the usage modal above -- this is the ONE place full definitions
-   live (sourced from CLAUDE.md's own "Badge/chip vocabulary" section,
+   live (sourced from docs/assumptions.md's "Badge/chip vocabulary" section,
    not invented copy); the on-row chips and their tooltips stay codes +
    row-specific detail only, never re-duplicating this prose. Verdict
    and Provenance are two separate <dl> groups so the section label
