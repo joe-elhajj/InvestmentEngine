@@ -18,11 +18,29 @@ screening, the expectations-gap band, per-ticker Tier 2/3 drill-down.
 
 ## Setup
 
+Use **CPython 3.12.2** (the tested interpreter) in a fresh virtual environment.
+`requirements.txt` is the single exact-version lock for runtime and test
+dependencies, including transitives. The setup targets macOS and
+Linux (CI); other Python versions and Windows are not validated.
+
 ```bash
 cd "Investment Engine"
-python -m venv .venv && source .venv/bin/activate   # (Windows: .venv\Scripts\activate)
-pip install -r requirements.txt
+python3.12 --version                            # must report Python 3.12.2
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install pip==24.2
+python -m pip install -r requirements.txt
+python -m pip check
+python -m pytest
 ```
+
+Node.js 20 must also be on `PATH` for the JavaScript-backed tests, as in CI.
+To update dependencies, change pins deliberately, resolve the complete
+dependency set in a fresh environment, and run `pip check` and the full
+test suite before committing the reviewed lock. Do not regenerate it from
+an unrelated environment or upgrade packages as part of ordinary setup.
+The optional macOS auto-start guide uses a separate Conda environment;
+it is not this reproducible development setup.
 
 Open `config.yaml` and set `sec.user_agent` to your real name + email —
 **required**, SEC returns 403 without a declared contact.
