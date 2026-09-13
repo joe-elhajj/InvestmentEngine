@@ -23,8 +23,12 @@ Use **CPython 3.12.2** (the tested interpreter) in a fresh virtual environment.
 dependencies, including transitives. The setup targets macOS and
 Linux (CI); other Python versions and Windows are not validated.
 
+For a new checkout, use the commands below. For an existing clone, start
+in its root directory and skip the first two commands.
+
 ```bash
-cd "Investment Engine"
+git clone https://github.com/joe-elhajj/InvestmentEngine.git
+cd InvestmentEngine
 python3.12 --version                            # must report Python 3.12.2
 python3.12 -m venv .venv
 source .venv/bin/activate
@@ -56,13 +60,12 @@ web endpoints work without it.
 python analyze.py AAPL                          # fundamentals + durability
 python analyze.py AAPL --peers technology       # + peer comparison (universe in config)
 python analyze.py AAPL --peers MSFT,GOOGL,DELL  # + peer comparison (explicit list)
-python analyze.py AAPL --price 195 --shares 15300000000   # offline / reproducible
+python analyze.py AAPL --price 195 --shares 15300000000   # manual market inputs; EDGAR still fetched
 ```
 
 Output lands in `reports/<TICKER>_<date>.{md,html}`. The peer-comparison
 path (`--peers`) is CLI-only today — the web app's analyze endpoints
-don't wire it in (a known, disclosed gap, see "Known open findings"
-below).
+don't wire it in.
 
 **Web app + dashboard:**
 
@@ -79,11 +82,11 @@ Tier 3 council, all from the same underlying `AnalysisResult`/
 `DurabilityScore` the CLI produces. For auto-start-at-login and Dock
 integration on macOS, see `app/INSTALL.md`.
 
-**Batch screen, CLI:**
+**Batch screen, Python API:**
 
 ```python
 from engine.screen import run_screen
-# see engine/screen.py's module docstring for --sort modes
+# See run_screen() for arguments and supported sort modes.
 ```
 
 ## Architecture (separation of concerns)
@@ -94,13 +97,13 @@ engine/
   edgar.py              SEC EDGAR client: ticker→CIK, SIC, companyfacts, concept resolution
   market.py              price/shares/market-cap (yfinance; isolated from filings)
   metrics.py             PURE math — CAGR, margins, ratios, R&D capitalization — unit tested
-  pipeline.py             EDGAR data → derived metrics → valuation (no LLM, no I/O beyond fetch)
+  pipeline.py             EDGAR data → derived metrics → valuation (no LLM or I/O)
   valuation.py            relative multiples, 2-stage DCF, reverse-DCF, the bull/base/bear
                           expectations-gap scenario band
   durability.py           five-category business-durability scorecard, the R&D capitalization
                           regime, and the balance-sheet-leverage gate (raw-metric veto)
   peers.py                comp-set construction (SIC + size band) + relative scoring — wired
-                          into analyze.py's CLI only, not yet the web app (see findings)
+                          into analyze.py's CLI only, not yet the web app
   universe.py             S&P 500 reference population for universe-relative percentile scoring
   etf.py                  ETF/fund profile via yfinance (market-vendor tier, fully defensive)
   screen.py               batch screener: routes tickers to Equities / ETFs & Funds / Excluded
@@ -116,16 +119,15 @@ frontend/                 dashboard UI (vanilla JS + CSS, no build step)
 config.yaml               every assumption + curated peer universes (version-controlled)
 docs/assumptions.md       every owned assumption, its external anchor, and review cadence
 audit/                    dated audit evidence and sensitivity harnesses (see below)
-tests/                    770+ tests, pytest, no network (synthetic fixtures + cached data)
+tests/                    pytest regression suite (synthetic fixtures + cached data)
 ```
 
 ## Design decisions worth knowing
 
 - **Concept resolution with fallbacks.** XBRL tags differ across
   companies and years. Each logical metric resolves against an ordered
-  list of GAAP tags; the report shows the exact concept used. (A known,
-  disclosed gap in this: `engine/edgar.py`'s concept list misses some
-  large filers' alternate debt tags — see "Known open findings.")
+  list of GAAP tags; the report shows the exact concept used. Debt
+  aggregation counts overlapping current portions only once.
 - **Provenance on every fundamental number.** Each figure cites its
   EDGAR concept, fiscal-period end, form, and filing date. Every
   renderer's "Data gaps" section lists anything that could not be
@@ -155,24 +157,13 @@ tests/                    770+ tests, pytest, no network (synthetic fixtures + c
 - **Meaningless ratios return n/a + a reason**, never a misleading
   number (P/E on negative earnings, ROE on negative equity, etc.).
 
-## Known open findings
+## Engineering evidence
 
-A full-system audit (`audit/session_d/report.md`) ran a battery of
-adversarial and cross-feature probes against the live system and
-recorded every finding it turned up — real bugs, disclosure gaps, and
-assumptions needing an analyst decision, each with evidence and a
-proposed remedy, most not yet fixed. That report is the current source
-of truth for known issues; this README doesn't duplicate it. Highlights
-as of the most recent audit: a chunk of the durability gate's "can't
-evaluate" population turns out to be a fixable data-extraction gap
-rather than genuine absence, and several sub-scores narrow their
-lookback window silently. Read the report for the full ledger,
-severities, and dispositions.
-
-**Resolved:** F-14 (PR #58) — an FPI's R&D-adjusted ROIC could render
-without its abstention badge (misleading output); fixed by stamping the
-regime decision on `AnalysisResult` and reordering the render gate so
-FPI/regime status is checked before numeric availability.
+The [historical audit](audit/session_d/report.md), supporting files in
+`audit/`, and [architecture snapshot](docs/architecture_snapshot.md)
+record the repository at the time of inspection. They are retained as
+engineering evidence, not a current unresolved-issue ledger. Subsequent
+fixes and regression tests supersede findings in those snapshots.
 
 ## Known limits
 
