@@ -113,7 +113,7 @@ def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | 
         f = q["facts"]
         q_fcf_src = _derived_source("FCF = CFO - capex", [
             ("CFO", f.get("cfo")), ("capex", f.get("capex"))])
-        q_debt_src = _derived_source("total debt = long_term_debt + short_term_debt", [
+        q_debt_src = _derived_source("total debt from resolved debt facts (overlapping current portions counted once)", [
             ("long_term_debt", f.get("long_term_debt")),
             ("short_term_debt", f.get("short_term_debt"))])
         q_liquid_src = _derived_source("liquid assets = cash + short_term_investments + long_term_investments", [
