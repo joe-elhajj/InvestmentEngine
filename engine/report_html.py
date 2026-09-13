@@ -25,11 +25,7 @@ from typing import Optional
 from engine.edgar import classify_rnd_series
 from engine.pipeline import AnalysisResult, RndRegime, rnd_regime_reason_text
 
-# Short chip text for an ABSTAINED rnd_regime; the full IAS 38 rationale
-# from rnd_regime_reason_text() (pipeline.py) moves to the chip's title=
-# tooltip instead of sitting inline -- ~180 chars blew out the ratio
-# table's width (live-verified on ASML). Renderer-owned, same split as
-# report.py's short/footnote treatment; not pipeline.py's concern.
+# Keep R&D abstention chips compact; expose the full rationale in a tooltip.
 _RND_REGIME_REASON_SHORT: dict[RndRegime, str] = {
     RndRegime.ABSTAINED_REGIME_DISABLED: "regime disabled",
     RndRegime.ABSTAINED_IFRS_FPI: "IFRS filer",
@@ -226,20 +222,9 @@ def _ratio_rows(res: AnalysisResult) -> list[tuple[str, str, Optional[str]]]:
             val = _fmt_pct(m.value) if is_pct else f"{m.value:.2f}"
         rows.append((label, val, None))
         if key == "roic":
-            # Dual ROIC (Damodaran R&D capitalization). Two layers compose
-            # here, in precedence order: (1) no R&D series at all -- nothing
-            # was ever adjustable, so no row, not a badge; (2) res.rnd_regime
-            # (stamped once by pipeline.derive()) is ABSTAINED -- regime
-            # disabled in config, or an IFRS filer -- so a badge with THAT
-            # reason, regardless of whether roic_adjusted happened to
-            # compute; (3) roic_adjusted didn't compute for some other reason
-            # (e.g. a short/gapped window) -- a badge saying so; (4)
-            # otherwise, the bare percentage. The ABSTAINED case is the one
-            # exception to "plain text, escaped like every other ratio": its
-            # full IAS 38 rationale (~180 chars) blew out the table on ASML,
-            # so the SHORT reason is the visible chip text and the full
-            # rationale moves to a title= tooltip (matches the .dur-chip/
-            # .gate-chip native-tooltip precedent already in this module).
+            # R&D disclosure precedence: omit absent R&D, then show regime abstention,
+            # then unavailable adjustment, otherwise the adjusted percentage.
+            # Use a compact abstention chip with the full rationale in its tooltip.
             adj = res.ratios.get("roic_adjusted")
             state, _ = classify_rnd_series(res.company)
             if state == "no_rnd":
@@ -333,11 +318,8 @@ def _dcf_section(res: AnalysisResult) -> Optional[dict]:
     return {"scenarios": scenario_rows, "sensitivity": sensitivity}
 
 
-# Expectations-gap scenario band (PR 3): the fixed axis a gap value is
-# positioned against is a CONSTANT across tickers (not rescaled per-company)
-# so the strip is visually comparable row to row, same principle as the
-# durability score bars. Values beyond the axis still show their real
-# number in the label; only the marker's pixel position clamps at the edge.
+# Use a common axis across companies for comparable expectations-gap strips.
+# Clamp only marker positions; labels retain the actual values.
 _GAP_BAND_AXIS_MIN = -0.30
 _GAP_BAND_AXIS_MAX = 0.30
 
@@ -349,13 +331,9 @@ def _gap_band_axis_pct(gap: float) -> float:
 
 
 def _gap_band_section(res: AnalysisResult) -> Optional[dict]:
-    """
-    Shared data builder for the bull/base/bear expectations-gap band -- same
-    pattern as _dcf_section: each renderer turns this dict into its own
-    markup. None when no band exists (NO_BAND per PR 3's rule: base failed
-    to converge, delivered_growth unavailable, or a bundle isn't
-    configured) -- res.expectations_gap (today's single-scenario gap, shown
-    via _summary()) is untouched either way.
+    """Build shared bull/base/bear band data, or None when no band exists.
+
+    Band availability is independent of displaying the single-scenario gap.
     """
     band = res.expectations_gap_band
     if band is None:
@@ -510,23 +488,14 @@ def _gaps_li(gaps: list[tuple[str, bool]]) -> str:
 
 
 def _basis_disclosure_tooltip(res: AnalysisResult) -> str:
-    """
-    Session B: the Expectations Gap number is implied-growth minus
-    delivered-growth, but neither of those two components' basis is
-    surfaced anywhere else on this fragment. Combine whichever basis
-    caveats actually apply into one tooltip, attached to the one stat that
-    exists here whose interpretation depends on them — empty string (no
-    tooltip) in the common case where neither applies.
+    """Disclose applicable growth-basis and share-source caveats for the gap.
+
+    Return an empty string when no caveat applies.
     """
     parts: list[str] = []
     label = res.delivered_growth_label
     if label.startswith("revenue CAGR"):
-        # This surface checks res.expectations_gap directly (the real
-        # attribute, already in hand here) while the frontend's equivalent
-        # fix (PR #44) checks the `gated` proxy instead -- the two
-        # conditions are proven equivalent (screen.py:70-104), just
-        # expressed in the terms each surface has available. Not something
-        # a future reader needs to reconcile.
+        # Distinguish an unavailable gap from a computed comparison of unlike bases.
         if res.expectations_gap is None:
             parts.append(
                 "Delivered growth is a revenue-CAGR fallback (FCF history non-positive "
@@ -548,7 +517,7 @@ def _basis_disclosure_tooltip(res: AnalysisResult) -> str:
     return " ".join(parts)
 
 
-# Balance-sheet gate chip (PR 4): "GATE" when a gate fired (composite is
+# Balance-sheet gate chip: "GATE" when a gate fired (composite is
 # capped -- tooltip carries the lineage string with the ungated value,
 # reason, and threshold), "GATE?" when GATE-UNTESTABLE (a required raw
 # input was missing -- absence is not a pass). Neither PASS nor NOT
@@ -951,8 +920,8 @@ def render_fragment(
     standalone document. Assumes the host page already loads the
     dashboard's stylesheet (same CSS custom properties: --bg, --surface,
     --text-1/2/3, --good/--bad, tabular-nums, etc.).
-    `gate_status`/`gate_tooltip` (PR 4) are additive, caller-computed via
-    D.gate_status_of(ds) — None/"" render exactly as before this PR.
+    The caller supplies gate_status and gate_tooltip via D.gate_status_of(ds).
+    None/"" omit the gate chip.
     """
     summary = _summary(
         res, durability_composite=durability_composite,

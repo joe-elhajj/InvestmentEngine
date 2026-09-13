@@ -17,16 +17,6 @@ Design rules
 - Score bands quantify uncertainty from missing data (C2).
 - Config hash enables cross-company comparability (C3).
 - Stability perturbation flags reinvestment-rate sensitivity (C4).
-
-Known open investigation (Session A Item 1 sweep, as of this writing): the
-share-count discontinuity detector below (_detect_split_contamination) found
-flagged boundaries for AAPL/TSLA/AMZN whose RATIOS match those companies'
-real historical split ratios almost exactly, but whose fiscal years do NOT
-match the real split dates. That "ratio right, year wrong" signature points
-at engine/edgar.py's multi-year series assembly (likely comparative-column
-splicing across filings) rather than confirming genuine unadjusted splits
-landing on those exact years. Root cause under investigation in a follow-up
-session (B.2) — not yet fixed, not yet fully diagnosed as of this comment.
 """
 
 from __future__ import annotations
@@ -120,15 +110,7 @@ def _resolve_gates(dur: dict) -> list[dict]:
 
 
 def _merge_strict(dur: dict, section_name: str, defaults: dict) -> dict:
-    """
-    Merge one durability.<section_name> sub-dict onto its defaults, failing
-    loudly on any key the code doesn't consume (Session C Phase 1.5: closes
-    the class of bug where config.yaml's on-disk threshold/score_band keys
-    silently didn't match what _resolve_config's defaults expected, making
-    five of ten durability assumptions dead on disk while docs/assumptions.md
-    claimed they were live). A typo or stale key here must be loud, not a
-    silent no-op.
-    """
+    """Merge section defaults, rejecting unknown keys rather than silently ignoring them."""
     section = dur.get(section_name, {})
     unknown = set(section) - set(defaults)
     if unknown:
@@ -208,7 +190,7 @@ class DurabilityScore:
     excluded: bool = False
     exclusion_reason: str = ""
     gaps: list[str] = field(default_factory=list)
-    # --- PR 4: balance-sheet gate layer, additive on top of the above ---
+    # Balance-sheet gates cap the weighted composite.
     # composite_ungated is the true weighted composite BEFORE any gate cap
     # -- always populated (equal to `composite` itself when no gate fires),
     # so "both gated and ungated numbers survive" holds unconditionally,
@@ -303,25 +285,11 @@ def _cv_score(values: list[float]) -> Optional[float]:
 # ---------------------------------------------------------------------------
 
 def _rnd_adjusted_view(annual: dict[str, YearlyDerived]) -> dict[str, YearlyDerived]:
-    """
-    Option A (fallback-inclusive): a view of `annual` with GAAP nopat/
-    invested_capital replaced by their R&D-capitalization-adjusted
-    counterparts, falling back to GAAP figures for any year lacking a full
-    research-asset window. Retired from feeding the multi-year averages
-    (roic_mean/reinvestment_rate/compounding_proxy) as of the matched-window
-    (Option C) change below -- averaging fallback-inclusive years is
-    exactly the mixed-basis problem Option C exists to remove. Kept for
-    two reasons: (1) roic_latest is a single year, so "mixed basis" never
-    applied to it in the first place -- falling back to GAAP for a young
-    or short-history company's latest year is still correct and desired,
-    so it keeps using this view; (2) _annotate_rnd_basis's classifier
-    (classify_basis_mix) is kept live as an invariant tripwire against a
-    future regression that reintroduces mixing -- see score()'s call site.
-    _score_reinvestment's own math runs completely UNCHANGED either way --
-    it always just reads .nopat/.invested_capital, never branches on the
-    regime itself. The regime toggle (and the IFRS abstention) live
-    entirely in score()'s decision of which view(s) to build, not inside
-    the scoring math.
+    """Return R&D-adjusted NOPAT and invested capital with per-year GAAP fallback.
+
+    This view supplies single-year roic_latest, preserving a value when its
+    research-asset window is incomplete. Multi-year adjusted averages use the
+    matched-window view instead. score() controls regime eligibility.
     """
     view: dict[str, YearlyDerived] = {}
     for pe, yd in annual.items():
@@ -336,28 +304,11 @@ def _rnd_adjusted_view(annual: dict[str, YearlyDerived]) -> dict[str, YearlyDeri
 
 
 def _rnd_matched_window_view(annual: dict[str, YearlyDerived]) -> dict[str, YearlyDerived]:
-    """
-    Option C (matched window): unlike _rnd_adjusted_view above, a year
-    lacking a full research-asset window is EXCLUDED here (nopat/
-    invested_capital set to None) rather than falling back to GAAP.
-    _score_reinvestment's own existing filters (`if yd.nopat is not None
-    and yd.invested_capital is not None...`) then naturally drop these
-    years from every multi-year average -- no GAAP-fallback year ever
-    enters an R&D-adjusted roic_mean/reinvestment_rate/compounding_proxy
-    again. _score_reinvestment's code is untouched either way; only which
-    view feeds it changes.
+    """Exclude incomplete R&D windows from multi-year adjusted averages.
 
-    Must only be called when at least one year in `annual` has cleared
-    the full research-asset window (yd.rnd_basis == "adjusted") -- score()
-    gates on that evidence before ever calling this function. A company
-    with NO adjustment path anywhere (NO_RND, or real R&D data that never
-    accumulates a full consecutive window) must take the untouched
-    full-history GAAP path instead, upstream of this function -- routing
-    it through here would coerce every year's genuine GAAP nopat/
-    invested_capital to None (presence treated as absence, the inverse of
-    absence-is-not-zero). Raises if that invariant is ever violated: an
-    all-excluded matched window reaching this function is a bug, not a
-    legitimate "nothing to adjust" case.
+    Set NOPAT and invested capital to None for excluded years so GAAP fallback
+    cannot enter an adjusted average. Requires at least one adjusted year;
+    otherwise raise, since the caller must retain full-history GAAP scoring.
     """
     if not any(yd.rnd_basis == "adjusted" for yd in annual.values()):
         raise AssertionError(
@@ -474,19 +425,8 @@ def _score_reinvestment(
                 years_covered=years_list,
             ))
 
-    # Reinvestment rate: ΔIC / NOPAT, smoothed across years. Pair-gated per
-    # entry (Session B.4 PR-2) -- both invested_capital AND nopat must
-    # resolve on the SAME YearlyDerived entry to contribute, exactly like
-    # roic_vals above. This closes a dormant bug: previously ic_vals
-    # filtered only on invested_capital while nopat was looked up from a
-    # SEPARATE dict keyed by integer fiscal_year -- so a second entry
-    # sharing a `.year` label with a real entry (e.g. a tolerance-matched
-    # near-anchor instant, mislabeled to the following fiscal year --
-    # confirmed live for BE/AXON post-PR-1) could contribute its own
-    # invested_capital to a delta paired against the REAL entry's nopat,
-    # silently mixing two different periods under one year label. Filtering
-    # the pair list itself on both fields makes that structurally
-    # impossible: each list element is one YearlyDerived entry's own data.
+    # Reinvestment rate: smooth ΔIC / NOPAT across years. Require both inputs
+    # on the same annual entry to avoid mixing periods with a shared year label.
     ic_nopat_vals = [
         (yd.year, yd.invested_capital, yd.nopat) for yd in annual.values()
         if yd.invested_capital is not None and yd.nopat is not None
@@ -529,31 +469,12 @@ def _score_reinvestment(
 def _annotate_rnd_basis(
     sub_scores: list[SubScore], annual: dict[str, YearlyDerived], rnd_state: str,
 ) -> tuple[list[SubScore], list[str]]:
-    """
-    Post-processing step, called ONLY when the R&D-capitalization regime is
-    actually active (score() gates this -- _score_reinvestment's own code
-    above is untouched either way, so regime-off output, including every
-    SubScore's `source` string, is byte-identical to before this function
-    existed).
+    """Annotate average ROIC and compounding scores when the R&D regime is active.
 
-    roic_mean and compounding_proxy average across years that can be on
-    DIFFERENT bases (R&D-adjusted vs GAAP-fallback) whenever a company's
-    earliest history predates a full amortization-years R&D window -- this
-    is the common case (Session-D Step-1 diagnostic: 10/12 R&D-bearing
-    audited tickers were MIXED), not a corner case, so it must never be
-    silent. Uses each contributing year's yd.rnd_basis tag (computed once
-    in pipeline.py, invariant across the GAAP<->adjusted view swap) rather
-    than re-deriving anything -- classifier, gap string, and lineage string
-    all derive from the SAME `bases` list, one traversal, no second count
-    that could drift.
-
-    Returns (annotated_sub_scores, gap_strings). A "mixed" classification
-    always produces a gap (visible, not buried); an "unadjusted"
-    classification produces a gap only when rnd_state != "no_rnd" (real
-    R&D data existed somewhere but this specific metric got zero adjusted
-    years anyway -- worth disclosing, per the task's distinction from a
-    legitimate NO_RND company, which stays silent); "clean" never produces
-    a gap (the aspirational default, not an exception).
+    Use contributing years' invariant rnd_basis tags for both lineage and gaps.
+    Mixed bases always produce a gap; wholly unadjusted bases produce one only
+    when R&D data exists. Clean bases and companies with no R&D remain silent.
+    Returns (annotated_sub_scores, gap_strings).
     """
     basis_by_year = {yd.year: yd.rnd_basis for yd in annual.values()}
     annotated: list[SubScore] = []
@@ -613,18 +534,10 @@ def _merge_rnd_reinvestment_views(
 def _annotate_rnd_short_history(
     sub_scores: list[SubScore], annual: dict[str, YearlyDerived], min_history_years: int,
 ) -> list[str]:
-    """
-    Matched-window (Option C) short-history disclosure: the window
-    restriction shortens history on every formerly-mixed name -- that's
-    normal under C and must NOT be badged (near-universal disclosure is
-    wallpaper). The informative condition is absolute shortness: fewer
-    adjusted years feed the mean than min_history_years (config.yaml's
-    existing valuation.min_history_years -- no new assumption). Reuses the
-    SAME classify_basis_mix pass _annotate_rnd_basis already runs (one
-    traversal per sub-score, not a second selection that could drift from
-    the tripwire's own count). Silent when n_adjusted == 0 (NO_RND/FPI/
-    fully-unadjusted) -- nothing to call "short," matching the established
-    NO_RND no-badge rule.
+    """Disclose adjusted averages supported by fewer than min_history_years.
+
+    Count contributing years using the same basis classifier as lineage
+    annotation. No adjusted years means no short-adjusted-history disclosure.
     """
     basis_by_year = {yd.year: yd.rnd_basis for yd in annual.values()}
     gaps: list[str] = []
@@ -766,7 +679,7 @@ def _score_quality(
 
 
 # ---------------------------------------------------------------------------
-# Gate layer (PR 4): raw-metric veto on top of the weighted composite
+# Gate layer: raw-metric veto on top of the weighted composite
 # ---------------------------------------------------------------------------
 
 def _evaluate_gate(gate: dict, annual: dict[str, YearlyDerived]) -> Optional[GateOutcome]:
@@ -925,35 +838,11 @@ def _score_resilience(annual: dict[str, YearlyDerived]) -> tuple[list[SubScore],
 
 
 def _detect_split_contamination(series: list[tuple[int, float]]) -> Optional[tuple[int, int]]:
-    """
-    Scans an as-filed (year, value) share-count series for a single-year jump
-    too large to be real per-share issuance or buybacks — NVDA's diluted
-    share count goes 2.535B (FY2022) -> 25.07B (FY2023), a ratio consistent
-    with a 10-for-1 split, not 889% dilution. The exact cause of a flagged
-    jump is NOT diagnosed by this function and must not be asserted by a
-    caller: an Item 1 sweep across AAPL/TSLA/AMZN found flagged-boundary
-    RATIOS that match those companies' real historical split ratios almost
-    exactly, but fiscal years that do NOT match the real split dates —
-    which is the signature of multi-filing comparative splicing (as-filed
-    and later-restated points for the same nominal fiscal year merged into
-    one series), not necessarily an unadjusted split or corporate action
-    landing on that exact year. Root cause is under active investigation in
-    a follow-up session; this function and its caller only know "this
-    ratio is too large to be real dilution/buybacks," nothing more.
+    """Return the first probable share-count discontinuity, or None.
 
-    Returns (year_before, year_after) of the FIRST such jump found (series
-    sorted ascending internally, so callers don't have to guarantee order),
-    or None when the series is clean. A ratio >=2x or <=0.5x between
-    adjacent fiscal years is treated as a probable discontinuity — real
-    single-year dilution/buyback swings of that magnitude are not a thing
-    outside a restructuring event or a data-assembly artifact; RKLB's OWN
-    genuine year-over-year dilution from FY2022 onward (466M -> 482M ->
-    496M -> 531M, ~3-7%/yr) stays far under this threshold and is scored
-    normally.
-
-    Deliberately a standalone function, not inlined into
-    _score_capital_discipline(), so detection has exactly one call site
-    (engine.durability.score()) and one thing to unit-test.
+    Sort by year and flag consecutive observations with a ratio >=2 or <=0.5,
+    skipping nonpositive starting values. A flagged jump does not establish
+    its cause: filing-vintage splicing and corporate actions can both produce it.
     """
     ordered = sorted(series, key=lambda pair: pair[0])
     for (y0, v0), (y1, v1) in zip(ordered, ordered[1:]):
@@ -1251,33 +1140,9 @@ def score(
         for f in res.company.series.get("diluted_shares", [])
     ]
 
-    # Share-count discontinuity check (Session A/Item 1): a single-year jump
-    # in the raw diluted-share series reads as extreme "dilution" to a plain
-    # CAGR, floor-clamping share_count_cagr to 0 for reasons that have
-    # nothing to do with capital discipline. Reject-and-gap, not infer-and-
-    # adjust (Joe's call): the contaminated series is dropped entirely
-    # (empty list -> _score_capital_discipline's own `len(...) >= 2` check
-    # naturally omits the sub-score — absent, not a fabricated 0), and the
-    # omission is logged as an explicit gap naming the probable
-    # discontinuity so it's discoverable later, not silently missing.
-    # The Item 1 sweep found flagged boundaries whose RATIOS match known
-    # split ratios for AAPL/TSLA/AMZN but whose fiscal years do NOT match
-    # those companies' real split dates — evidence pointing at multi-filing
-    # comparative splicing in engine/edgar.py's series assembly rather than
-    # (or in addition to) genuine unadjusted corporate actions. Session B.2
-    # Phase 1 confirmed this mechanism against raw companyfacts JSON for
-    # AAPL/NVDA/AMZN (exact ratio matches landing at the wrong fiscal-year
-    # boundary). Per the B.2 Option 1 decision, _annual_points()'s
-    # prefer-latest-filed selection is NOT changed here — the gap message
-    # below names the diagnosed mechanism as the likely cause (without
-    # over-asserting certainty) and cites the two seam filings via
-    # Fact.source_ref() so the claim is independently checkable.
-    # Known limitation (backlog, not fixed here): this under-credits
-    # genuine split/restructured companies on discipline relative to
-    # identical peers without one — the category composite renormalizes
-    # over one fewer sub-score instead of crediting real buyback behavior.
-    # Resolving that requires an owned split/corporate-actions table
-    # (Session C), not a heuristic guess at the adjustment factor.
+    # Reject discontinuous share series rather than infer split adjustments.
+    # Omit the dilution sub-score and disclose the seam filings as provenance.
+    # This can omit genuine buyback information; remaining scores are renormalized.
     extra_gaps: list[str] = []
     split_jump = _detect_split_contamination(diluted_series)
     if split_jump is not None:
@@ -1304,49 +1169,20 @@ def score(
     resilience_sub, resilience_gaps = _score_resilience(annual)
     extra_gaps.extend(resilience_gaps)
 
-    # R&D capitalization regime (docs/assumptions.md: calibration principle 3,
-    # "abstain and disclose"). The toggle and the IFRS abstention are both
-    # resolved HERE, at the single call-site decision of which view of
-    # `annual` to feed reinvestment_engine -- _score_reinvestment's own code
-    # is untouched either way (see _rnd_adjusted_view above). FPIs (20-F/
-    # 40-F filers) receive no adjustment regardless of R&D data availability
-    # or the regime toggle: IAS 38 already capitalizes development costs to
-    # an unknown degree, so stacking this adjustment on top would produce an
-    # error of ambiguous sign.
-    # Layer 1 (does the regime apply at all) is the shared predicate in
-    # pipeline.py -- called here with THIS call's own `config`, not
-    # `res.rnd_regime` (the stamp derive() set when res was built), so a
-    # rescore against a different config can never silently reuse a stale
-    # decision. Layer 2 (does an adjustment path actually exist this year --
-    # n_adjusted_total, below) is unchanged and still lives entirely here.
+    # Abstain from R&D adjustment for FPIs: IAS 38 already capitalizes development
+    # costs to an unknown degree. Re-evaluate eligibility with this scoring config
+    # rather than reuse res.rnd_regime, which may reflect a different config.
     use_rnd_adjusted_roic = rnd_regime_applies(res.company, config) is RndRegime.APPLIES
     matched_view = annual
 
     if use_rnd_adjusted_roic:
-        # Matched-window ROIC (Option C, PR 2a) applies ONLY where an
-        # adjustment path actually exists -- i.e., at least one year
-        # anywhere in `annual` cleared the full research-asset window.
-        # Gate on that evidence BEFORE building the matched view, not by
-        # inferring "no adjustment" from an empty window after the fact:
-        # a company with no adjustment path (NO_RND, or real R&D data that
-        # never accumulates a full consecutive window) must take the
-        # UNTOUCHED full-history GAAP path, identical to regime-off --
-        # routing it through the matched-window view instead would coerce
-        # its genuine GAAP nopat/invested_capital to None for every year
-        # (presence treated as absence, the inverse of absence-is-not-zero).
+        # Use matched-window averages only if at least one year supports adjustment.
+        # Otherwise retain full-history GAAP values; an incomplete R&D window must
+        # not turn available GAAP figures into missing data.
         n_adjusted_total = sum(1 for yd in annual.values() if yd.rnd_basis == "adjusted")
         if n_adjusted_total > 0:
-            # roic_mean/reinvestment_rate/compounding_proxy are computed
-            # ONLY over years that clear the full research-asset window --
-            # no GAAP-fallback year feeds them anymore
-            # (_rnd_matched_window_view excludes rather than falls back).
-            # Single-year roic_latest is untouched -- it keeps the Option-A
-            # fallback-inclusive view, since "mixed basis" never applied to
-            # one year and a short-history company's latest year should
-            # still get a value rather than disappearing under the window
-            # restriction. _score_reinvestment's own code is unchanged
-            # either way -- called twice, unchanged, merged by
-            # _merge_rnd_reinvestment_views.
+            # Multi-year scores use only fully adjusted years. Single-year roic_latest
+            # retains GAAP fallback when its research-asset window is incomplete.
             latest_view = _rnd_adjusted_view(annual)
             matched_view = _rnd_matched_window_view(annual)
             reinvestment_sub = _merge_rnd_reinvestment_views(
@@ -1355,33 +1191,18 @@ def score(
             )
             reinvestment_sub = _annotate_matched_window_gaap_mean(reinvestment_sub, annual)
         else:
-            # No adjustment path exists anywhere for this company: full-
-            # history GAAP means, byte-identical to the regime-off
-            # computation. _annotate_rnd_basis below still runs on this --
-            # its classifier will see an all-"gaap_fallback" (or all-None-
-            # excluded) basis set and correctly emit the existing
-            # UNADJUSTED gap when real R&D data existed but never
-            # accumulated a full window (rnd_state != "no_rnd"), and stay
-            # silent for a genuine NO_RND company.
+            # Without an adjustment path, retain full-history GAAP scoring. Basis
+            # annotation discloses incomplete R&D history but stays silent for no R&D.
             reinvestment_sub = _score_reinvestment(annual, coc)
 
-        # Option-A machinery kept live as the invariant tripwire: under C,
-        # every adjusted average is clean by construction (its years_covered
-        # can only contain "adjusted"-tagged years) -- classify_basis_mix
-        # returning anything but "clean" (or "unadjusted" for NO_RND/FPI/
-        # fully-unadjusted names) here is a bug detector, not an expected
-        # disclosure. The mixed-basis gap-firing path stays live; it must
-        # simply never fire under C.
+        # Basis annotation also checks the matched-window invariant: adjusted
+        # averages must not contain GAAP-fallback years.
         rnd_state, _rnd_series = classify_rnd_series(res.company)
         reinvestment_sub, rnd_basis_gaps = _annotate_rnd_basis(reinvestment_sub, annual, rnd_state)
         extra_gaps.extend(rnd_basis_gaps)
 
-        # Short-history disclosure (replaces the retired MIXED badge concern
-        # from Option A -- under C, a short adjusted window is normal, not a
-        # mixed-basis bug, so it needs its OWN, narrower threshold-based
-        # signal rather than firing on near-universal "mixed"). Reads the
-        # SAME existing valuation.min_history_years config key pipeline.py's
-        # delivered_growth already uses -- no new assumption.
+        # Disclose short adjusted histories using the same min_history_years
+        # threshold as delivered growth.
         min_history_years = int(config.get("valuation", {}).get("min_history_years", 4))
         extra_gaps.extend(_annotate_rnd_short_history(reinvestment_sub, annual, min_history_years))
     else:
@@ -1450,12 +1271,7 @@ def score(
     # not a rewrite of the weighted-average math itself.
     _check_invariants(result)
 
-    # Balance-sheet gate layer (PR 4): raw-metric veto, evaluated on
-    # `annual` (the SAME dict _score_resilience read latest.net_debt /
-    # latest.ebitda from above) -- never on a sub-score, which carries
-    # curve/saturation artifacts the raw anchor in docs/assumptions.md
-    # doesn't. Config-driven LIST so future gates (dilution, ROIC-floor --
-    # both backlogged) slot in without re-architecture.
+    # Evaluate gates against raw annual metrics, not transformed sub-scores.
     fired: list[GateOutcome] = []
     untestable: list[GateOutcome] = []
     for gate_cfg in dcfg["gates"]:
