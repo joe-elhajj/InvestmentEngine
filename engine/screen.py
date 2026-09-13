@@ -181,7 +181,7 @@ def _rnd_unadj_note(res: AnalysisResult) -> Optional[str]:
     feature/chip-legend: returns just the ROW-SPECIFIC reason ("IFRS
     filer" / "regime disabled in config"), not the full sentence -- the
     generic "R&D capitalization skipped" framing now lives once, in the
-    legend, sourced from CLAUDE.md's own badge vocabulary.
+    legend, sourced from docs/assumptions.md's badge vocabulary.
     """
     if res.rnd_regime is None or res.rnd_regime is RndRegime.APPLIES:
         return None
@@ -205,7 +205,7 @@ def _provenance_notes(
     Pure: the single source of truth for which of MKT/WIN/REV/INH/DUR/RND
     are active for a row, and their ROW-SPECIFIC detail (never a generic
     definition -- see feature/chip-legend: the legend is now the ONE
-    place definitions live, sourced from CLAUDE.md's badge vocabulary;
+    place definitions live, sourced from docs/assumptions.md's badge vocabulary;
     duplicating that prose into every row's tooltip is exactly the "two
     copies" this split avoids). Ported from frontend/app.js's own former
     hasMkt/hasWin/hasRev/appendInheritChip/appendDurGapsIndicator

@@ -8,6 +8,39 @@ an auditable event.
 
 ---
 
+## Developer invariants and disclosure vocabulary
+
+- Preserve missing values as `None`; never silently substitute zero. Retain
+  source `Fact` concepts, periods, filing dates, and accession references so
+  derived values and disclosures remain auditable.
+- Apply the R&D rules below only when the regime is eligible and an adjustment
+  path exists. With no adjusted years, retain full-history GAAP scoring.
+  Multi-year adjusted scores exclude GAAP-fallback years; latest-year ROIC
+  may retain its GAAP fallback. Gates read raw metrics and cannot raise scores.
+- Tier 2 selects filing text verbatim. Validate each returned snippet against
+  its source; discard invalid snippets. Only the validator sets verification.
+  Tier 3 synthesizes existing evidence, never recalculates financial numbers,
+  and must disclose missing evidence. Council runs require cached Tier 2 flags;
+  they do not initiate extraction. Cache only successful council runs.
+- Test disclosures through rendered output as well as their underlying values.
+
+Dashboard status vocabulary:
+
+| Status | Meaning |
+|---|---|
+| MKT | A headline input uses market-vendor data rather than filing data |
+| WIN | Growth uses a non-standard historical window |
+| REV | Delivered growth uses revenue CAGR instead of FCF CAGR |
+| INH | The expectations gap inherits an input's MKT/WIN/REV caveat |
+| DUR | A durability-specific gap or limitation |
+| FRAG / FRAG? | Scenario-dependent gap sign / insufficient scenario convergence to determine fragility |
+| GATE / GATE? | A raw-metric gate fired / required inputs prevent evaluation |
+
+Missing evidence is never a passing status. Preserve the distinction between
+an unavailable result, an abstention, and a computed result with a caveat.
+
+---
+
 ## Calibration principles
 
 These govern how every assumption below is designed and every future one

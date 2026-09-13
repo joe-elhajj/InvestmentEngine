@@ -29,7 +29,7 @@ from engine.screen import EtfRow, ScreenRow
 
 
 @pytest.fixture
-def client(tmp_path, monkeypatch):
+def client(tmp_path, monkeypatch, app_test_config):
     """Isolated watchlist DB per test; runs the real lifespan (no network calls in it)."""
     monkeypatch.setattr(watchlist_mod, "DB_PATH", tmp_path / "watchlist.db")
     with TestClient(fastapi_app) as c:

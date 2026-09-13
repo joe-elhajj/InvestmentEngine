@@ -16,7 +16,7 @@ feature/chip-legend (follow-up): _provenance_notes()' detail field is
 now ROW-SPECIFIC ONLY (None for MKT/REV/INH/DUR, which never vary by
 row) -- the generic "what does this code mean" definitions that used to
 live inline in each detail string moved OUT, to a legend modal, sourced
-from CLAUDE.md's own badge vocabulary. One place, not two copies.
+from docs/assumptions.md's badge vocabulary. One place, not two copies.
 
 Verdict chips (FRAG/GATE/GATE?/FRAG?) are NOT provenance and are not
 touched by _provenance_notes at all -- there is no shared code path, so

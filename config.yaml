@@ -6,7 +6,7 @@
 
 sec:
   # REQUIRED by the SEC. Use your real name + email or you will get 403s.
-  user_agent: "Joe El Hajj - Investment Engine - joeelhajj01@icloud.com"
+  user_agent: "YOUR NAME - Investment Engine - your.email@example.com"
   request_delay_seconds: 0.2          # ~5 req/s, well under SEC's limit
 
 report:

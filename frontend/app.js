@@ -282,7 +282,7 @@
   // feature/chip-legend: the tooltip is now codes + row-specific detail
   // ONLY -- "WIN (14y vs 5y) · INH · DUR" -- not full definition
   // sentences. What each code MEANS lives once, in the legend modal
-  // (openLegendModal below, sourced from CLAUDE.md's badge vocabulary),
+  // (openLegendModal below, sourced from docs/assumptions.md's badge vocabulary),
   // not duplicated here per row. A code with no row-specific detail
   // (n.detail is null/None from _provenance_notes()) renders bare.
   function appendProvenanceChip(tickerTdEl, notes) {
