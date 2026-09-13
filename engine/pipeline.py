@@ -487,6 +487,63 @@ def derive_annual_series(cd: CompanyData, config: dict) -> dict[str, YearlyDeriv
     return {pe: _build_year_entry(cd, pe, tax_rate, rnd_years) for pe in sorted(anchors)}
 
 
+def _build_latest_quarter(cd: CompanyData) -> tuple[dict, list[str]]:
+    """Return quarterly values with original source facts and ordered input gaps."""
+    if not cd.quarterly:
+        return {}, []
+    gaps: list[str] = []
+
+    def _qv(key: str) -> Optional[float]:
+        fact = cd.quarterly.get(key)
+        return fact.value if fact else None
+
+    q_revenue          = _qv("revenue")
+    q_net_income       = _qv("net_income")
+    q_operating_income = _qv("operating_income")
+    q_cfo              = _qv("cfo")
+    q_capex            = _qv("capex")
+    q_fcf = (q_cfo - q_capex) if (q_cfo is not None and q_capex is not None) else None
+    q_period_end = max(f.period_end for f in cd.quarterly.values())
+    q_filed      = max(f.filed     for f in cd.quarterly.values())
+
+    def _qsum(*keys: str) -> Optional[float]:
+        """Combine resolved quarterly components and disclose missing inputs.
+
+        Return None only when all components are missing; filed zero is valid.
+        Debt uses overlap-aware aggregation of the original resolved facts.
+        """
+        vals = [_qv(k) for k in keys]
+        missing = [k for k, v in zip(keys, vals) if v is None]
+        if missing:
+            gaps.append(
+                f"{'/'.join(missing)}: no value in latest quarter ({q_period_end})"
+            )
+        if keys == ("long_term_debt", "short_term_debt"):
+            return _debt_total(cd.quarterly.get(keys[0]), cd.quarterly.get(keys[1]))
+        present = [v for v in vals if v is not None]
+        return sum(present) if present else None
+
+    q_total_debt    = _qsum("long_term_debt", "short_term_debt")
+    q_liquid_assets = _qsum("cash", "short_term_investments", "long_term_investments")
+    q_cash          = _qv("cash")
+    q_total_assets  = _qv("total_assets")
+    q_total_equity  = _qv("total_equity")
+    latest_quarter = {
+        "period_end": q_period_end, "filed": q_filed,
+        "revenue": q_revenue, "net_income": q_net_income,
+        "operating_income": q_operating_income, "fcf": q_fcf,
+        "total_assets": q_total_assets, "total_equity": q_total_equity,
+        "total_debt": q_total_debt, "cash": q_cash, "liquid_assets": q_liquid_assets,
+        "margins": {
+            "operating_margin": M.operating_margin(q_operating_income, q_revenue),
+            "net_margin":       M.net_margin(q_net_income, q_revenue),
+            "fcf_margin":       M.fcf_margin(q_fcf, q_revenue),
+        },
+        "facts": cd.quarterly,
+    }
+    return latest_quarter, gaps
+
+
 def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     validate_dcf_config(config)
     res = AnalysisResult(company=cd, quote=quote)
@@ -581,56 +638,8 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         "cash": cash, "total_equity": equity, "total_assets": assets,
     }
 
-    if cd.quarterly:
-        def _qv(key: str) -> Optional[float]:
-            fact = cd.quarterly.get(key)
-            return fact.value if fact else None
-        q_revenue          = _qv("revenue")
-        q_net_income       = _qv("net_income")
-        q_operating_income = _qv("operating_income")
-        q_cfo              = _qv("cfo")
-        q_capex            = _qv("capex")
-        q_fcf = (q_cfo - q_capex) if (q_cfo is not None and q_capex is not None) else None
-        q_period_end = max(f.period_end for f in cd.quarterly.values())
-        q_filed      = max(f.filed     for f in cd.quarterly.values())
-
-        def _qsum(*keys: str) -> Optional[float]:
-            """Combine resolved quarterly components and disclose missing inputs.
-
-            Return None only when all components are missing; filed zero is valid.
-            Debt uses overlap-aware aggregation of the original resolved facts.
-            """
-            vals = [_qv(k) for k in keys]
-            missing = [k for k, v in zip(keys, vals) if v is None]
-            if missing:
-                res.gaps.append(
-                    f"{'/'.join(missing)}: no value in latest quarter ({q_period_end})"
-                )
-            if keys == ("long_term_debt", "short_term_debt"):
-                return _debt_total(cd.quarterly.get(keys[0]), cd.quarterly.get(keys[1]))
-            present = [v for v in vals if v is not None]
-            return sum(present) if present else None
-
-        q_total_debt    = _qsum("long_term_debt", "short_term_debt")
-        q_liquid_assets = _qsum("cash", "short_term_investments", "long_term_investments")
-        q_cash          = _qv("cash")
-        q_total_assets  = _qv("total_assets")
-        q_total_equity  = _qv("total_equity")
-        res.latest_quarter = {
-            "period_end": q_period_end, "filed": q_filed,
-            "revenue": q_revenue, "net_income": q_net_income,
-            "operating_income": q_operating_income, "fcf": q_fcf,
-            "total_assets": q_total_assets, "total_equity": q_total_equity,
-            "total_debt": q_total_debt, "cash": q_cash, "liquid_assets": q_liquid_assets,
-            "margins": {
-                "operating_margin": M.operating_margin(q_operating_income, q_revenue),
-                "net_margin":       M.net_margin(q_net_income, q_revenue),
-                "fcf_margin":       M.fcf_margin(q_fcf, q_revenue),
-            },
-            "facts": cd.quarterly,
-        }
-    else:
-        res.latest_quarter = {}
+    res.latest_quarter, quarterly_gaps = _build_latest_quarter(cd)
+    res.gaps.extend(quarterly_gaps)
 
     # Growth (CAGR) on revenue and net income (full multi-year series)
     for label, key in (("revenue", "revenue"), ("net_income", "net_income")):
