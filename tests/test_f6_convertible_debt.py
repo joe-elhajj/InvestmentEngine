@@ -267,7 +267,24 @@ def test_debt_aliases_to_annual_and_quarterly_totals_and_gate(long_tag, short_ta
         points = EdgarClient._resolve_quarterly(facts, CONCEPTS[key], 2000)
         if points:
             cd.quarterly[key] = points[-1]
-    assert derive(cd, quote, cfg).latest_quarter["total_debt"] == expected
+    quarterly_res = derive(cd, quote, cfg)
+    assert quarterly_res.latest_quarter["total_debt"] == expected
+
+    from engine import report, report_html
+
+    explanation = "total debt from resolved debt facts (overlapping current portions counted once)"
+    markdown = report.render(quarterly_res)
+    quarter_markdown = markdown.split("## Most recent quarter (10-Q)", 1)[1].split("### Quarter margins", 1)[0]
+    debt_row = next(row for row in report_html._quarter_section(quarterly_res)["rows"] if row[0] == "Total debt")
+    for disclosure in (quarter_markdown, debt_row[2]):
+        assert explanation in disclosure
+        assert "total debt = long_term_debt + short_term_debt" not in disclosure
+        for fact in cd.quarterly.values():
+            assert fact.concept in disclosure
+    assert debt_row[1] == f"${expected:,.0f}"
+    assert f"| Total debt | ${expected:,.0f} |" in quarter_markdown
+    assert explanation in report_html.render(quarterly_res)
+    assert explanation in report_html.render_fragment(quarterly_res)
 
 
 @pytest.mark.parametrize("key,primary,fallback", [

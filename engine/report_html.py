@@ -147,7 +147,7 @@ def _quarter_section(res: AnalysisResult) -> Optional[dict]:
     fcf_source = _derived_source("FCF = CFO - capex", [
         ("CFO", facts.get("cfo")), ("capex", facts.get("capex"))
     ])
-    debt_source = _derived_source("total debt = long_term_debt + short_term_debt", [
+    debt_source = _derived_source("total debt from resolved debt facts (overlapping current portions counted once)", [
         ("long_term_debt", facts.get("long_term_debt")),
         ("short_term_debt", facts.get("short_term_debt")),
     ])
