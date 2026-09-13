@@ -22,14 +22,8 @@ from datetime import datetime
 from html import escape
 from typing import Optional
 
-from engine.edgar import classify_rnd_series
-from engine.pipeline import AnalysisResult, RndRegime, rnd_regime_reason_text
-
-# Keep R&D abstention chips compact; expose the full rationale in a tooltip.
-_RND_REGIME_REASON_SHORT: dict[RndRegime, str] = {
-    RndRegime.ABSTAINED_REGIME_DISABLED: "regime disabled",
-    RndRegime.ABSTAINED_IFRS_FPI: "IFRS filer",
-}
+from engine.pipeline import AnalysisResult
+from engine.report import _ratio_presentations
 
 
 # ---------------------------------------------------------------------------
@@ -193,15 +187,6 @@ def _growth_rows(res: AnalysisResult) -> list[tuple[str, str, str, str]]:
     ]
 
 
-_RATIO_ORDER = [
-    ("Gross margin", "gross_margin", True), ("Operating margin", "operating_margin", True),
-    ("Net margin", "net_margin", True), ("FCF margin", "fcf_margin", True),
-    ("ROE", "roe", True), ("ROA", "roa", True), ("ROIC", "roic", True), ("ROCE", "roce", True),
-    ("Current ratio", "current_ratio", False), ("Debt/Equity", "debt_to_equity", False),
-    ("Interest coverage", "interest_coverage", False), ("FCF conversion", "fcf_conversion", False),
-]
-
-
 def _ratio_rows(res: AnalysisResult) -> list[tuple[str, str, Optional[str]]]:
     """
     Each row is (label, plain_value, chip_html). chip_html is None for
@@ -212,44 +197,22 @@ def _ratio_rows(res: AnalysisResult) -> list[tuple[str, str, Optional[str]]]:
     stays exactly as safe as before.
     """
     rows: list[tuple[str, str, Optional[str]]] = []
-    for label, key, is_pct in _RATIO_ORDER:
-        m = res.ratios.get(key)
-        if m is None:
+    for row in _ratio_presentations(res):
+        m = row.metric
+        chip = None
+        if row.unadjusted_reason is not None:
+            val = f"n/a — R&D-UNADJ ({row.unadjusted_reason})"
+            if row.full_reason is not None:
+                chip = (
+                    f'<span class="rnd-unadj-chip" title="{escape(row.full_reason)}">{escape(val)}</span>'
+                )
+        elif m is None:
             val = "n/a"
         elif m.value is None:
             val = f"n/a ({m.note})" if m.note else "n/a"
         else:
-            val = _fmt_pct(m.value) if is_pct else f"{m.value:.2f}"
-        rows.append((label, val, None))
-        if key == "roic":
-            # R&D disclosure precedence: omit absent R&D, then show regime abstention,
-            # then unavailable adjustment, otherwise the adjusted percentage.
-            # Use a compact abstention chip with the full rationale in its tooltip.
-            adj = res.ratios.get("roic_adjusted")
-            state, _ = classify_rnd_series(res.company)
-            if state == "no_rnd":
-                pass
-            elif res.rnd_regime is None:
-                # Loud, not a badge: see engine/report.py's identical check
-                # for the full rationale -- an unstamped AnalysisResult means
-                # we were never told this filer's FPI/regime status.
-                raise ValueError(
-                    "AnalysisResult.rnd_regime is None but roic_adjusted has a decision to "
-                    "render -- call pipeline.derive() (which stamps rnd_regime) rather than "
-                    "constructing AnalysisResult directly when R&D data is present"
-                )
-            elif res.rnd_regime is not RndRegime.APPLIES:
-                short = _RND_REGIME_REASON_SHORT[res.rnd_regime]
-                full = rnd_regime_reason_text(res.rnd_regime)
-                plain = f"n/a — R&D-UNADJ ({short})"
-                chip = (
-                    f'<span class="rnd-unadj-chip" title="{escape(full)}">{escape(plain)}</span>'
-                )
-                rows.append(("ROIC (R&D-adj)", plain, chip))
-            elif adj is None or adj.value is None:
-                rows.append(("ROIC (R&D-adj)", "n/a — R&D-UNADJ (insufficient history)", None))
-            else:
-                rows.append(("ROIC (R&D-adj)", _fmt_pct(adj.value), None))
+            val = _fmt_pct(m.value) if row.is_pct else f"{m.value:.2f}"
+        rows.append((row.label, val, chip))
     return rows
 
 
