@@ -28,6 +28,7 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Optional
 
+from engine.config import DEFAULT_ASSUMED_TAX_RATE, DEFAULT_MIN_HISTORY_YEARS
 from engine.pipeline import (
     AnalysisResult,
     RND_CAPITALIZATION_DEFAULTS,
@@ -144,8 +145,8 @@ def _resolve_config(cfg: dict) -> dict:
         "universe_version": universe_version,
         # External valuation inputs used by durability disclosures and annual ROIC.
         "valuation": {
-            "min_history_years": cfg.get("valuation", {}).get("min_history_years", 4),
-            "assumed_tax_rate": cfg.get("valuation", {}).get("assumed_tax_rate", 0.21),
+            "min_history_years": cfg.get("valuation", {}).get("min_history_years", DEFAULT_MIN_HISTORY_YEARS),
+            "assumed_tax_rate": cfg.get("valuation", {}).get("assumed_tax_rate", DEFAULT_ASSUMED_TAX_RATE),
         },
     }
 
@@ -1203,7 +1204,7 @@ def score(
 
         # Disclose short adjusted histories using the same min_history_years
         # threshold as delivered growth.
-        min_history_years = int(config.get("valuation", {}).get("min_history_years", 4))
+        min_history_years = int(config.get("valuation", {}).get("min_history_years", DEFAULT_MIN_HISTORY_YEARS))
         extra_gaps.extend(_annotate_rnd_short_history(reinvestment_sub, annual, min_history_years))
     else:
         reinvestment_sub = _score_reinvestment(annual, coc)

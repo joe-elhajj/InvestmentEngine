@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Optional
-from engine.config import validate_dcf_config
+from engine.config import DEFAULT_DCF_PROJECTION_YEARS, validate_dcf_config
 
 # Bisection bracket for implied growth: sane range that covers virtually all
 # real companies; anything outside is flagged rather than extrapolated.
@@ -224,7 +224,7 @@ def implied_growth(
     base_sc  = dcf_cfg.get("scenarios", {}).get("base", {})
     wacc     = float(base_sc.get("wacc", 0.09))
     g_term   = float(base_sc.get("terminal_growth", 0.025))
-    n        = int(dcf_cfg.get("projection_years", 5))
+    n        = int(dcf_cfg.get("projection_years", DEFAULT_DCF_PROJECTION_YEARS))
 
     return _implied_growth_bisect(price, shares, net_debt, norm_fcf, wacc, g_term, n)
 
@@ -305,7 +305,7 @@ def expectations_gap_band(
         return None
 
     dcf_cfg = config.get("valuation", {}).get("dcf", {})
-    n = int(dcf_cfg.get("projection_years", 5))
+    n = int(dcf_cfg.get("projection_years", DEFAULT_DCF_PROJECTION_YEARS))
     scenarios_cfg = dcf_cfg.get("scenarios", {})
 
     results: dict = {}

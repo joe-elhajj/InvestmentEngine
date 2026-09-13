@@ -17,7 +17,10 @@ from engine import metrics as M
 from engine.edgar import CompanyData, Fact, is_fpi
 from engine.market import Quote
 from engine import valuation as V
-from engine.config import validate_dcf_config
+from engine.config import (
+    DEFAULT_ASSUMED_TAX_RATE, DEFAULT_DCF_PROJECTION_YEARS,
+    DEFAULT_MIN_HISTORY_YEARS, validate_dcf_config,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +222,8 @@ def _debt_total(long_term: Optional[Fact], short_term: Optional[Fact]) -> Option
 
 
 def _build_year_entry(
-    cd: CompanyData, period_end: str, tax_rate: float, rnd_amortization_years: int = 5,
+    cd: CompanyData, period_end: str, tax_rate: float,
+    rnd_amortization_years: int = RND_CAPITALIZATION_DEFAULTS["amortization_years"],
 ) -> YearlyDerived:
     """Derive all metrics for one fiscal year anchored at period_end."""
     year = int(period_end[:4])
@@ -425,7 +429,7 @@ def _normalized_fcf(
 
 def _delivered_growth(
     annual: dict[str, YearlyDerived],
-    min_history: int = 4,
+    min_history: int = DEFAULT_MIN_HISTORY_YEARS,
 ) -> tuple[Optional[float], str]:
     """
     Historical FCF CAGR (≥2 strictly positive FCF years).
@@ -468,14 +472,16 @@ def derive_annual_series(cd: CompanyData, config: dict) -> dict[str, YearlyDeriv
     component is matched to that year's total_assets period_end.  Absence is
     never treated as zero for equity; a gap is logged instead.
     """
-    tax_rate = config.get("valuation", {}).get("assumed_tax_rate", 0.21)
+    tax_rate = config.get("valuation", {}).get("assumed_tax_rate", DEFAULT_ASSUMED_TAX_RATE)
     # Read directly from the raw config dict (not durability._resolve_config,
     # which pipeline.py must not import -- durability.py imports FROM
     # pipeline.py, and screen.py imports durability.py, so the reverse
     # import would be circular). Default (5) matches config.yaml's own
     # default so behavior is correct even when the section is omitted.
     rnd_years = int(
-        config.get("durability", {}).get("rnd_capitalization", {}).get("amortization_years", 5)
+        config.get("durability", {}).get("rnd_capitalization", {}).get(
+            "amortization_years", RND_CAPITALIZATION_DEFAULTS["amortization_years"]
+        )
     )
     anchors = [f.period_end for f in cd.series.get("total_assets", [])]
     return {pe: _build_year_entry(cd, pe, tax_rate, rnd_years) for pe in sorted(anchors)}
@@ -488,9 +494,9 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     res.gaps = list(cd.unresolved)
 
     val_cfg = config.get("valuation", {})
-    tax_rate = val_cfg.get("assumed_tax_rate", 0.21)
+    tax_rate = val_cfg.get("assumed_tax_rate", DEFAULT_ASSUMED_TAX_RATE)
     fcf_window    = int(val_cfg.get("normalized_fcf_years", 5))
-    min_history   = int(val_cfg.get("min_history_years", 4))
+    min_history   = int(val_cfg.get("min_history_years", DEFAULT_MIN_HISTORY_YEARS))
 
     annual = derive_annual_series(cd, config)
     res.annual_series = annual
@@ -690,7 +696,7 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         if net_debt is None:
             res.gaps.append("dcf: net_debt unavailable; DCF skipped")
         else:
-            common = {"projection_years": dcf_cfg.get("projection_years", 5)}
+            common = {"projection_years": dcf_cfg.get("projection_years", DEFAULT_DCF_PROJECTION_YEARS)}
             for name, sc in dcf_cfg.get("scenarios", {}).items():
                 a = dict(common); a.update(sc)
                 res.dcf[name] = V.two_stage_dcf(fcf, net_debt, shares, price, name, a)

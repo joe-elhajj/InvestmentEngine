@@ -6,6 +6,11 @@ from pathlib import Path
 import yaml
 
 
+DEFAULT_ASSUMED_TAX_RATE = 0.21
+DEFAULT_DCF_PROJECTION_YEARS = 5
+DEFAULT_MIN_HISTORY_YEARS = 4
+
+
 def validate_dcf_config(config: dict, *, require_growth: bool = True) -> None:
     """Validate supplied DCF bundles; omitted/empty DCF retains existing defaults.
 
@@ -38,7 +43,7 @@ def validate_dcf_config(config: dict, *, require_growth: bool = True) -> None:
         return
     path = "valuation.dcf"
     keys(dcf, {"scenarios"}, {"scenarios", "projection_years", "sensitivity"}, path)
-    n = dcf.get("projection_years", 5)
+    n = dcf.get("projection_years", DEFAULT_DCF_PROJECTION_YEARS)
     if type(n) is not int or n < 1:
         raise ValueError(f"{path}.projection_years must be a positive integer")
     scenarios = mapping(dcf["scenarios"], f"{path}.scenarios")
