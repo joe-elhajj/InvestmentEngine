@@ -6,11 +6,7 @@
     <key>Label</key>
     <string>com.joeelhajj.investmentengine</string>
 
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/bash</string>
-        <string>/Users/joeelhajj/Projects/Investment Engine/app/launcher.sh</string>
-    </array>
+    <!-- INSTALL.md fills ProgramArguments and log paths at installation. -->
 
     <key>RunAtLoad</key>
     <true/>
@@ -18,11 +14,6 @@
     <key>KeepAlive</key>
     <true/>
 
-    <key>StandardOutPath</key>
-    <string>/Users/joeelhajj/.investment_engine/server.log</string>
-
-    <key>StandardErrorPath</key>
-    <string>/Users/joeelhajj/.investment_engine/server.log</string>
 
     <!--
       No EnvironmentVariables key here on purpose: ANTHROPIC_API_KEY must

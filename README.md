@@ -39,8 +39,7 @@ To update dependencies, change pins deliberately, resolve the complete
 dependency set in a fresh environment, and run `pip check` and the full
 test suite before committing the reviewed lock. Do not regenerate it from
 an unrelated environment or upgrade packages as part of ordinary setup.
-The optional macOS auto-start guide uses a separate Conda environment;
-it is not this reproducible development setup.
+The optional macOS auto-start guide uses this same repository-local `.venv`.
 
 Open `config.yaml` and set `sec.user_agent` to your real name + email —
 **required**, SEC returns 403 without a declared contact.

@@ -5,33 +5,19 @@ auto-starting at login via `launchd`. Single-user, local-only — not exposed
 to the network (CORS restricts to `http://localhost:8000`, and
 `launcher.sh` binds to `127.0.0.1`, not `0.0.0.0`).
 
-`launcher.sh` runs the app through your **conda base environment's**
-`uvicorn`, resolved to an absolute path — not `.venv`, and not whatever
-happens to be on `PATH`. This matters because `launchd` runs the script
-non-interactively: it never sources `~/.zshrc` or activates conda the way
-an open Terminal does, so anything relying on `PATH` or `conda activate`
-silently fails under `launchd` even though it works fine when you run it
-by hand.
+`launcher.sh` resolves the repository from its own location and runs
+uvicorn with `.venv/bin/python`. No shell activation is needed. The
+installed launchd configuration records the actual clone and log paths.
 
-## 1. Install dependencies in the conda base env
+## 1. Install dependencies
 
-```bash
-# from any shell — this is the one command that DOES rely on your normal
-# PATH, because you're running it yourself, not launchd
-conda activate base
-cd "/Users/joeelhajj/Projects/Investment Engine"
-pip install -r requirements.txt
-```
-
-(This pulls in `fastapi` and `uvicorn[standard]`, added alongside the
-existing `requests`/`PyYAML`/`yfinance` — nothing in `engine/` changed.)
+Follow [README Setup](../README.md#setup) to create the pinned environment.
+Run the installation commands below from the root of your clone.
 
 ## 2. Try it manually first
 
 ```bash
-cd "/Users/joeelhajj/Projects/Investment Engine"
-conda activate base
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+./app/launcher.sh
 ```
 
 Open `http://localhost:8000` in a browser. Ctrl-C to stop. Confirm this
@@ -42,7 +28,7 @@ before installing it as a launchd agent:
 
 ```bash
 bash -x app/launcher.sh
-# watch for the resolved CONDA_BASE / uvicorn path in the trace, then Ctrl-C
+# watch for the resolved repository / .venv Python path, then Ctrl-C
 ```
 
 ## 3. Auto-start at login
@@ -80,7 +66,23 @@ chmod 600 ~/.investment_engine/env.plist   # readable only by you — it holds a
 ### 3b. Install the plist and merge the key in
 
 ```bash
-cp app/com.joeelhajj.investmentengine.plist ~/Library/LaunchAgents/
+.venv/bin/python - <<'PY'
+import plistlib
+from pathlib import Path
+
+root = Path.cwd().resolve()
+name = "com.joeelhajj.investmentengine.plist"
+with (root / "app" / name).open("rb") as source:
+    job = plistlib.load(source)
+job["ProgramArguments"] = ["/bin/bash", str(root / "app" / "launcher.sh")]
+log_dir = Path.home() / ".investment_engine"
+log_dir.mkdir(parents=True, exist_ok=True)
+job["StandardOutPath"] = job["StandardErrorPath"] = str(log_dir / "server.log")
+target = Path.home() / "Library" / "LaunchAgents" / name
+target.parent.mkdir(parents=True, exist_ok=True)
+with target.open("wb") as output:
+    plistlib.dump(job, output)
+PY
 /usr/libexec/PlistBuddy -c "Merge ~/.investment_engine/env.plist" \
   ~/Library/LaunchAgents/com.joeelhajj.investmentengine.plist
 launchctl load ~/Library/LaunchAgents/com.joeelhajj.investmentengine.plist
@@ -93,8 +95,13 @@ never carries a key. `launchd` sets that environment on the job's process;
 `launcher.sh`'s `exec` inherits it straight through to `uvicorn`, no code
 change needed there.
 
+Do not load the tracked template directly: launchd requires the generated
+absolute paths and does not expand shell variables. If you move the clone,
+unload the installed job, recreate `.venv` using README Setup, and repeat
+step 3b from the new location.
+
 If you ever rotate the key: edit `~/.investment_engine/env.plist`, re-run
-the `PlistBuddy Merge` + `cp` step above (Merge overwrites the existing
+the generation and `PlistBuddy Merge` commands above (Merge overwrites the existing
 `EnvironmentVariables` key rather than duplicating it), then
 `launchctl kickstart -k gui/$(id -u)/com.joeelhajj.investmentengine` to
 restart with the new value.
@@ -127,7 +134,7 @@ any other Mac app, that's already running by the time you click it
 
 ```bash
 # pull latest code
-cd "/Users/joeelhajj/Projects/Investment Engine"
+# from the root of your clone
 git pull
 
 # KeepAlive means launchd restarts the process automatically after it

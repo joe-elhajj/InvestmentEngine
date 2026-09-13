@@ -1,42 +1,16 @@
 #!/bin/bash
-# launcher.sh — starts the Investment Engine web app for launchd.
-#
-# launchd invokes this script directly (/bin/bash app/launcher.sh), not as
-# an interactive or login shell — conda's shell hooks are never sourced and
-# PATH is whatever launchd's minimal default is, NOT the user's terminal
-# PATH. So this resolves an ABSOLUTE path to the conda base environment's
-# uvicorn instead of just calling `uvicorn` and hoping PATH has it.
-#
-# No secrets live here — just a path resolution and an exec. ANTHROPIC_API_KEY
-# (needed for Tier 2's /api/flags/{ticker}) is NOT set by this script: it's
-# set in the launchd job's own environment via the EnvironmentVariables block
-# merged into ~/Library/LaunchAgents/com.joeelhajj.investmentengine.plist from
-# the gitignored ~/.investment_engine/env.plist (see app/INSTALL.md) — `exec`
-# below inherits that environment down to uvicorn without any extra code here.
-
+# Resolve the checkout independently of launchd's working directory and PATH.
+# API keys are inherited from the installed launchd job's environment.
 set -euo pipefail
 
-cd "/Users/joeelhajj/Projects/Investment Engine"
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$REPO_ROOT"
 
-# Resolve the conda base env's prefix. Prefers `conda info --base` (correct
-# even if conda is reinstalled/moved later); falls back to the two standard
-# install locations if `conda` itself isn't on this minimal PATH either.
-if command -v conda >/dev/null 2>&1; then
-  CONDA_BASE="$(conda info --base)"
-elif [ -x "/opt/anaconda3/bin/conda" ]; then
-  CONDA_BASE="$(/opt/anaconda3/bin/conda info --base)"
-elif [ -x "$HOME/anaconda3/bin/conda" ]; then
-  CONDA_BASE="$("$HOME/anaconda3/bin/conda" info --base)"
-else
-  echo "launcher.sh: could not locate a conda installation (checked PATH, /opt/anaconda3, ~/anaconda3)." >&2
+PYTHON="$REPO_ROOT/.venv/bin/python"
+if [ ! -x "$PYTHON" ]; then
+  echo "launcher.sh: Python not found at $PYTHON" >&2
+  echo "Create the repository's .venv and install requirements.txt as described in README.md Setup." >&2
   exit 1
 fi
 
-UVICORN="$CONDA_BASE/bin/uvicorn"
-if [ ! -x "$UVICORN" ]; then
-  echo "launcher.sh: uvicorn not found at $UVICORN" >&2
-  echo "Install it in the conda base env: \"$CONDA_BASE/bin/pip\" install fastapi \"uvicorn[standard]\"" >&2
-  exit 1
-fi
-
-exec "$UVICORN" app.main:app --host 127.0.0.1 --port 8000
+exec "$PYTHON" -m uvicorn app.main:app --host 127.0.0.1 --port 8000
