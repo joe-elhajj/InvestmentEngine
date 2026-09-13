@@ -2,9 +2,8 @@
 pipeline.py — orchestration that turns raw EDGAR data into a structured result.
 
 This is the deterministic spine: EDGAR -> derived metrics -> peers -> valuation.
-No LLM anywhere in here. The model only enters in Phase 2 (red-flag extraction
-from filing text and the council), and it will operate on the *output* of this
-pipeline, never on raw "analyze TICKER" guesswork.
+This pipeline is deterministic. LLM-based filing analysis and council review
+consume its output separately.
 """
 
 from __future__ import annotations
@@ -77,29 +76,9 @@ class YearlyDerived:
 
 
 # ---------------------------------------------------------------------------
-# R&D-capitalization regime applicability -- LAYER 1 ONLY.
-#
-# This decides whether the regime applies to a company AT ALL: is it
-# switched on in config, and is the filer an FPI. It does NOT decide
-# whether a given year's R&D window actually resolves -- that per-year
-# availability check (n_adjusted_total) is LAYER 2, owned entirely by
-# engine/durability.py's score() (the `if n_adjusted_total > 0:` branch),
-# and is left untouched by this predicate on purpose: routing a
-# no-adjustment-path company through the matched-window view on layer-1
-# grounds alone would coerce its genuine GAAP figures to None (see
-# durability.py's own module-level comment on this exact failure mode).
-#
-# Placement: here, in pipeline.py, not in durability.py, even though
-# durability.py owns the only consumer that matters for scoring.
-# durability.py already imports AnalysisResult from this module (see
-# durability.py's own imports), and both renderers (report.py,
-# report_html.py) already import AnalysisResult from here too -- so this
-# module is the one every consumer of this predicate already depends on,
-# with no new edge introduced. The reverse placement would require
-# derive() (here) to import FROM durability.py to stamp AnalysisResult
-# during derive() -- and durability.py already imports FROM pipeline.py,
-# so that would be circular.
-# ---------------------------------------------------------------------------
+# R&D regime eligibility depends on config and filer classification.
+# Durability scoring separately checks each year's adjustment window;
+# eligibility alone must not exclude available GAAP values.
 
 # Single source of truth for the rnd_capitalization section's defaults --
 # durability.py's _resolve_config merges config.yaml onto this SAME dict
@@ -187,18 +166,12 @@ class AnalysisResult:
     delivered_growth_label: str = ""
     implied_growth_result: Optional[V.ImpliedGrowthResult] = None
     expectations_gap: Optional[float] = None
-    # --- PR 3: expectations gap as a bull/base/bear band, additive to the above ---
+    # Bull/base/bear expectations-gap band.
     expectations_gap_band: Optional[V.ExpectationsGapBand] = None
-    # --- PR A (F-14 fix): layer-1 R&D-regime applicability, stamped once by
-    # derive() so renderers read it instead of each acquiring their own cfg ---
+    # Stamped by derive() so renderers use the same R&D eligibility decision.
     rnd_regime: Optional[RndRegime] = None
-    # --- fix/implied-growth-abstention: WHY implied_growth_result stayed
-    # None, stamped once by derive() so screen.py's _implied_growth_columns()
-    # never has to guess (the fixed bug: every None here used to render as
-    # "FCF non-positive" regardless of the true cause). None only when
-    # implied_growth_result actually resolved, OR when this AnalysisResult
-    # was constructed directly rather than through derive() -- the latter
-    # is the same "unstamped" shape RndRegime's own None-guard handles. ---
+    # Reason implied growth was not computed. None means a computed result
+    # or an AnalysisResult constructed without derive() stamping it.
     implied_growth_abstain_reason: Optional["ImpliedGrowthAbstainReason"] = None
 
 
@@ -385,20 +358,10 @@ def _build_year_entry(
 # ---------------------------------------------------------------------------
 
 class ImpliedGrowthAbstainReason(enum.Enum):
-    """
-    Layer-1 reason tag for why derive() never computed
-    AnalysisResult.implied_growth_result at all -- stamped once (see
-    AnalysisResult.implied_growth_abstain_reason) so screen.py's
-    _implied_growth_columns() renders the TRUE cause instead of guessing.
-    The fixed bug: every None here used to render as "FCF non-positive"
-    regardless of actual cause -- e.g. a real positive normalized_fcf
-    blocked only by a missing net_debt, or a total data desert with no
-    FCF/revenue pairs to compute a margin from at all.
+    """Reason derive() did not compute implied growth.
 
-    bracket_hit is deliberately NOT a member here: hitting the bisection
-    bracket IS a computed result (implied_growth_result is NOT None), not
-    an abstention -- see _gap_bracket_bound in screen.py, which reads
-    ImpliedGrowthResult.bracket_bound directly instead.
+    A bisection bracket hit is a computed result, not an abstention;
+    its boundary is recorded on ImpliedGrowthResult instead.
     """
     CURRENCY_GATED = "currency_gated"              # reporting_currency != USD
     NO_DATA = "no_data"                            # no FCF/revenue pairs to compute a margin from
@@ -423,7 +386,7 @@ def _normalized_fcf(
     it's NO_DATA (no pairs at all, or the latest period's revenue itself
     is absent -- there was nothing to compute FROM) or FCF_NONPOSITIVE (a
     margin WAS computed, and rejected as <= 0) -- these are NOT the same
-    claim, and conflating them is the bug this reason tag exists to fix.
+    failure conditions and must remain distinguishable.
     """
     all_pairs = sorted(
         [
@@ -532,17 +495,8 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     annual = derive_annual_series(cd, config)
     res.annual_series = annual
 
-    # S3 fix (Session B.2 PR-B): res.gaps above was snapshotted from
-    # cd.unresolved BEFORE the per-year revenue - cost_of_revenue fallback
-    # (_build_year_entry, inside derive_annual_series just above) ever ran —
-    # so a ticker whose GrossProfit tag never resolves directly (confirmed:
-    # META, CAT) kept reporting a false "gross_profit" gap even when every
-    # year's value actually resolved via the fallback. Reconcile now that
-    # the real, per-year answer is known. Keyed on `is not None`, never
-    # truthiness — a legitimately zero gross profit must not re-open the
-    # gap. Narrow and single-metric on purpose: only removed when EVERY
-    # year resolved — a still-partial fallback (e.g. cost_of_revenue itself
-    # missing for some years) is a real, ongoing gap and stays reported.
+    # Clear the gross-profit gap only when every annual value resolves, including
+    # filed zero or the revenue-minus-cost fallback. Partial histories retain it.
     if "gross_profit" in res.gaps and annual and all(yd.gross_profit is not None for yd in annual.values()):
         res.gaps.remove("gross_profit")
 
@@ -635,13 +589,10 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         q_filed      = max(f.filed     for f in cd.quarterly.values())
 
         def _qsum(*keys: str) -> Optional[float]:
-            """
-            Sum whichever of `keys` resolve in the latest quarter. Absence-is-
-            not-zero: None only when NONE of them resolve — a missing component
-            is logged as a gap, never silently substituted with 0 into the total
-            (this is the exact defect that showed total_debt as $0 for CAT's
-            2026-03-31 10-Q when both long_term_debt and short_term_debt were
-            unreported for the quarter).
+            """Combine resolved quarterly components and disclose missing inputs.
+
+            Return None only when all components are missing; filed zero is valid.
+            Debt uses overlap-aware aggregation of the original resolved facts.
             """
             vals = [_qv(k) for k in keys]
             missing = [k for k, v in zip(keys, vals) if v is None]
@@ -755,18 +706,9 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
     else:
         res.gaps.append("dcf: base FCF unavailable or non-positive")
 
-    # Implied growth (reverse DCF) and expectations gap
-    # Uses normalized_fcf (B1) as the base FCF; systematic WACC/terminal_g from
-    # config. Restructured as explicit if/elif/else (fix/implied-growth-
-    # abstention) so each non-computing path stamps its OWN true cause onto
-    # implied_growth_abstain_reason and gap-logs it -- the original single
-    # AND-condition collapsed all four preconditions into one silent None,
-    # which screen.py's _implied_growth_columns() then had to guess at
-    # (always "FCF non-positive", regardless of which precondition actually
-    # failed). Branch order = priority when more than one would fail
-    # (normalized_fcf first, since it's the base input; then net_debt; then
-    # the market-vendor-tier quote) -- logically equivalent to the original
-    # AND-condition's negation, so the success path below is unchanged.
+    # Reverse DCF uses normalized FCF and configured WACC/terminal growth.
+    # Abstention precedence is normalized FCF, then net debt, then the quote;
+    # record the first failing prerequisite as the reason and diagnostic.
     if res.normalized_fcf is None:
         res.implied_growth_abstain_reason = nfcf_abstain_reason
         res.gaps.append(f"implied_growth: {nfcf_lineage}")
@@ -797,7 +739,7 @@ def derive(cd: CompanyData, quote: Quote, config: dict) -> AnalysisResult:
         elif res.delivered_growth is not None:
             res.expectations_gap = igr.implied_growth - res.delivered_growth
 
-        # Same reverse-DCF, run under all three owned scenario bundles (PR 3).
+        # Apply the same reverse DCF to all three configured scenario bundles.
         # Additive only: res.expectations_gap above is untouched by this call.
         res.expectations_gap_band = V.expectations_gap_band(
             price=quote.price,
