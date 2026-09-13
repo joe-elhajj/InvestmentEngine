@@ -253,18 +253,8 @@ def _build_year_entry(
     gaps: list[str] = []
     dl: dict[str, str] = {}
 
-    def _pv(key: str) -> Optional[float]:
-        """Period-matched value with staleness gap-logging. Returns the
-        Fact's value for this exact period_end; when no exact match exists,
-        logs a gap naming the latest period that DOES exist elsewhere in
-        the series (when there is one) and returns None. Used uniformly
-        for flow and balance-sheet concepts alike -- a flow concept (e.g.
-        interest_expense) that only resolves for a stale period is exactly
-        as real a degradation as a stale balance-sheet item, and must
-        disclose the same way. Previously two separate functions (_fv:
-        flows, silent; _bs: balance-sheet, logged) that differed only in
-        this logging -- consolidated since giving _fv the same disclosure
-        makes them behaviorally identical."""
+    def _pf(key: str) -> Optional[Fact]:
+        """Return the exact-period Fact; log a gap only if another period exists."""
         f = cd.value_for_period(key, period_end)
         if f is None:
             lat = cd.latest(key)
@@ -273,6 +263,10 @@ def _build_year_entry(
                     f"{key}: no value for period {period_end} "
                     f"(latest available is {lat.period_end}, not used)"
                 )
+        return f
+
+    def _pv(key: str) -> Optional[float]:
+        f = _pf(key)
         return f.value if f else None
 
     # Flow items
@@ -293,24 +287,12 @@ def _build_year_entry(
     total_assets = _pv("total_assets")
 
     # Liquid assets — each component period-matched with gap logging
-    cash_fact = cd.value_for_period("cash", period_end)
-    sti_fact = cd.value_for_period("short_term_investments", period_end)
-    lti_fact = cd.value_for_period("long_term_investments", period_end)
+    cash_fact = _pf("cash")
+    sti_fact = _pf("short_term_investments")
+    lti_fact = _pf("long_term_investments")
     cash_val = cash_fact.value if cash_fact else 0.0
     sti_val = sti_fact.value if sti_fact else 0.0
     lti_val = lti_fact.value if lti_fact else 0.0
-    if not cash_fact:
-        lat = cd.latest("cash")
-        if lat is not None:
-            gaps.append(f"cash: no value for period {period_end} (latest available is {lat.period_end}, not used)")
-    if not sti_fact:
-        lat = cd.latest("short_term_investments")
-        if lat is not None:
-            gaps.append(f"short_term_investments: no value for period {period_end} (latest available is {lat.period_end}, not used)")
-    if not lti_fact:
-        lat = cd.latest("long_term_investments")
-        if lat is not None:
-            gaps.append(f"long_term_investments: no value for period {period_end} (latest available is {lat.period_end}, not used)")
     # Absence-is-not-zero: only None when NONE of the three components resolved.
     # When at least one resolves, sum the resolved ones — the missing ones are
     # already logged above as gaps, not silently folded into the total as 0.
@@ -318,16 +300,8 @@ def _build_year_entry(
     cash = cash_fact.value if cash_fact else None  # plain cash for invested-capital; None, not 0
 
     # Total debt — period-matched with gap logging
-    ltd_fact = cd.value_for_period("long_term_debt", period_end)
-    std_fact = cd.value_for_period("short_term_debt", period_end)
-    if not ltd_fact:
-        lat = cd.latest("long_term_debt")
-        if lat is not None:
-            gaps.append(f"long_term_debt: no value for period {period_end} (latest available is {lat.period_end}, not used)")
-    if not std_fact:
-        lat = cd.latest("short_term_debt")
-        if lat is not None:
-            gaps.append(f"short_term_debt: no value for period {period_end} (latest available is {lat.period_end}, not used)")
+    ltd_fact = _pf("long_term_debt")
+    std_fact = _pf("short_term_debt")
     # Same rule: None only when BOTH components are absent, never a silent $0.
     total_debt = _debt_total(ltd_fact, std_fact)
 

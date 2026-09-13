@@ -271,3 +271,80 @@ class TestQuarterlyLiquidAssetsAndCash:
             "short_term_investments" in g and "long_term_investments" in g and "2026-03-31" in g
             for g in res.gaps
         )
+
+
+def test_annual_period_gaps_exact_order():
+    from engine.pipeline import _build_year_entry
+
+    pe = "2026-12-31"
+    keys = [
+        "revenue", "net_income", "operating_income", "gross_profit", "cfo",
+        "capex", "dep_amort", "interest_expense", "sbc", "rnd",
+        "cash", "short_term_investments", "long_term_investments",
+        "long_term_debt", "short_term_debt", "total_equity",
+        "current_assets", "current_liabilities",
+    ]
+    cd = CompanyData("GAPS", "1", "Gaps", "7372", "Software")
+    cd.series = {key: [_instant(key, "2025-12-31", 0.0)] for key in keys}
+    cd.series["total_assets"] = [_instant("total_assets", pe, 1000.0)]
+    # The fallback lookup has no diagnostic of its own.
+    cd.series["cost_of_revenue"] = [_instant("cost_of_revenue", "2025-12-31", 10.0)]
+    yd = _build_year_entry(cd, pe, 0.21)
+    assert yd.gaps == [
+        f"{key}: no value for period 2026-12-31 (latest available is 2025-12-31, not used)"
+        for key in keys
+    ]
+    assert yd.total_debt is None
+    assert yd.liquid_assets is None
+    assert yd.gross_profit is None
+    # An entirely absent series produces no stale-period diagnostic.
+    cd.series = {"total_assets": cd.series["total_assets"]}
+    assert _build_year_entry(cd, pe, 0.21).gaps == []
+
+
+def test_annual_filed_zeros_remain_resolved():
+    from engine.pipeline import _build_year_entry
+
+    pe = "2026-12-31"
+    cd = CompanyData("ZERO", "1", "Zero", "7372", "Software")
+    cd.series = {key: [_instant(key, pe, 0.0)] for key in (
+        "total_assets", "revenue", "cfo", "capex", "cash",
+        "short_term_investments", "long_term_investments", "long_term_debt",
+        "short_term_debt", "total_equity", "current_liabilities",
+    )}
+    yd = _build_year_entry(cd, pe, 0.21)
+    for key in ("revenue", "fcf", "cash", "liquid_assets", "total_debt",
+                "net_debt", "invested_capital", "capital_employed"):
+        assert getattr(yd, key) == 0.0
+    assert yd.net_income is None
+    assert yd.gaps == []
+
+
+def test_annual_debt_preserves_fact_identity_and_provenance(monkeypatch):
+    from copy import deepcopy
+    from engine import pipeline
+
+    pe = "2026-12-31"
+    cd = CompanyData("IDENTITY", "1", "Identity", "7372", "Software")
+    long = Fact("long_term_debt", 700.0, pe, 2026, "us-gaap:LongTermDebt",
+                "10-K", "2027-02-15", accn="0000000001-27-000001")
+    short = Fact("short_term_debt", 100.0, pe, 2026, "us-gaap:ConvertibleDebtCurrent",
+                 "10-K", "2027-02-15", accn="0000000001-27-000001")
+    cd.series = {"total_assets": [_instant("total_assets", pe, 1000.0)],
+                 "long_term_debt": [long], "short_term_debt": [short]}
+    original = pipeline._debt_total
+    calls = []
+
+    def capture(long_fact, short_fact):
+        assert long_fact is long
+        assert short_fact is short
+        calls.append((long_fact, short_fact))
+        return original(long_fact, short_fact)
+
+    monkeypatch.setattr(pipeline, "_debt_total", capture)
+    before = deepcopy(cd)
+    assert pipeline._build_year_entry(cd, pe, 0.21).total_debt == 700.0
+    assert len(calls) == 1
+    assert cd == before
+    assert cd.series["long_term_debt"][0] is long
+    assert cd.series["short_term_debt"][0] is short
