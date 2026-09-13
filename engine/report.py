@@ -11,17 +11,64 @@ This same structure becomes the evidence package handed to the council later.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from engine.edgar import Fact, classify_rnd_series
+from engine.metrics import Metric
 from engine.pipeline import AnalysisResult, RndRegime, rnd_regime_reason_text
 
-# Keep R&D abstention labels compact; disclose the full rationale beneath
-# the table so financial reasoning remains available without widening cells.
+# Short semantic reasons; each renderer places the full rationale locally.
 _RND_REGIME_REASON_SHORT: dict[RndRegime, str] = {
     RndRegime.ABSTAINED_REGIME_DISABLED: "regime disabled",
     RndRegime.ABSTAINED_IFRS_FPI: "IFRS filer",
 }
+
+
+_RATIO_ORDER = [
+    ("Gross margin", "gross_margin", True), ("Operating margin", "operating_margin", True),
+    ("Net margin", "net_margin", True), ("FCF margin", "fcf_margin", True),
+    ("ROE", "roe", True), ("ROA", "roa", True), ("ROIC", "roic", True), ("ROCE", "roce", True),
+    ("Current ratio", "current_ratio", False), ("Debt/Equity", "debt_to_equity", False),
+    ("Interest coverage", "interest_coverage", False), ("FCF conversion", "fcf_conversion", False),
+]
+
+
+@dataclass(frozen=True)
+class _RatioPresentation:
+    label: str
+    metric: Metric | None
+    is_pct: bool
+    unadjusted_reason: str | None = None
+    full_reason: str | None = None
+
+
+def _ratio_presentations(res: AnalysisResult) -> list[_RatioPresentation]:
+    """Select ordered ratio rows and R&D decisions without formatting values."""
+    rows = []
+    for label, key, is_pct in _RATIO_ORDER:
+        rows.append(_RatioPresentation(label, res.ratios.get(key), is_pct))
+        if key != "roic":
+            continue
+        # Omit absent R&D before checking regime; abstention outranks availability.
+        state, _ = classify_rnd_series(res.company)
+        if state == "no_rnd":
+            continue
+        if res.rnd_regime is None:
+            raise ValueError(
+                "AnalysisResult.rnd_regime is None but roic_adjusted has a decision to "
+                "render -- call pipeline.derive() (which stamps rnd_regime) rather than "
+                "constructing AnalysisResult directly when R&D data is present"
+            )
+        adj = res.ratios.get("roic_adjusted")
+        reason = full = None
+        if res.rnd_regime is not RndRegime.APPLIES:
+            reason = _RND_REGIME_REASON_SHORT[res.rnd_regime]
+            full = rnd_regime_reason_text(res.rnd_regime)
+        elif adj is None or adj.value is None:
+            reason = "insufficient history"
+        rows.append(_RatioPresentation("ROIC (R&D-adj)", adj, True, reason, full))
+    return rows
 
 
 def _pct(x, nd=1):
@@ -168,53 +215,22 @@ def render(res: AnalysisResult, peer_table: list | None = None, ds_gaps: list | 
 
     # --- Margins & returns --------------------------------------------------
     w("## Margins, returns, leverage")
-    r = res.ratios
-    order = [
-        ("Gross margin", "gross_margin", True), ("Operating margin", "operating_margin", True),
-        ("Net margin", "net_margin", True), ("FCF margin", "fcf_margin", True),
-        ("ROE", "roe", True), ("ROA", "roa", True), ("ROIC", "roic", True), ("ROCE", "roce", True),
-        ("Current ratio", "current_ratio", False), ("Debt/Equity", "debt_to_equity", False),
-        ("Interest coverage", "interest_coverage", False), ("FCF conversion", "fcf_conversion", False),
-    ]
     w("| Metric | Value |")
     w("|---|---|")
     rnd_unadj_footnote: str | None = None
-    for label, key, is_pct in order:
-        m = r.get(key)
-        if m is None:
+    for row in _ratio_presentations(res):
+        m = row.metric
+        if row.unadjusted_reason is not None:
+            val = f"n/a — **R&D-UNADJ** ({row.unadjusted_reason})"
+            if row.full_reason:
+                rnd_unadj_footnote = row.full_reason
+        elif m is None:
             val = "n/a"
         elif m.value is None:
             val = f"n/a ({m.note})" if m.note else "n/a"
         else:
-            val = _pct(m.value) if is_pct else f"{m.value:.2f}"
-        w(f"| {label} | {val} |")
-        if key == "roic":
-            # R&D disclosure precedence: omit absent R&D, then show regime abstention,
-            # then unavailable adjustment, otherwise the adjusted percentage.
-            # Use a compact abstention label with the full rationale in a footnote.
-            adj = r.get("roic_adjusted")
-            state, _ = classify_rnd_series(res.company)
-            if state == "no_rnd":
-                pass
-            elif res.rnd_regime is None:
-                # Loud, not a badge: an unstamped AnalysisResult means we were
-                # never told this filer's FPI/regime status, so we cannot
-                # safely choose between a badge and a bare percentage --
-                # guessing risks reproducing F-14 itself (a real percentage
-                # shown for a company that should have abstained).
-                raise ValueError(
-                    "AnalysisResult.rnd_regime is None but roic_adjusted has a decision to "
-                    "render -- call pipeline.derive() (which stamps rnd_regime) rather than "
-                    "constructing AnalysisResult directly when R&D data is present"
-                )
-            elif res.rnd_regime is not RndRegime.APPLIES:
-                short = _RND_REGIME_REASON_SHORT[res.rnd_regime]
-                w(f"| ROIC (R&D-adj) | n/a — **R&D-UNADJ** ({short}) |")
-                rnd_unadj_footnote = rnd_regime_reason_text(res.rnd_regime)
-            elif adj is None or adj.value is None:
-                w("| ROIC (R&D-adj) | n/a — **R&D-UNADJ** (insufficient history) |")
-            else:
-                w(f"| ROIC (R&D-adj) | {_pct(adj.value)} |")
+            val = _pct(m.value) if row.is_pct else f"{m.value:.2f}"
+        w(f"| {row.label} | {val} |")
     w("")
     if rnd_unadj_footnote:
         w(f"*R&D-UNADJ: {rnd_unadj_footnote}*")

@@ -1,0 +1,57 @@
+{
+  "gaap": {
+    "markdown": "285abe18603ff1a3e90e4380afb125b2771d3e4f85ac83fe224752bb23ee484e",
+    "html": "277afec130b73abed18cc6e2cdee656b6db8726fdaa327f9abb25ab795c22951",
+    "fragment": "29eb04c45cab763224d188320fb8e6a35490afc6d1e4d538a60a823c71663064"
+  },
+  "adjusted": {
+    "markdown": "e1ab37e4a40e1c47cd7894cd2df05da4743d057efc483b2023db7a80ea3b6064",
+    "html": "4836765a25f39c72ce23417c15d04f2761c58ba92d1f2c59df45a0a0821abefc",
+    "fragment": "365bcccffcc47a3150ecd66084e1ac1b5f7ae4856125e30968725d447463c52d"
+  },
+  "disabled": {
+    "markdown": "f623316593f6d107fbe18f0e18332914e1e598386461898921e98629add8becc",
+    "html": "675dea15d8c6b300e8be908a5e4d4f5e5165de1a4eee14864c10c6e69d3dd508",
+    "fragment": "1d10c8357abe9b871a02a92334dd73c1e809ed187eb442a0a1991b267fcb3c88"
+  },
+  "ifrs": {
+    "markdown": "79884bcf594287c4aaafd646c0e986d88d58b7878c202a9f069c9c75eea5714f",
+    "html": "df92dfc3eec5fb41dca581389810e5f387a848db5531bec834db938a9bb12467",
+    "fragment": "c65bf9d9e074544f3644cdfcad49e4222591dc4d1a9d3b4c513f8298fdfbd9fd"
+  },
+  "ifrs_disabled": {
+    "markdown": "03450c15dccc82ce55b7b4313e2ad19876ae6bdc64344b7597f08b812eeeb6a3",
+    "html": "fa151a32f6325ec040d6dd579f043b671184334f5d33702c1b138b335bcf13cf",
+    "fragment": "6f73bde2d0251fc9a692d3caf3fb7410c6facb2f6c80a7fab63070b9bd50da42"
+  },
+  "ifrs_no_rnd": {
+    "markdown": "c5d35e6b020a5876e8fef10748533f382a9c16b21555d0241ca8e983a696c832",
+    "html": "e5512462fe94b9e654362744e47ffa53dd47ca21c21a668ec55a3fff7a1d020f",
+    "fragment": "c00f33199fa1215500d630c10830e63e905ba77ddc0a5f737fb88eb12423fb21"
+  },
+  "short_history": {
+    "markdown": "27eb762230dc683837b240f802a1bee194d0d33c75f8e99dd021796d1214b3ce",
+    "html": "0fff0c8a26ec1b42bda5cc76dc61f618189fb79782220f1f9f5e2c829768f88e",
+    "fragment": "8ba2d3c20cc859bf0ef70368003309162dd9409005004acfc2d2c7c13043d088"
+  },
+  "missing_adjusted": {
+    "markdown": "0ea936ff718072f497fda7dd64075738e2a2aab8fe7b993e6bc066f3e3984d55",
+    "html": "da022065e30da17064ca1e3c571987e1ebff28f81a31a1e445bd2afa0da49386",
+    "fragment": "b77d8b8ef9366e1fa89bc2fdf46acda3028d0567d11c851aa526609b102afc0f"
+  },
+  "missing_ratios": {
+    "markdown": "82240299e4081b8325c9d562e5874bf63719b1de82ec97254570d3d339bbaa4c",
+    "html": "26e2c2e407628cb7215d2735a646cad639f7090d57e4806edc6e6ab4c1b52e91",
+    "fragment": "bcfae6cf94fd8fdf66299e63bfbeffb3e67df096cc0b5406c366034be7511e93"
+  },
+  "zero": {
+    "markdown": "f6a172b54dfcd18bd25105304b6edfd5e1fc9ac1e09e7edc768e4912bc7c6658",
+    "html": "8ed899dd5e04987d4b466d91e0e4d37d8f8d9d6b66980f4506d4180d576f8a0f",
+    "fragment": "42278a4533ed2ad6d1f9d50f97d43346625c11a0420366f932cdc07cd0db072a"
+  },
+  "unstamped": {
+    "markdown": "AnalysisResult.rnd_regime is None but roic_adjusted has a decision to render -- call pipeline.derive() (which stamps rnd_regime) rather than constructing AnalysisResult directly when R&D data is present",
+    "html": "AnalysisResult.rnd_regime is None but roic_adjusted has a decision to render -- call pipeline.derive() (which stamps rnd_regime) rather than constructing AnalysisResult directly when R&D data is present",
+    "fragment": "AnalysisResult.rnd_regime is None but roic_adjusted has a decision to render -- call pipeline.derive() (which stamps rnd_regime) rather than constructing AnalysisResult directly when R&D data is present"
+  }
+}
